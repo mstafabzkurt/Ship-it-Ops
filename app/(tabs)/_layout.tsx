@@ -54,6 +54,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="office"
+        options={{
+          title: 'Ofis',
+          tabBarIcon: () => <Text style={{ fontSize: 18 }}>🏢</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',

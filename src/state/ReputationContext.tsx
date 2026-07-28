@@ -81,7 +81,12 @@ const STORAGE_KEYS = {
   companyName: '@shipit_company_name',
   techTokens: '@shipit_tech_tokens',
   inventory: '@shipit_inventory',
+  streakDays: '@shipit_streak_days',
+  streakLastDate: '@shipit_streak_last_date',
 } as const;
+
+// Streak day rewards (index = day number 0-6 = Mon-Sun)
+export const STREAK_REWARDS = [200, 400, 600, 800, 1000, 1200, 1500] as const;
 
 const DEFAULT_SCORE = 1280; // dashboard-prototip.html içindeki başlangıç değeri
 const DEFAULT_BUDGET = 48200; // "$48.200"
@@ -144,6 +149,14 @@ interface ReputationContextValue {
    * @returns 'ok' | 'insufficient_funds' | 'already_owned'
    */
   purchaseItem: (itemId: string, currency: 'budget' | 'tt', price: number) => Promise<'ok' | 'insufficient_funds' | 'already_owned'>;
+  /** 7-slot boolean array Mon–Sun. true = completed/claimed for current week */
+  streakDays: boolean[];
+  /** 0=Mon … 6=Sun, based on today */
+  todayIndex: number;
+  /** Count of consecutive claimed days ending today */
+  streakCount: number;
+  /** Claim today's streak reward. Returns budget reward amount or 0 if already claimed. */
+  claimStreakDay: () => Promise<number>;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -158,6 +171,25 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [inventory, setInventory] = useState<string[]>([]);
   const techTokensRef = useRef(DEFAULT_TECH_TOKENS);
   const inventoryRef = useRef<string[]>([]);
+
+  // Streak: 7-slot bool array (Mon-Sun) + last claimed date string (YYYY-MM-DD)
+  const [streakDays, setStreakDays] = useState<boolean[]>([false, false, false, false, false, false, false]);
+  const [streakLastDate, setStreakLastDate] = useState<string>('');
+  const streakDaysRef = useRef<boolean[]>([false, false, false, false, false, false, false]);
+
+  // todayIndex: 0=Mon … 6=Sun (JS getDay: 0=Sun, so adjust)
+  const todayJsDay = new Date().getDay();
+  const todayIndex = todayJsDay === 0 ? 6 : todayJsDay - 1;
+
+  // streakCount = how many consecutive days back from today are claimed
+  const streakCount = (() => {
+    let count = 0;
+    for (let i = todayIndex; i >= 0; i--) {
+      if (streakDays[i]) count++;
+      else break;
+    }
+    return count;
+  })();
 
   // score/budget'in "şu anki" değerini ref'te tutuyoruz; addScore/applyOutcome
   // arka arkaya (aynı render arasında) çağrılsa bile state'in henüz commit
@@ -176,6 +208,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           STORAGE_KEYS.companyName,
           STORAGE_KEYS.techTokens,
           STORAGE_KEYS.inventory,
+          STORAGE_KEYS.streakDays,
+          STORAGE_KEYS.streakLastDate,
         ]);
         const storedMap = Object.fromEntries(results.map(([k, v]) => [k, v]));
 
@@ -206,6 +240,42 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           const parsed: string[] = JSON.parse(storedInventory);
           inventoryRef.current = parsed;
           setInventory(parsed);
+        }
+        const storedStreakDays = storedMap[STORAGE_KEYS.streakDays];
+        if (storedStreakDays !== null && storedStreakDays !== undefined) {
+          const parsed: boolean[] = JSON.parse(storedStreakDays);
+          // If stored, check if we need to reset for a new week
+          const storedLastDate = storedMap[STORAGE_KEYS.streakLastDate] ?? '';
+          const today = new Date();
+          const todayStr = today.toISOString().split('T')[0];
+          const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+          // Reset streak array if last date was from a different week (Monday)
+          const lastDate = storedLastDate ? new Date(storedLastDate) : null;
+          const isSameWeek = lastDate
+            ? (() => {
+                const startOfWeek = new Date(today);
+                startOfWeek.setDate(today.getDate() - dayOfWeek);
+                startOfWeek.setHours(0, 0, 0, 0);
+                return lastDate >= startOfWeek;
+              })()
+            : false;
+          if (isSameWeek) {
+            streakDaysRef.current = parsed;
+            setStreakDays(parsed);
+            setStreakLastDate(storedLastDate);
+          } else {
+            // New week — reset
+            const fresh = [false, false, false, false, false, false, false];
+            streakDaysRef.current = fresh;
+            setStreakDays(fresh);
+            setStreakLastDate('');
+            try {
+              await AsyncStorage.multiSet([
+                [STORAGE_KEYS.streakDays, JSON.stringify(fresh)],
+                [STORAGE_KEYS.streakLastDate, ''],
+              ]);
+            } catch (_) {}
+          }
         }
       } catch (error) {
         console.error('İtibar verisi yüklenirken hata:', error);
@@ -268,10 +338,39 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         STORAGE_KEYS.budget,
         STORAGE_KEYS.techTokens,
         STORAGE_KEYS.inventory,
+        STORAGE_KEYS.streakDays,
+        STORAGE_KEYS.streakLastDate,
       ]);
     } catch (error) {
       console.error('İlerleme sıfırlanırken hata:', error);
     }
+  };
+
+  const claimStreakDay = async (): Promise<number> => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const dayIdx = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    // Already claimed today
+    if (streakDaysRef.current[dayIdx] || streakLastDate === todayStr) return 0;
+    const newDays = [...streakDaysRef.current] as boolean[];
+    newDays[dayIdx] = true;
+    streakDaysRef.current = newDays;
+    setStreakDays(newDays);
+    setStreakLastDate(todayStr);
+    const reward = STREAK_REWARDS[dayIdx];
+    const newBudget = budgetRef.current + reward;
+    budgetRef.current = newBudget;
+    setBudget(newBudget);
+    try {
+      await AsyncStorage.multiSet([
+        [STORAGE_KEYS.streakDays, JSON.stringify(newDays)],
+        [STORAGE_KEYS.streakLastDate, todayStr],
+        [STORAGE_KEYS.budget, String(newBudget)],
+      ]);
+    } catch (e) {
+      console.error('Streak kaydedilemedi:', e);
+    }
+    return reward;
   };
 
   const setCompanyName = async (name: string) => {
@@ -326,6 +425,12 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     const { current, next } = getRankForScore(score);
     const badges = BADGES.map((b) => ({ ...b, earned: score >= b.requiredScore }));
     const rankProgress = getRankProgress(score, current, next);
+    const dayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+    let sc = 0;
+    for (let i = dayIdx; i >= 0; i--) {
+      if (streakDays[i]) sc++;
+      else break;
+    }
     return {
       score,
       budget,
@@ -344,9 +449,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       resetProgress,
       setCompanyName,
       purchaseItem,
+      streakDays,
+      todayIndex: dayIdx,
+      streakCount: sc,
+      claimStreakDay,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [score, budget, companyName, isLoaded, pendingBadges, techTokens, inventory]);
+  }, [score, budget, companyName, isLoaded, pendingBadges, techTokens, inventory, streakDays]);
 
   return <ReputationContext.Provider value={value}>{children}</ReputationContext.Provider>;
 }
