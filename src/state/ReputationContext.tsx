@@ -26,15 +26,16 @@ export interface Badge {
   title: string;
   description: string;
   requiredScore: number;
+  rewardBudget: number;
 }
 
 export const BADGES: Badge[] = [
-  { id: 'first-response', icon: '🧯', title: 'İlk Müdahale', description: 'İlk production krizini çözdün.', requiredScore: 0 },
-  { id: 'bug-hunter', icon: '🐛', title: 'Hata Avcısı', description: "5 bug'ı başarıyla avladın.", requiredScore: 300 },
-  { id: 'night-shift', icon: '🌙', title: 'Gece Nöbeti', description: 'Gece yarısı bir kesintiyi çözdün.', requiredScore: 600 },
-  { id: 'architect', icon: '🏗️', title: 'Mimar', description: 'Bir sistem tasarımı kararını doğru verdin.', requiredScore: 900 },
-  { id: 'senior-badge', icon: '🎖️', title: 'Kıdemli Mühendis', description: 'Kıdemli Mühendis rütbesine ulaştın.', requiredScore: 1000 },
-  { id: 'lead-badge', icon: '👑', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaş.', requiredScore: 2000 },
+  { id: 'first-response', icon: '🧯', title: 'İlk Müdahale', description: 'İlk production krizini çözdün.', requiredScore: 0, rewardBudget: 1500 },
+  { id: 'bug-hunter', icon: '🐛', title: 'Hata Avcısı', description: "5 bug'ı başarıyla avladın.", requiredScore: 300, rewardBudget: 3000 },
+  { id: 'night-shift', icon: '🌙', title: 'Gece Nöbeti', description: 'Gece yarısı bir kesintiyi çözdün.', requiredScore: 600, rewardBudget: 5000 },
+  { id: 'architect', icon: '🏗️', title: 'Mimar', description: 'Bir sistem tasarımı kararını doğru verdin.', requiredScore: 900, rewardBudget: 8000 },
+  { id: 'senior-badge', icon: '🎖️', title: 'Kıdemli Mühendis', description: 'Kıdemli Mühendis rütbesine ulaştın.', requiredScore: 1000, rewardBudget: 15000 },
+  { id: 'lead-badge', icon: '👑', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaş.', requiredScore: 2000, rewardBudget: 30000 },
 ];
 
 const STORAGE_KEYS = {
@@ -143,7 +144,17 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const applyDelta = async (scoreDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
     const newScore = Math.max(0, oldScore + scoreDelta);
-    const newBudget = budgetRef.current + budgetDelta;
+    let newBudget = budgetRef.current + budgetDelta;
+
+    // YENİ KAZANILAN ROZETLERİ BUL
+    const earned = BADGES.filter((b) => oldScore < b.requiredScore && newScore >= b.requiredScore);
+    
+    // YENİ EKLENDİ: Eğer rozet kazanıldıysa, ödül bütçesini de ana bütçeye ekle
+    if (earned.length > 0) {
+      const totalReward = earned.reduce((sum, badge) => sum + badge.rewardBudget, 0);
+      newBudget += totalReward;
+      setPendingBadges((prev) => [...prev, ...earned]);
+    }
 
     scoreRef.current = newScore;
     budgetRef.current = newBudget;
@@ -159,10 +170,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       console.error('İtibar verisi kaydedilirken hata:', error);
     }
 
-    const earned = BADGES.filter((b) => oldScore < b.requiredScore && newScore >= b.requiredScore);
-    if (earned.length > 0) {
-      setPendingBadges((prev) => [...prev, ...earned]);
-    }
     return earned;
   };
 

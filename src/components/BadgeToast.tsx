@@ -6,9 +6,6 @@ import { useReputation } from '../state/ReputationContext';
 
 const VISIBLE_MS = 3000;
 
-// Rozet kazanıldığında ekranın altında beliren global bildirim.
-// app/_layout.tsx içinde, Stack'in dışında (tüm sekmelerin üstünde) render edilir,
-// böylece kullanıcı hangi sekmede olursa olsun rozetini görür.
 export default function BadgeToast() {
   const { pendingBadges, dismissBadge } = useReputation();
   const badge = pendingBadges[0];
@@ -22,7 +19,6 @@ export default function BadgeToast() {
       Animated.timing(anim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => dismissBadge());
     }, VISIBLE_MS);
     return () => clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [badge?.id]);
 
   if (!badge) return null;
@@ -42,6 +38,12 @@ export default function BadgeToast() {
       <View style={styles.textWrap}>
         <Text style={styles.title}>Yeni rozet: {badge.title}</Text>
         <Text style={styles.desc}>{badge.description}</Text>
+        {/* Toast içinde ödül bildirimi */}
+        {badge.rewardBudget && (
+          <Text style={styles.rewardToastText}>
+            +{badge.rewardBudget.toLocaleString('tr-TR')} Bütçe Eklendi!
+          </Text>
+        )}
       </View>
     </Animated.View>
   );
@@ -83,5 +85,11 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.textMuted,
     marginTop: 2,
+  },
+  rewardToastText: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: fontSizes.sm,
+    color: colors.accentPositive,
+    marginTop: 4,
   },
 });

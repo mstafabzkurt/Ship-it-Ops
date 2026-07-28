@@ -9,15 +9,21 @@ interface BadgeCardProps {
   description: string;
   earned: boolean;
   requiredScore: number;
+  rewardBudget?: number; // <-- Ödül bütçesini buraya ekledik
 }
 
-// Rozet kartı — kazanılmışsa renkli/parlak, kilitliyse soluk + kilit etiketi.
-export default function BadgeCard({ icon, title, description, earned, requiredScore }: BadgeCardProps) {
+export default function BadgeCard({ icon, title, description, earned, requiredScore, rewardBudget }: BadgeCardProps) {
   return (
     <View style={[styles.card, earned ? styles.cardEarned : styles.cardLocked]}>
       <Text style={styles.icon}>{icon}</Text>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.description}>{description}</Text>
+      
+      {/* Ödül miktarı gösterimi */}
+      {rewardBudget && (
+        <Text style={styles.rewardText}>🎁 +{rewardBudget.toLocaleString('tr-TR')} Bütçe</Text>
+      )}
+
       {!earned ? (
         <Text style={styles.lockBadge}>🔒 {requiredScore.toLocaleString('tr-TR')} puan gerekli</Text>
       ) : (
@@ -59,6 +65,12 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.textMuted,
     lineHeight: 15,
+  },
+  rewardText: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: fontSizes.xs,
+    color: colors.accentPositive,
+    marginTop: 6,
   },
   lockBadge: {
     fontFamily: fonts.bodyMedium,
