@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "ShipIt Ops Dashboard",
+    "slug": "shipit-ops-dashboard",
+    "scheme": "shipit",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0F17",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-asset"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "backgroundColor": "#0B0F17"
+    },
+    "android": {
+      "backgroundColor": "#0B0F17"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
