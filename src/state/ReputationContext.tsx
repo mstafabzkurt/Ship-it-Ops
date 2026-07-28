@@ -2,21 +2,44 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // --- Rütbeler -------------------------------------------------------------
-// Eşik puanları orijinal tasarımla birebir: 1.280 puan -> "Kıdemli Mühendis",
-// sonraki rütbe 2.000 puanda "Takım Lideri".
+// 21 aşamalı kademeli sistem: her ana rütbenin I/II/III alt kademeleri var.
 export interface Rank {
   id: string;
   name: string;
   threshold: number;
+  /** Ana rütbe grubu (ikon/renk seçimi için) */
+  tier: 'junior' | 'engineer' | 'senior' | 'lead' | 'manager' | 'director' | 'cto';
 }
 
 export const RANKS: Rank[] = [
-  { id: 'junior', name: 'Junior Mühendis', threshold: 0 },
-  { id: 'engineer', name: 'Mühendis', threshold: 500 },
-  { id: 'senior', name: 'Kıdemli Mühendis', threshold: 1000 },
-  { id: 'lead', name: 'Takım Lideri', threshold: 2000 },
-  { id: 'manager', name: 'Mühendislik Müdürü', threshold: 3500 },
-  { id: 'cto', name: 'CTO', threshold: 5000 },
+  // --- Junior Mühendis (0 – 749) ---
+  { id: 'junior-i', name: 'Junior Mühendis I', threshold: 0, tier: 'junior' },
+  { id: 'junior-ii', name: 'Junior Mühendis II', threshold: 200, tier: 'junior' },
+  { id: 'junior-iii', name: 'Junior Mühendis III', threshold: 450, tier: 'junior' },
+  // --- Mühendis (750 – 1.999) ---
+  { id: 'engineer-i', name: 'Mühendis I', threshold: 750, tier: 'engineer' },
+  { id: 'engineer-ii', name: 'Mühendis II', threshold: 1000, tier: 'engineer' },
+  { id: 'engineer-iii', name: 'Mühendis III', threshold: 1400, tier: 'engineer' },
+  // --- Kıdemli Mühendis (2.000 – 3.999) ---
+  { id: 'senior-i', name: 'Kıdemli Mühendis I', threshold: 2000, tier: 'senior' },
+  { id: 'senior-ii', name: 'Kıdemli Mühendis II', threshold: 2600, tier: 'senior' },
+  { id: 'senior-iii', name: 'Kıdemli Mühendis III', threshold: 3200, tier: 'senior' },
+  // --- Takım Lideri (4.000 – 6.499) ---
+  { id: 'lead-i', name: 'Takım Lideri I', threshold: 4000, tier: 'lead' },
+  { id: 'lead-ii', name: 'Takım Lideri II', threshold: 5000, tier: 'lead' },
+  { id: 'lead-iii', name: 'Takım Lideri III', threshold: 6000, tier: 'lead' },
+  // --- Mühendislik Müdürü (6.500 – 9.999) ---
+  { id: 'manager-i', name: 'Müh. Müdürü I', threshold: 6500, tier: 'manager' },
+  { id: 'manager-ii', name: 'Müh. Müdürü II', threshold: 7500, tier: 'manager' },
+  { id: 'manager-iii', name: 'Müh. Müdürü III', threshold: 8500, tier: 'manager' },
+  // --- Direktör (10.000 – 14.999) ---
+  { id: 'director-i', name: 'Direktör I', threshold: 10000, tier: 'director' },
+  { id: 'director-ii', name: 'Direktör II', threshold: 12000, tier: 'director' },
+  { id: 'director-iii', name: 'Direktör III', threshold: 14000, tier: 'director' },
+  // --- CTO (15.000+) ---
+  { id: 'cto-i', name: 'CTO I', threshold: 15000, tier: 'cto' },
+  { id: 'cto-ii', name: 'CTO II', threshold: 18000, tier: 'cto' },
+  { id: 'cto-iii', name: 'CTO III', threshold: 22000, tier: 'cto' },
 ];
 
 // --- Rozetler ---------------------------------------------------------------
@@ -30,12 +53,26 @@ export interface Badge {
 }
 
 export const BADGES: Badge[] = [
-  { id: 'first-response', icon: '🧯', title: 'İlk Müdahale', description: 'İlk production krizini çözdün.', requiredScore: 0, rewardBudget: 1500 },
-  { id: 'bug-hunter', icon: '🐛', title: 'Hata Avcısı', description: "5 bug'ı başarıyla avladın.", requiredScore: 300, rewardBudget: 3000 },
-  { id: 'night-shift', icon: '🌙', title: 'Gece Nöbeti', description: 'Gece yarısı bir kesintiyi çözdün.', requiredScore: 600, rewardBudget: 5000 },
-  { id: 'architect', icon: '🏗️', title: 'Mimar', description: 'Bir sistem tasarımı kararını doğru verdin.', requiredScore: 900, rewardBudget: 8000 },
-  { id: 'senior-badge', icon: '🎖️', title: 'Kıdemli Mühendis', description: 'Kıdemli Mühendis rütbesine ulaştın.', requiredScore: 1000, rewardBudget: 15000 },
-  { id: 'lead-badge', icon: '👑', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaş.', requiredScore: 2000, rewardBudget: 30000 },
+  // ── Erken aşama (0 – 749) ────────────────────────────────────────────────
+  { id: 'first-response', icon: '🧯', title: 'İlk Müdahale', description: 'İlk production krizini çözdün. Hoş geldin!', requiredScore: 0, rewardBudget: 1500 },
+  { id: 'hello-world', icon: '👋', title: 'Merhaba Dünya', description: 'İlk 200 itibar puanını kazandın.', requiredScore: 200, rewardBudget: 2000 },
+  { id: 'bug-hunter', icon: '🐛', title: 'Hata Avcısı', description: "5 bug'ı başarıyla izole edip çözdün.", requiredScore: 450, rewardBudget: 3500 },
+  { id: 'night-shift', icon: '🌙', title: 'Gece Nöbeti', description: 'Gece yarısı acil bir kesintiyi yönettın.', requiredScore: 750, rewardBudget: 5000 },
+  // ── Orta aşama (1.000 – 3.999) ───────────────────────────────────────────
+  { id: 'architect', icon: '🏗️', title: 'Mimar', description: 'Kritik bir sistem tasarım kararını doğru verdin.', requiredScore: 1000, rewardBudget: 8000 },
+  { id: 'postmortem-pro', icon: '📋', title: 'Post-Mortem Ustası', description: 'Bir incident sonrası eksiksiz post-mortem raporu yazdın.', requiredScore: 1400, rewardBudget: 6000 },
+  { id: 'oncall-hero', icon: '📟', title: 'On-Call Kahraman', description: 'Hafta sonu on-call vardiyasında 3 alarmı çözdün.', requiredScore: 2000, rewardBudget: 12000 },
+  { id: 'refactor-king', icon: '♻️', title: 'Refactor Kralı', description: 'Teknik borcu azaltan kapsamlı bir refactor tamamladın.', requiredScore: 2600, rewardBudget: 10000 },
+  { id: 'ci-cd-wizard', icon: '⚙️', title: 'CI/CD Sihirbazı', description: 'Deployment süresini yarıya indiren bir pipeline kurdun.', requiredScore: 3200, rewardBudget: 14000 },
+  // ── İleri aşama (4.000 – 9.999) ──────────────────────────────────────────
+  { id: 'lead-badge', icon: '🎖️', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaştın. Ekip seni izliyor.', requiredScore: 4000, rewardBudget: 25000 },
+  { id: 'mentor', icon: '🎓', title: 'Mentor', description: 'Bir junior mühendise 10 PR review yaptın.', requiredScore: 5000, rewardBudget: 20000 },
+  { id: 'sre-guardian', icon: '🛡️', title: 'SRE Bekçisi', description: "99.9% uptime'ı 3 ay üst üste korudun.", requiredScore: 6000, rewardBudget: 30000 },
+  { id: 'platform-builder', icon: '🔧', title: 'Platform Mimarı', description: 'Tüm takımın kullandığı dahili bir araç geliştirdin.', requiredScore: 7500, rewardBudget: 40000 },
+  // ── Efsane (10.000+) ──────────────────────────────────────────────────────
+  { id: 'director-badge', icon: '🌟', title: 'Direktör', description: 'Direktör rütbesine ulaştın. Şirket stratejisini şekillendiriyorsun.', requiredScore: 10000, rewardBudget: 60000 },
+  { id: 'chaos-engineer', icon: '🌪️', title: 'Kaos Mühendisi', description: 'Chaos Engineering senaryosu tasarlayıp uyguladın.', requiredScore: 14000, rewardBudget: 75000 },
+  { id: 'cto-badge', icon: '👑', title: 'CTO', description: 'Teknoloji vizyonunu tüm şirkete mal ettin. Efsane.', requiredScore: 15000, rewardBudget: 100000 },
 ];
 
 const STORAGE_KEYS = {

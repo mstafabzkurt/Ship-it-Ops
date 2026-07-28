@@ -65,8 +65,7 @@ export default function DashboardScreen() {
               icon="🛍️"
               title="Şirket Mağazası"
               subtitle="Ofis & rozet temaları"
-              locked
-              lockText="Takım Lideri gerekli"
+              onPress={() => router.push('/(tabs)/store')}
             />
           </View>
         </View>

@@ -31,16 +31,23 @@ interface StatsPanelProps {
   scoreDeltaLabel?: string;
 }
 
-// .stats panel karşılığı (bütçe / skor / itibar bar).
-// Bütçe, skor ve itibar verisinin hepsi artık tek kaynaktan: ReputationContext.
+// .stats panel karşılığı (bütçe / TechToken / skor / itibar bar).
+// Bütçe, TechToken, skor ve itibar verisinin hepsi artık tek kaynaktan: ReputationContext.
 export default function StatsPanel({ budgetDeltaLabel = 'son olay', scoreDeltaLabel = 'güncel' }: StatsPanelProps) {
-  const { score, budget, currentRank, nextRank, rankProgress } = useReputation();
+  const { score, budget, techTokens, currentRank, nextRank, rankProgress } = useReputation();
 
   return (
     <View style={styles.card}>
       <View style={styles.row}>
         <StatItem label="Şirket Bütçesi" value={formatCurrency(budget)} delta={budgetDeltaLabel} direction="down" />
-        <StatItem label="Bugünkü Skor" value={formatScore(score)} delta={scoreDeltaLabel} direction="up" />
+        <StatItem label="Bugünkü Skor"   value={formatScore(score)}     delta={scoreDeltaLabel}  direction="up"   />
+      </View>
+
+      {/* TechToken balance chip */}
+      <View style={styles.ttRow}>
+        <Text style={styles.ttIcon}>🪙</Text>
+        <Text style={styles.ttLabel}>TechToken</Text>
+        <Text style={styles.ttValue}>{techTokens} tt</Text>
       </View>
 
       <View style={styles.repTrack}>
@@ -87,5 +94,30 @@ const styles = StyleSheet.create({
   },
   repTrack: {
     marginTop: 2,
+  },
+  ttRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(242,169,59,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(242,169,59,0.35)',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  ttIcon: {
+    fontSize: 16,
+  },
+  ttLabel: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+    flex: 1,
+  },
+  ttValue: {
+    fontFamily: fonts.monoSemiBold,
+    fontSize: fontSizes.lg,
+    color: colors.accentAlert,
   },
 });
