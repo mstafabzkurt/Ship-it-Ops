@@ -42,11 +42,14 @@ const STORAGE_KEYS = {
   score: '@shipit_score',
   budget: '@shipit_budget',
   companyName: '@shipit_company_name',
+  techTokens: '@shipit_tech_tokens',
+  inventory: '@shipit_inventory',
 } as const;
 
 const DEFAULT_SCORE = 1280; // dashboard-prototip.html içindeki başlangıç değeri
 const DEFAULT_BUDGET = 48200; // "$48.200"
 const DEFAULT_COMPANY_NAME = 'ShipIt Inc.';
+const DEFAULT_TECH_TOKENS = 200; // Başlangıç TechToken miktarı
 
 export function getCompanyInitial(name: string): string {
   const trimmed = name.trim();
@@ -81,6 +84,10 @@ interface ReputationContextValue {
   nextRank: Rank | null;
   rankProgress: number; // 0-1 arası, ekranın kendi hesap yapmasına gerek yok
   badges: (Badge & { earned: boolean })[];
+  /** Premium para birimi: TechToken (tt) */
+  techTokens: number;
+  /** Satın alınan öğelerin ID listesi */
+  inventory: string[];
   /** Sadece skoru değiştirir, o çağrıda yeni kazanılan rozetleri döner. */
   addScore: (amount: number) => Promise<Badge[]>;
   /** Bir senaryo/olay sonucunda hem skoru hem bütçeyi tek çağrıda günceller. */
@@ -92,6 +99,14 @@ interface ReputationContextValue {
   resetProgress: () => Promise<void>;
   /** Şirket adını günceller ve kalıcı olarak saklar (Profil ekranı vb. için). */
   setCompanyName: (name: string) => Promise<void>;
+  /**
+   * Bir mağaza öğesini satın alır.
+   * @param itemId   Satın alınacak öğenin ID'si
+   * @param currency 'budget' → şirket bütçesi, 'tt' → TechToken
+   * @param price    Öğenin fiyatı
+   * @returns 'ok' | 'insufficient_funds' | 'already_owned'
+   */
+  purchaseItem: (itemId: string, currency: 'budget' | 'tt', price: number) => Promise<'ok' | 'insufficient_funds' | 'already_owned'>;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -102,6 +117,10 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [companyName, setCompanyNameState] = useState(DEFAULT_COMPANY_NAME);
   const [isLoaded, setIsLoaded] = useState(false);
   const [pendingBadges, setPendingBadges] = useState<Badge[]>([]);
+  const [techTokens, setTechTokens] = useState(DEFAULT_TECH_TOKENS);
+  const [inventory, setInventory] = useState<string[]>([]);
+  const techTokensRef = useRef(DEFAULT_TECH_TOKENS);
+  const inventoryRef = useRef<string[]>([]);
 
   // score/budget'in "şu anki" değerini ref'te tutuyoruz; addScore/applyOutcome
   // arka arkaya (aynı render arasında) çağrılsa bile state'in henüz commit
@@ -110,27 +129,46 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const scoreRef = useRef(score);
   const budgetRef = useRef(budget);
 
-  // Uygulama açıldığında skoru ve bütçeyi hafızadan çek
+  // Uygulama açıldığında tüm kalıcı verileri hafızadan çek
   useEffect(() => {
     const load = async () => {
       try {
-        const [[, storedScore], [, storedBudget], [, storedCompanyName]] = await AsyncStorage.multiGet([
+        const results = await AsyncStorage.multiGet([
           STORAGE_KEYS.score,
           STORAGE_KEYS.budget,
           STORAGE_KEYS.companyName,
+          STORAGE_KEYS.techTokens,
+          STORAGE_KEYS.inventory,
         ]);
-        if (storedScore !== null) {
+        const storedMap = Object.fromEntries(results.map(([k, v]) => [k, v]));
+
+        const storedScore = storedMap[STORAGE_KEYS.score];
+        if (storedScore !== null && storedScore !== undefined) {
           const parsed = parseInt(storedScore, 10);
           scoreRef.current = parsed;
           setScore(parsed);
         }
-        if (storedBudget !== null) {
+        const storedBudget = storedMap[STORAGE_KEYS.budget];
+        if (storedBudget !== null && storedBudget !== undefined) {
           const parsed = parseInt(storedBudget, 10);
           budgetRef.current = parsed;
           setBudget(parsed);
         }
-        if (storedCompanyName !== null && storedCompanyName.trim()) {
+        const storedCompanyName = storedMap[STORAGE_KEYS.companyName];
+        if (storedCompanyName !== null && storedCompanyName !== undefined && storedCompanyName.trim()) {
           setCompanyNameState(storedCompanyName);
+        }
+        const storedTechTokens = storedMap[STORAGE_KEYS.techTokens];
+        if (storedTechTokens !== null && storedTechTokens !== undefined) {
+          const parsed = parseInt(storedTechTokens, 10);
+          techTokensRef.current = parsed;
+          setTechTokens(parsed);
+        }
+        const storedInventory = storedMap[STORAGE_KEYS.inventory];
+        if (storedInventory !== null && storedInventory !== undefined) {
+          const parsed: string[] = JSON.parse(storedInventory);
+          inventoryRef.current = parsed;
+          setInventory(parsed);
         }
       } catch (error) {
         console.error('İtibar verisi yüklenirken hata:', error);
@@ -148,7 +186,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
     // YENİ KAZANILAN ROZETLERİ BUL
     const earned = BADGES.filter((b) => oldScore < b.requiredScore && newScore >= b.requiredScore);
-    
+
     // YENİ EKLENDİ: Eğer rozet kazanıldıysa, ödül bütçesini de ana bütçeye ekle
     if (earned.length > 0) {
       const totalReward = earned.reduce((sum, badge) => sum + badge.rewardBudget, 0);
@@ -180,11 +218,20 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const resetProgress = async () => {
     scoreRef.current = DEFAULT_SCORE;
     budgetRef.current = DEFAULT_BUDGET;
+    techTokensRef.current = DEFAULT_TECH_TOKENS;
+    inventoryRef.current = [];
     setScore(DEFAULT_SCORE);
     setBudget(DEFAULT_BUDGET);
+    setTechTokens(DEFAULT_TECH_TOKENS);
+    setInventory([]);
     setPendingBadges([]);
     try {
-      await AsyncStorage.multiRemove([STORAGE_KEYS.score, STORAGE_KEYS.budget]);
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.score,
+        STORAGE_KEYS.budget,
+        STORAGE_KEYS.techTokens,
+        STORAGE_KEYS.inventory,
+      ]);
     } catch (error) {
       console.error('İlerleme sıfırlanırken hata:', error);
     }
@@ -200,6 +247,44 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const purchaseItem = async (
+    itemId: string,
+    currency: 'budget' | 'tt',
+    price: number,
+  ): Promise<'ok' | 'insufficient_funds' | 'already_owned'> => {
+    if (inventoryRef.current.includes(itemId)) return 'already_owned';
+    if (currency === 'budget') {
+      if (budgetRef.current < price) return 'insufficient_funds';
+      const newBudget = budgetRef.current - price;
+      budgetRef.current = newBudget;
+      setBudget(newBudget);
+      try {
+        await AsyncStorage.setItem(STORAGE_KEYS.budget, String(newBudget));
+      } catch (e) {
+        console.error('Bütçe kaydedilemedi:', e);
+      }
+    } else {
+      if (techTokensRef.current < price) return 'insufficient_funds';
+      const newTt = techTokensRef.current - price;
+      techTokensRef.current = newTt;
+      setTechTokens(newTt);
+      try {
+        await AsyncStorage.setItem(STORAGE_KEYS.techTokens, String(newTt));
+      } catch (e) {
+        console.error('TechToken kaydedilemedi:', e);
+      }
+    }
+    const newInventory = [...inventoryRef.current, itemId];
+    inventoryRef.current = newInventory;
+    setInventory(newInventory);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(newInventory));
+    } catch (e) {
+      console.error('Envanter kaydedilemedi:', e);
+    }
+    return 'ok';
+  };
+
   const value = useMemo<ReputationContextValue>(() => {
     const { current, next } = getRankForScore(score);
     const badges = BADGES.map((b) => ({ ...b, earned: score >= b.requiredScore }));
@@ -213,15 +298,18 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       nextRank: next,
       rankProgress,
       badges,
+      techTokens,
+      inventory,
       addScore,
       applyOutcome,
       pendingBadges,
       dismissBadge,
       resetProgress,
       setCompanyName,
+      purchaseItem,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [score, budget, companyName, isLoaded, pendingBadges]);
+  }, [score, budget, companyName, isLoaded, pendingBadges, techTokens, inventory]);
 
   return <ReputationContext.Provider value={value}>{children}</ReputationContext.Provider>;
 }
