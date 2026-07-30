@@ -61,6 +61,20 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="room"
+        options={{
+          title: 'Oda',
+          tabBarIcon: () => <Text style={{ fontSize: 18 }}>🛏️</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="room-store"
+        options={{
+          title: 'Oda Shop',
+          tabBarIcon: () => <Text style={{ fontSize: 18 }}>🪑</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',

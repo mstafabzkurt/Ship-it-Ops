@@ -9,6 +9,7 @@ import { useFonts as useInter, Inter_400Regular, Inter_500Medium, Inter_600SemiB
 import { useFonts as useJetBrainsMono, JetBrainsMono_400Regular, JetBrainsMono_500Medium, JetBrainsMono_600SemiBold, JetBrainsMono_700Bold } from '@expo-google-fonts/jetbrains-mono';
 import { colors } from '../src/theme/colors';
 import { ReputationProvider } from '../src/state/ReputationContext';
+import { RoomProvider } from '../src/state/RoomContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -49,12 +50,14 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ReputationProvider>
-        <View style={{ flex: 1, backgroundColor: colors.bgBase }}>
-          <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgBase } }}>
-            <Stack.Screen name="(tabs)" />
-          </Stack>
-        </View>
+        <RoomProvider>
+          <View style={{ flex: 1, backgroundColor: colors.bgBase }}>
+            <StatusBar style="light" />
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgBase } }}>
+              <Stack.Screen name="(tabs)" />
+            </Stack>
+          </View>
+        </RoomProvider>
       </ReputationProvider>
     </SafeAreaProvider>
   );
