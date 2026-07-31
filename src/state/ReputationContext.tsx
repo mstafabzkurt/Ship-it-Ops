@@ -89,7 +89,7 @@ const STORAGE_KEYS = {
 export const STREAK_REWARDS = [200, 400, 600, 800, 1000, 1200, 1500] as const;
 
 const DEFAULT_SCORE = 1280; // dashboard-prototip.html içindeki başlangıç değeri
-const DEFAULT_BUDGET = 48200; // "$48.200"
+const DEFAULT_BUDGET = 48200000; // "$48.200"
 const DEFAULT_COMPANY_NAME = 'ShipIt Inc.';
 const DEFAULT_TECH_TOKENS = 200; // Başlangıç TechToken miktarı
 
@@ -253,11 +253,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           const lastDate = storedLastDate ? new Date(storedLastDate) : null;
           const isSameWeek = lastDate
             ? (() => {
-                const startOfWeek = new Date(today);
-                startOfWeek.setDate(today.getDate() - dayOfWeek);
-                startOfWeek.setHours(0, 0, 0, 0);
-                return lastDate >= startOfWeek;
-              })()
+              const startOfWeek = new Date(today);
+              startOfWeek.setDate(today.getDate() - dayOfWeek);
+              startOfWeek.setHours(0, 0, 0, 0);
+              return lastDate >= startOfWeek;
+            })()
             : false;
           if (isSameWeek) {
             streakDaysRef.current = parsed;
@@ -274,7 +274,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
                 [STORAGE_KEYS.streakDays, JSON.stringify(fresh)],
                 [STORAGE_KEYS.streakLastDate, ''],
               ]);
-            } catch (_) {}
+            } catch (_) { }
           }
         }
       } catch (error) {

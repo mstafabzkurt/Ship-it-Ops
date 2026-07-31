@@ -1,12 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// RoomContext — manages room item state and upgrade logic.
+// RoomContext — manages room level state and upgrade logic.
 //
 // Design decisions:
-//   • Budget lives in ReputationContext.  RoomProvider consumes it via
+//   • Budget lives in ReputationContext. RoomProvider consumes it via
 //     useReputation(), so RoomProvider MUST be mounted inside ReputationProvider.
-//   • Only the currentLevel per item is persisted to AsyncStorage (not the
-//     full item shape), so catalog changes in roomItems.ts don't corrupt saves.
-//   • upgradeItem uses a ref for budget to avoid stale-closure reads.
+//   • Only the roomLevel (integer 0-17) is persisted to AsyncStorage.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, {
@@ -19,46 +17,64 @@ import React, {
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { INITIAL_ROOM_ITEMS, type RoomItem } from '../data/roomItems';
 import { useReputation } from './ReputationContext';
+
+// ── Prices for each upgrade ───────────────────────────────────────────────────
+export const NEXT_LEVEL_PRICES = [
+  0,       // 0 -> 1 (free initial placement)
+  100,     // 1 -> 2
+  250,     // 2 -> 3
+  500,     // 3 -> 4
+  1000,    // 4 -> 5
+  1500,    // 5 -> 6
+  2000,    // 6 -> 7
+  3000,    // 7 -> 8
+  4000,    // 8 -> 9
+  5000,    // 9 -> 10
+  7500,    // 10 -> 11
+  10000,   // 11 -> 12
+  15000,   // 12 -> 13
+  20000,   // 13 -> 14
+  30000,   // 14 -> 15
+  50000,   // 15 -> 16
+  75000,   // 16 -> 17
+];
+
+export const MAX_ROOM_LEVEL = 17;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
 export type UpgradeResult =
   | 'ok'               // Successful purchase / level-up
-  | 'max_level'        // Item already at max level
+  | 'max_level'        // Already at max level
   | 'insufficient_funds'; // Budget too low
 
 interface RoomContextValue {
-  /** Full array of room items, including unplaced ones (currentLevel === 0). */
-  roomItems: RoomItem[];
+  /** Current room level (0 to 17) */
+  roomLevel: number;
   /**
-   * Attempt to advance `itemId` to the next level.
+   * Attempt to advance room to the next level.
    * Deducts the next level's price from the shared company budget.
    * Returns a discriminated result string.
    */
-  upgradeItem: (itemId: string) => Promise<UpgradeResult>;
+  upgradeRoom: () => Promise<UpgradeResult>;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
 const RoomContext = createContext<RoomContextValue | null>(null);
 
-const ROOM_STORAGE_KEY = '@shipit_room_levels';
+const ROOM_STORAGE_KEY = '@shipit_room_level';
 
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 export function RoomProvider({ children }: { children: React.ReactNode }) {
-  // Tap into the shared economy — only need budget (for the pre-check) and
-  // applyOutcome (to deduct the price and persist).
   const { budget, applyOutcome } = useReputation();
-
-  const [roomItems, setRoomItems] = useState<RoomItem[]>(INITIAL_ROOM_ITEMS);
+  const [roomLevel, setRoomLevel] = useState<number>(0);
 
   // Refs so async callbacks never see stale closure values.
-  const roomItemsRef = useRef<RoomItem[]>(INITIAL_ROOM_ITEMS);
+  const roomLevelRef = useRef<number>(0);
   const budgetRef = useRef(budget);
-  // Keep budgetRef in sync on every render (runs before any effect / callback).
   budgetRef.current = budget;
 
   // ── Persistence: load ────────────────────────────────────────────────────
@@ -68,73 +84,59 @@ export function RoomProvider({ children }: { children: React.ReactNode }) {
         const raw = await AsyncStorage.getItem(ROOM_STORAGE_KEY);
         if (!raw) return;
 
-        // Stored shape: { [itemId]: currentLevel }
-        const savedLevels: Record<string, number> = JSON.parse(raw);
-
-        const restored = INITIAL_ROOM_ITEMS.map((item) => ({
-          ...item,
-          currentLevel: savedLevels[item.id] ?? item.currentLevel,
-        }));
-        roomItemsRef.current = restored;
-        setRoomItems(restored);
+        const savedLevel = parseInt(raw, 10);
+        if (!isNaN(savedLevel) && savedLevel >= 0 && savedLevel <= MAX_ROOM_LEVEL) {
+          roomLevelRef.current = savedLevel;
+          setRoomLevel(savedLevel);
+        }
       } catch (e) {
-        console.error('[RoomContext] Oda ögeleri yüklenemedi:', e);
+        console.error('[RoomContext] Oda seviyesi yüklenemedi:', e);
       }
     };
     load();
   }, []);
 
   // ── Persistence: save helper ─────────────────────────────────────────────
-  const saveToStorage = async (items: RoomItem[]) => {
+  const saveToStorage = async (level: number) => {
     try {
-      const levels: Record<string, number> = {};
-      items.forEach((i) => {
-        levels[i.id] = i.currentLevel;
-      });
-      await AsyncStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(levels));
+      await AsyncStorage.setItem(ROOM_STORAGE_KEY, level.toString());
     } catch (e) {
-      console.error('[RoomContext] Oda ögeleri kaydedilemedi:', e);
+      console.error('[RoomContext] Oda seviyesi kaydedilemedi:', e);
     }
   };
 
-  // ── upgradeItem ──────────────────────────────────────────────────────────
-  const upgradeItem = useCallback(
-    async (itemId: string): Promise<UpgradeResult> => {
-      const item = roomItemsRef.current.find((i) => i.id === itemId);
+  // ── upgradeRoom ──────────────────────────────────────────────────────────
+  const upgradeRoom = useCallback(async (): Promise<UpgradeResult> => {
+    const currentLevel = roomLevelRef.current;
 
-      // Guard: unknown id or already maxed out
-      if (!item || item.currentLevel >= item.levels.length) return 'max_level';
+    // Guard: already maxed out
+    if (currentLevel >= MAX_ROOM_LEVEL) return 'max_level';
 
-      // levels is 0-based; currentLevel 0 → wants levels[0] (Level 1)
-      const nextLevelData = item.levels[item.currentLevel];
+    const nextPrice = NEXT_LEVEL_PRICES[currentLevel];
 
-      // Budget pre-check (free items bypass this)
-      if (nextLevelData.price > 0 && budgetRef.current < nextLevelData.price) {
-        return 'insufficient_funds';
-      }
+    // Budget pre-check
+    if (nextPrice > 0 && budgetRef.current < nextPrice) {
+      return 'insufficient_funds';
+    }
 
-      // Deduct from the shared economy (0 score delta, negative budget delta)
-      if (nextLevelData.price > 0) {
-        await applyOutcome(0, -nextLevelData.price);
-      }
+    // Deduct from the shared economy
+    if (nextPrice > 0) {
+      await applyOutcome(0, -nextPrice);
+    }
 
-      // Update state
-      const updated = roomItemsRef.current.map((i) =>
-        i.id === itemId ? { ...i, currentLevel: i.currentLevel + 1 } : i,
-      );
-      roomItemsRef.current = updated;
-      setRoomItems(updated);
+    // Update state
+    const newLevel = currentLevel + 1;
+    roomLevelRef.current = newLevel;
+    setRoomLevel(newLevel);
 
-      await saveToStorage(updated);
-      return 'ok';
-    },
-    [applyOutcome],
-  );
+    await saveToStorage(newLevel);
+    return 'ok';
+  }, [applyOutcome]);
 
   // ── Context value ────────────────────────────────────────────────────────
   const value = useMemo<RoomContextValue>(
-    () => ({ roomItems, upgradeItem }),
-    [roomItems, upgradeItem],
+    () => ({ roomLevel, upgradeRoom }),
+    [roomLevel, upgradeRoom],
   );
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
@@ -147,4 +149,3 @@ export function useRoom() {
   if (!ctx) throw new Error('[RoomContext] useRoom must be used inside <RoomProvider>');
   return ctx;
 }
-AsyncStorage.clear()
