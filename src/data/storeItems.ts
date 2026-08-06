@@ -1,7 +1,7 @@
-// Mağaza öğeleri — Kategori A (Şirket Bütçesi) ve Kategori B (TechToken).
+// Mağaza öğeleri — Kategori A (Şirket Bütçesi), Kategori B (TechToken), Kategori C (Temalar).
 // Tüm fiyat, açıklama ve kategori bilgisi tek yerden yönetilir.
 
-export type StoreCategory = 'office' | 'premium';
+export type StoreCategory = 'office' | 'premium' | 'theme';
 
 export interface StoreItem {
   id: string;
@@ -9,8 +9,13 @@ export interface StoreItem {
   icon: string;
   title: string;
   description: string;
-  /** Kategori A için şirket bütçesi ($), Kategori B için TechToken (tt) */
+  /** Kategori A için şirket bütçesi ($), Kategori B/C için TechToken (tt) */
   price: number;
+  /**
+   * Sadece 'theme' kategorisindeki öğeler için — ThemeContext'teki themeId değeri.
+   * Equip edildiğinde setThemeId(themeIdKey) çağrılır.
+   */
+  themeIdKey?: 'default' | 'cyberpunk';
 }
 
 // --- Kategori A: Ofis / Şirket Bütçesi --------------------------------
@@ -44,7 +49,7 @@ export const OFFICE_ITEMS: StoreItem[] = [
     category: 'office',
     icon: '🗄️',
     title: 'Yerel Test Sunucusu',
-    description: 'Lokal test ortamı kur, production\'a basmadan önce senaryoları dene.',
+    description: "Lokal test ortamı kur, production'a basmadan önce senaryoları dene.",
     price: 20000,
   },
   {
@@ -68,7 +73,7 @@ export const OFFICE_ITEMS: StoreItem[] = [
     category: 'office',
     icon: '📋',
     title: 'Dev Akıllı Beyaz Tahta',
-    description: 'Mimari diyagramlar ve incident post-mortem\'ler için. 4K çözünürlük.',
+    description: "Mimari diyagramlar ve incident post-mortem'ler için. 4K çözünürlük.",
     price: 9500,
   },
   {
@@ -84,35 +89,11 @@ export const OFFICE_ITEMS: StoreItem[] = [
 // --- Kategori B: Premium / TechToken (tt) --------------------------------
 export const PREMIUM_ITEMS: StoreItem[] = [
   {
-    id: 'theme_neon_dark',
-    category: 'premium',
-    icon: '🌌',
-    title: 'Neon Dark Tema',
-    description: 'Siber-punk estetiği. Mor ve cyan tonlarında glow efektleri.',
-    price: 50,
-  },
-  {
-    id: 'theme_hacker_green',
-    category: 'premium',
-    icon: '💚',
-    title: 'Hacker Yeşil Tema',
-    description: 'Klasik terminal estetiği. Matrix hissi için tasarlandı.',
-    price: 40,
-  },
-  {
-    id: 'theme_solar_light',
-    category: 'premium',
-    icon: '☀️',
-    title: 'Solar Light Tema',
-    description: 'Minimalist açık tema. Güneşli ofis sabahları için.',
-    price: 35,
-  },
-  {
     id: 'profile_neon_ring',
     category: 'premium',
     icon: '✨',
     title: 'Neon Profil Halkası',
-    description: 'Avatar\'ının etrafına animasyonlu neon halo efekti ekler.',
+    description: "Avatar'ının etrafına animasyonlu neon halo efekti ekler.",
     price: 80,
   },
   {
@@ -149,4 +130,29 @@ export const PREMIUM_ITEMS: StoreItem[] = [
   },
 ];
 
-export const ALL_ITEMS: StoreItem[] = [...OFFICE_ITEMS, ...PREMIUM_ITEMS];
+// --- Kategori C: Temalar / TechToken (tt) --------------------------------
+// 'themeIdKey' alanı hangi ThemeContext ID'sini etkinleştireceğini belirtir.
+export const THEME_ITEMS: StoreItem[] = [
+  {
+    id: 'theme_cyberpunk',
+    category: 'theme',
+    icon: '⚡',
+    title: 'Cyberpunk Tema',
+    description:
+      'Neon Cyan, Neon Pembe ve Neon Sarı renk paletiyle keskin köşeler ve agresif glow efektleri. Gerçek bir hackerin çalışma ortamı.',
+    price: 500,
+    themeIdKey: 'cyberpunk',
+  },
+  {
+    id: 'theme_hacker_green',
+    category: 'theme',
+    icon: '💚',
+    title: 'Hacker Yeşil Tema',
+    description:
+      'Klasik terminal estetiği. Matrix hissi, fosforlu yeşil tonlar ve minimal arayüz. Konsola aşık geliştiriciler için.',
+    price: 350,
+    themeIdKey: undefined, // Yakında — şu an kilitli
+  },
+];
+
+export const ALL_ITEMS: StoreItem[] = [...OFFICE_ITEMS, ...PREMIUM_ITEMS, ...THEME_ITEMS];

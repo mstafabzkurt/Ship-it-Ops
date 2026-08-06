@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
-import { colors } from '../theme/colors';
+import { useTheme } from '../state/ThemeContext';
+import type { Theme } from '../theme/themes';
 import { fonts, fontSizes } from '../theme/typography';
 
 type Variant = 'positive' | 'crisis';
@@ -11,8 +12,9 @@ interface StatusPillProps {
   pulse?: boolean;
 }
 
-// .status-pill / .status-pill.crisis / .dot.pulse karşılığı
 export default function StatusPill({ label, variant = 'positive', pulse = false }: StatusPillProps) {
+  const { theme } = useTheme();
+  const { colors } = theme;
   const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -32,6 +34,7 @@ export default function StatusPill({ label, variant = 'positive', pulse = false 
   const bg = isCrisis ? colors.dangerBg : colors.positiveBg;
   const border = isCrisis ? colors.dangerBorder : colors.positiveBorder;
 
+  // Inline styles since they depend on runtime values
   return (
     <View style={[styles.pill, { backgroundColor: bg, borderColor: border }]}>
       <Animated.View style={[styles.dot, { backgroundColor: tint, opacity: pulse ? opacity : 1 }]} />
@@ -40,6 +43,7 @@ export default function StatusPill({ label, variant = 'positive', pulse = false 
   );
 }
 
+// StatusPill uses fully inline color styles — static sheet for structure only
 const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',

@@ -12,7 +12,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.accentPositive,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: 'rgba(21,27,39,0.92)',
+          backgroundColor: colors.panel + 'EB',
           borderTopColor: colors.border,
           borderTopWidth: 1,
           height: 78,

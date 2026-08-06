@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { colors } from '../theme/colors';
+import { useTheme } from '../state/ThemeContext';
+import type { Theme } from '../theme/themes';
 import { fonts, fontSizes } from '../theme/typography';
 
 interface QuickActionCardProps {
@@ -12,7 +13,6 @@ interface QuickActionCardProps {
   onPress?: () => void;
 }
 
-// .card / .card.locked karşılığı — Hızlı Erişim gridindeki 2x2 kartlar
 export default function QuickActionCard({
   icon,
   title,
@@ -21,6 +21,9 @@ export default function QuickActionCard({
   lockText,
   onPress,
 }: QuickActionCardProps) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
   return (
     <Pressable
       style={[styles.card, locked && styles.cardLocked]}
@@ -35,39 +38,43 @@ export default function QuickActionCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 14,
-    minWidth: '47%',
-  },
-  cardLocked: {
-    opacity: 0.5,
-  },
-  icon: {
-    fontSize: 20,
-    marginBottom: 8,
-  },
-  title: {
-    fontFamily: fonts.headingSemiBold,
-    fontSize: fontSizes.lg,
-    color: colors.textPrimary,
-    marginBottom: 3,
-  },
-  subtitle: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.sm,
-    color: colors.textMuted,
-    lineHeight: 15,
-  },
-  lockBadge: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.xs,
-    color: colors.accentAlert,
-    marginTop: 6,
-  },
-});
+function makeStyles(theme: Theme) {
+  const { colors, geometry, effects } = theme;
+  return StyleSheet.create({
+    card: {
+      flex: 1,
+      backgroundColor: colors.panel,
+      borderWidth: geometry.borderWidth,
+      borderColor: colors.border,
+      borderRadius: geometry.borderRadius,
+      padding: 14,
+      minWidth: '47%',
+      ...effects.cardShadow,
+    },
+    cardLocked: {
+      opacity: 0.5,
+    },
+    icon: {
+      fontSize: 20,
+      marginBottom: 8,
+    },
+    title: {
+      fontFamily: fonts.headingSemiBold,
+      fontSize: fontSizes.lg,
+      color: colors.textPrimary,
+      marginBottom: 3,
+    },
+    subtitle: {
+      fontFamily: fonts.body,
+      fontSize: fontSizes.sm,
+      color: colors.textMuted,
+      lineHeight: 15,
+    },
+    lockBadge: {
+      fontFamily: fonts.body,
+      fontSize: fontSizes.xs,
+      color: colors.accentAlert,
+      marginTop: 6,
+    },
+  });
+}

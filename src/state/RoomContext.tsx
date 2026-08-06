@@ -58,6 +58,11 @@ interface RoomContextValue {
    * Returns a discriminated result string.
    */
   upgradeRoom: () => Promise<UpgradeResult>;
+  /**
+   * Resets the room back to level 0 and clears the persisted value
+   * from AsyncStorage. Called by the Profile screen's "Reset Progress" flow.
+   */
+  resetRoom: () => Promise<void>;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -133,10 +138,21 @@ export function RoomProvider({ children }: { children: React.ReactNode }) {
     return 'ok';
   }, [applyOutcome]);
 
+  // ── resetRoom ────────────────────────────────────────────────────────────
+  const resetRoom = useCallback(async (): Promise<void> => {
+    roomLevelRef.current = 0;
+    setRoomLevel(0);
+    try {
+      await AsyncStorage.removeItem(ROOM_STORAGE_KEY);
+    } catch (e) {
+      console.error('[RoomContext] Oda sıfırlanırken hata:', e);
+    }
+  }, []);
+
   // ── Context value ────────────────────────────────────────────────────────
   const value = useMemo<RoomContextValue>(
-    () => ({ roomLevel, upgradeRoom }),
-    [roomLevel, upgradeRoom],
+    () => ({ roomLevel, upgradeRoom, resetRoom }),
+    [roomLevel, upgradeRoom, resetRoom],
   );
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;

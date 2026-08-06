@@ -12,34 +12,34 @@ export interface Rank {
 }
 
 export const RANKS: Rank[] = [
-  // --- Junior Mühendis (0 – 749) ---
+  // --- Junior Mühendis (0 – 200) ---
   { id: 'junior-i', name: 'Junior Mühendis I', threshold: 0, tier: 'junior' },
-  { id: 'junior-ii', name: 'Junior Mühendis II', threshold: 200, tier: 'junior' },
-  { id: 'junior-iii', name: 'Junior Mühendis III', threshold: 450, tier: 'junior' },
-  // --- Mühendis (750 – 1.999) ---
-  { id: 'engineer-i', name: 'Mühendis I', threshold: 750, tier: 'engineer' },
-  { id: 'engineer-ii', name: 'Mühendis II', threshold: 1000, tier: 'engineer' },
-  { id: 'engineer-iii', name: 'Mühendis III', threshold: 1400, tier: 'engineer' },
-  // --- Kıdemli Mühendis (2.000 – 3.999) ---
-  { id: 'senior-i', name: 'Kıdemli Mühendis I', threshold: 2000, tier: 'senior' },
-  { id: 'senior-ii', name: 'Kıdemli Mühendis II', threshold: 2600, tier: 'senior' },
-  { id: 'senior-iii', name: 'Kıdemli Mühendis III', threshold: 3200, tier: 'senior' },
-  // --- Takım Lideri (4.000 – 6.499) ---
-  { id: 'lead-i', name: 'Takım Lideri I', threshold: 4000, tier: 'lead' },
-  { id: 'lead-ii', name: 'Takım Lideri II', threshold: 5000, tier: 'lead' },
-  { id: 'lead-iii', name: 'Takım Lideri III', threshold: 6000, tier: 'lead' },
-  // --- Mühendislik Müdürü (6.500 – 9.999) ---
-  { id: 'manager-i', name: 'Müh. Müdürü I', threshold: 6500, tier: 'manager' },
-  { id: 'manager-ii', name: 'Müh. Müdürü II', threshold: 7500, tier: 'manager' },
-  { id: 'manager-iii', name: 'Müh. Müdürü III', threshold: 8500, tier: 'manager' },
-  // --- Direktör (10.000 – 14.999) ---
-  { id: 'director-i', name: 'Direktör I', threshold: 10000, tier: 'director' },
-  { id: 'director-ii', name: 'Direktör II', threshold: 12000, tier: 'director' },
-  { id: 'director-iii', name: 'Direktör III', threshold: 14000, tier: 'director' },
-  // --- CTO (15.000+) ---
-  { id: 'cto-i', name: 'CTO I', threshold: 15000, tier: 'cto' },
-  { id: 'cto-ii', name: 'CTO II', threshold: 18000, tier: 'cto' },
-  { id: 'cto-iii', name: 'CTO III', threshold: 22000, tier: 'cto' },
+  { id: 'junior-ii', name: 'Junior Mühendis II', threshold: 100, tier: 'junior' },
+  { id: 'junior-iii', name: 'Junior Mühendis III', threshold: 200, tier: 'junior' },
+  // --- Mühendis (300 – 700) ---
+  { id: 'engineer-i', name: 'Mühendis I', threshold: 300, tier: 'engineer' },
+  { id: 'engineer-ii', name: 'Mühendis II', threshold: 500, tier: 'engineer' },
+  { id: 'engineer-iii', name: 'Mühendis III', threshold: 700, tier: 'engineer' },
+  // --- Kıdemli Mühendis (1000 – 1600) ---
+  { id: 'senior-i', name: 'Kıdemli Mühendis I', threshold: 1000, tier: 'senior' },
+  { id: 'senior-ii', name: 'Kıdemli Mühendis II', threshold: 1300, tier: 'senior' },
+  { id: 'senior-iii', name: 'Kıdemli Mühendis III', threshold: 1600, tier: 'senior' },
+  // --- Takım Lideri (2000 – 2800) ---
+  { id: 'lead-i', name: 'Takım Lideri I', threshold: 2000, tier: 'lead' },
+  { id: 'lead-ii', name: 'Takım Lideri II', threshold: 2400, tier: 'lead' },
+  { id: 'lead-iii', name: 'Takım Lideri III', threshold: 2800, tier: 'lead' },
+  // --- Mühendislik Müdürü (3300 – 4300) ---
+  { id: 'manager-i', name: 'Müh. Müdürü I', threshold: 3300, tier: 'manager' },
+  { id: 'manager-ii', name: 'Müh. Müdürü II', threshold: 3800, tier: 'manager' },
+  { id: 'manager-iii', name: 'Müh. Müdürü III', threshold: 4300, tier: 'manager' },
+  // --- Direktör (4900 – 6100) ---
+  { id: 'director-i', name: 'Direktör I', threshold: 4900, tier: 'director' },
+  { id: 'director-ii', name: 'Direktör II', threshold: 5500, tier: 'director' },
+  { id: 'director-iii', name: 'Direktör III', threshold: 6100, tier: 'director' },
+  // --- CTO (6800 – 8200+) ---
+  { id: 'cto-i', name: 'CTO I', threshold: 6800, tier: 'cto' },
+  { id: 'cto-ii', name: 'CTO II', threshold: 7500, tier: 'cto' },
+  { id: 'cto-iii', name: 'CTO III', threshold: 8200, tier: 'cto' },
 ];
 
 // --- Rozetler ---------------------------------------------------------------
@@ -83,15 +83,21 @@ const STORAGE_KEYS = {
   inventory: '@shipit_inventory',
   streakDays: '@shipit_streak_days',
   streakLastDate: '@shipit_streak_last_date',
+  seenIds: '@shipit_seen_ids',
+  correctAnswers: '@shipit_correct_answers',
+  wrongAnswers: '@shipit_wrong_answers',
 } as const;
 
 // Streak day rewards (index = day number 0-6 = Mon-Sun)
 export const STREAK_REWARDS = [200, 400, 600, 800, 1000, 1200, 1500] as const;
 
-const DEFAULT_SCORE = 1280; // dashboard-prototip.html içindeki başlangıç değeri
-const DEFAULT_BUDGET = 48200000; // "$48.200"
+const DEFAULT_SCORE = 0;
+const DEFAULT_BUDGET = 1000;
 const DEFAULT_COMPANY_NAME = 'ShipIt Inc.';
-const DEFAULT_TECH_TOKENS = 200; // Başlangıç TechToken miktarı
+const DEFAULT_TECH_TOKENS = 0;
+const DEFAULT_CORRECT_ANSWERS = 0;
+const DEFAULT_WRONG_ANSWERS = 0;
+const DEFAULT_SEEN_IDS: number[] = [];
 
 export function getCompanyInitial(name: string): string {
   const trimmed = name.trim();
@@ -157,6 +163,18 @@ interface ReputationContextValue {
   streakCount: number;
   /** Claim today's streak reward. Returns budget reward amount or 0 if already claimed. */
   claimStreakDay: () => Promise<number>;
+  /** Kullanıcının doğru cevapladığı soru sayısı */
+  correctAnswers: number;
+  /** Kullanıcının yanlış cevapladığı soru sayısı */
+  wrongAnswers: number;
+  /** Kullanıcının gördüğü soru ID'leri */
+  seenIds: number[];
+  /** Doğru cevap sayısını günceller */
+  setCorrectAnswers: React.Dispatch<React.SetStateAction<number>>;
+  /** Yanlış cevap sayısını günceller */
+  setWrongAnswers: React.Dispatch<React.SetStateAction<number>>;
+  /** Görülen soru ID'lerini günceller */
+  setSeenIds: React.Dispatch<React.SetStateAction<number[]>>;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -171,6 +189,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [inventory, setInventory] = useState<string[]>([]);
   const techTokensRef = useRef(DEFAULT_TECH_TOKENS);
   const inventoryRef = useRef<string[]>([]);
+
+  // User statistics & game incident state
+  const [correctAnswers, setCorrectAnswers] = useState<number>(DEFAULT_CORRECT_ANSWERS);
+  const [wrongAnswers, setWrongAnswers] = useState<number>(DEFAULT_WRONG_ANSWERS);
+  const [seenIds, setSeenIds] = useState<number[]>(DEFAULT_SEEN_IDS);
+
+  const seenIdsRef = useRef<number[]>(DEFAULT_SEEN_IDS);
+  const correctAnswersRef = useRef<number>(DEFAULT_CORRECT_ANSWERS);
+  const wrongAnswersRef = useRef<number>(DEFAULT_WRONG_ANSWERS);
+
 
   // Streak: 7-slot bool array (Mon-Sun) + last claimed date string (YYYY-MM-DD)
   const [streakDays, setStreakDays] = useState<boolean[]>([false, false, false, false, false, false, false]);
@@ -210,6 +238,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           STORAGE_KEYS.inventory,
           STORAGE_KEYS.streakDays,
           STORAGE_KEYS.streakLastDate,
+          STORAGE_KEYS.seenIds,
+          STORAGE_KEYS.correctAnswers,
+          STORAGE_KEYS.wrongAnswers,
         ]);
         const storedMap = Object.fromEntries(results.map(([k, v]) => [k, v]));
 
@@ -240,6 +271,30 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           const parsed: string[] = JSON.parse(storedInventory);
           inventoryRef.current = parsed;
           setInventory(parsed);
+        }
+        const storedSeenIds = storedMap[STORAGE_KEYS.seenIds];
+        if (storedSeenIds !== null && storedSeenIds !== undefined) {
+          try {
+            const parsed: number[] = JSON.parse(storedSeenIds);
+            seenIdsRef.current = parsed;
+            setSeenIds(parsed);
+          } catch (_) { }
+        }
+        const storedCorrect = storedMap[STORAGE_KEYS.correctAnswers];
+        if (storedCorrect !== null && storedCorrect !== undefined) {
+          const parsed = parseInt(storedCorrect, 10);
+          if (!isNaN(parsed)) {
+            correctAnswersRef.current = parsed;
+            setCorrectAnswers(parsed);
+          }
+        }
+        const storedWrong = storedMap[STORAGE_KEYS.wrongAnswers];
+        if (storedWrong !== null && storedWrong !== undefined) {
+          const parsed = parseInt(storedWrong, 10);
+          if (!isNaN(parsed)) {
+            wrongAnswersRef.current = parsed;
+            setWrongAnswers(parsed);
+          }
         }
         const storedStreakDays = storedMap[STORAGE_KEYS.streakDays];
         if (storedStreakDays !== null && storedStreakDays !== undefined) {
@@ -286,6 +341,39 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     load();
   }, []);
 
+  const setCorrectAnswersHandler: React.Dispatch<React.SetStateAction<number>> = (action) => {
+    setCorrectAnswers((prev) => {
+      const nextVal = typeof action === 'function' ? action(prev) : action;
+      correctAnswersRef.current = nextVal;
+      AsyncStorage.setItem(STORAGE_KEYS.correctAnswers, String(nextVal)).catch((e) =>
+        console.error('Doğru cevap sayısı kaydedilemedi:', e)
+      );
+      return nextVal;
+    });
+  };
+
+  const setWrongAnswersHandler: React.Dispatch<React.SetStateAction<number>> = (action) => {
+    setWrongAnswers((prev) => {
+      const nextVal = typeof action === 'function' ? action(prev) : action;
+      wrongAnswersRef.current = nextVal;
+      AsyncStorage.setItem(STORAGE_KEYS.wrongAnswers, String(nextVal)).catch((e) =>
+        console.error('Yanlış cevap sayısı kaydedilemedi:', e)
+      );
+      return nextVal;
+    });
+  };
+
+  const setSeenIdsHandler: React.Dispatch<React.SetStateAction<number[]>> = (action) => {
+    setSeenIds((prev) => {
+      const nextVal = typeof action === 'function' ? action(prev) : action;
+      seenIdsRef.current = nextVal;
+      AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(nextVal)).catch((e) =>
+        console.error('Görülen IDler kaydedilemedi:', e)
+      );
+      return nextVal;
+    });
+  };
+
   const applyDelta = async (scoreDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
     const newScore = Math.max(0, oldScore + scoreDelta);
@@ -323,16 +411,29 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));
 
   const resetProgress = async () => {
+    // 1. Ref'leri sıfırla
     scoreRef.current = DEFAULT_SCORE;
     budgetRef.current = DEFAULT_BUDGET;
     techTokensRef.current = DEFAULT_TECH_TOKENS;
     inventoryRef.current = [];
+    seenIdsRef.current = DEFAULT_SEEN_IDS;
+    correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
+    wrongAnswersRef.current = DEFAULT_WRONG_ANSWERS;
+
+    // 2. State'leri sıfırla
     setScore(DEFAULT_SCORE);
     setBudget(DEFAULT_BUDGET);
     setTechTokens(DEFAULT_TECH_TOKENS);
     setInventory([]);
     setPendingBadges([]);
+
+    // 3. EKSİK OLANLARI BURAYA EKLE (Kendi değişken isimlerine göre düzelt)
+    setCorrectAnswers(DEFAULT_CORRECT_ANSWERS);
+    setWrongAnswers(DEFAULT_WRONG_ANSWERS);
+    setSeenIds(DEFAULT_SEEN_IDS);
+
     try {
+      // 3. AsyncStorage'dan tüm ilerlemeyi temizle
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.score,
         STORAGE_KEYS.budget,
@@ -340,7 +441,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         STORAGE_KEYS.inventory,
         STORAGE_KEYS.streakDays,
         STORAGE_KEYS.streakLastDate,
+        STORAGE_KEYS.seenIds,
+
+        STORAGE_KEYS.correctAnswers,
+        STORAGE_KEYS.wrongAnswers,
       ]);
+
+      console.log('Tertemiz sıfırlandı!');
     } catch (error) {
       console.error('İlerleme sıfırlanırken hata:', error);
     }
@@ -453,9 +560,27 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       todayIndex: dayIdx,
       streakCount: sc,
       claimStreakDay,
+      correctAnswers,
+      wrongAnswers,
+      seenIds,
+      setCorrectAnswers: setCorrectAnswersHandler,
+      setWrongAnswers: setWrongAnswersHandler,
+      setSeenIds: setSeenIdsHandler,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [score, budget, companyName, isLoaded, pendingBadges, techTokens, inventory, streakDays]);
+  }, [
+    score,
+    budget,
+    companyName,
+    isLoaded,
+    pendingBadges,
+    techTokens,
+    inventory,
+    streakDays,
+    correctAnswers,
+    wrongAnswers,
+    seenIds,
+  ]);
 
   return <ReputationContext.Provider value={value}>{children}</ReputationContext.Provider>;
 }

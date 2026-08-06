@@ -1,16 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../theme/colors';
+import { useTheme } from '../state/ThemeContext';
+import type { Theme } from '../theme/themes';
 import { fonts, fontSizes } from '../theme/typography';
 
-const TENSION_SECONDS = 180; // 03:00 — stres sayacı, ceza yok; sıfırda sessizce yeniden başlar.
+const TENSION_SECONDS = 180;
 
 interface IncidentCardProps {
   tag: string;
   title: string;
   description: string;
-  /** true olduğunda kart "çözüldü" görünümüne geçer, geri sayım durur. */
   resolved?: boolean;
   onRespond?: () => void;
 }
@@ -21,8 +21,6 @@ function formatTime(totalSeconds: number) {
   return `${m}:${s}`;
 }
 
-// .incident hero kart karşılığı — canlı geri sayım + kenarlık "glow" animasyonu.
-// Geri sayım yalnızca tansiyon içindir: 03:00 → 00:00, ardından sessizce tekrar 03:00.
 export default function IncidentCard({
   tag,
   title,
@@ -30,6 +28,10 @@ export default function IncidentCard({
   resolved = false,
   onRespond,
 }: IncidentCardProps) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  const { colors } = theme;
+
   const [seconds, setSeconds] = useState(TENSION_SECONDS);
   const glow = useRef(new Animated.Value(0.5)).current;
 
@@ -56,7 +58,7 @@ export default function IncidentCard({
   if (resolved) {
     return (
       <View style={[styles.wrapperStatic, { borderColor: colors.positiveBorder }]}>
-        <LinearGradient colors={[colors.positiveBg, 'rgba(21,27,39,0.9)']} style={styles.gradient}>
+        <LinearGradient colors={[colors.positiveBg, colors.bgBase + 'E6']} style={styles.gradient}>
           <Text style={[styles.tag, { color: colors.accentPositive }]}>✅ Durum Kapandı</Text>
           <Text style={styles.title}>Şu an aktif bir kriz yok.</Text>
           <Text style={styles.desc}>Yeni bir olay geldiğinde burada görünecek.</Text>
@@ -67,13 +69,13 @@ export default function IncidentCard({
 
   const borderColor = glow.interpolate({
     inputRange: [0.5, 1],
-    outputRange: ['rgba(242,169,59,0.4)', 'rgba(242,169,59,0.9)'],
+    outputRange: [colors.alertBorder, colors.accentAlert + 'E6'],
   });
 
   return (
     <Animated.View style={[styles.wrapper, { borderColor }]}>
       <LinearGradient
-        colors={['rgba(242,169,59,0.10)', 'rgba(21,27,39,0.9)']}
+        colors={[colors.alertBg, colors.bgBase + 'F2']}
         style={styles.gradient}
       >
         <Text style={styles.tag}>{tag}</Text>
@@ -94,68 +96,73 @@ export default function IncidentCard({
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: {
-    borderRadius: 18,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  wrapperStatic: {
-    borderRadius: 18,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  gradient: {
-    padding: 18,
-  },
-  tag: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: fontSizes.sm,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.accentAlert,
-    marginBottom: 10,
-  },
-  title: {
-    fontFamily: fonts.headingSemiBold,
-    fontSize: fontSizes['2xl'],
-    lineHeight: 23,
-    color: colors.textPrimary,
-    marginBottom: 8,
-  },
-  desc: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.md,
-    lineHeight: 19,
-    color: colors.textMuted,
-    marginBottom: 14,
-  },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  timer: {
-    fontFamily: fonts.monoBold,
-    fontSize: fontSizes['3xl'],
-    color: colors.accentAlert,
-  },
-  timerLabel: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.xs,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  btn: {
-    backgroundColor: colors.accentAlert,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 10,
-  },
-  btnText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: fontSizes.md,
-    color: '#1A1200',
-  },
-});
+function makeStyles(theme: Theme) {
+  const { colors, geometry, effects } = theme;
+  return StyleSheet.create({
+    wrapper: {
+      borderRadius: geometry.borderRadiusLg,
+      borderWidth: geometry.borderWidth,
+      overflow: 'hidden',
+      ...effects.glowAlert,
+    },
+    wrapperStatic: {
+      borderRadius: geometry.borderRadiusLg,
+      borderWidth: geometry.borderWidth,
+      overflow: 'hidden',
+      ...effects.glowPositive,
+    },
+    gradient: {
+      padding: 18,
+    },
+    tag: {
+      fontFamily: fonts.bodySemiBold,
+      fontSize: fontSizes.sm,
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+      color: colors.accentAlert,
+      marginBottom: 10,
+    },
+    title: {
+      fontFamily: fonts.headingSemiBold,
+      fontSize: fontSizes['2xl'],
+      lineHeight: 23,
+      color: colors.textPrimary,
+      marginBottom: 8,
+    },
+    desc: {
+      fontFamily: fonts.body,
+      fontSize: fontSizes.md,
+      lineHeight: 19,
+      color: colors.textMuted,
+      marginBottom: 14,
+    },
+    footer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    timer: {
+      fontFamily: fonts.monoBold,
+      fontSize: fontSizes['3xl'],
+      color: colors.accentAlert,
+    },
+    timerLabel: {
+      fontFamily: fonts.body,
+      fontSize: fontSizes.xs,
+      color: colors.textMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    btn: {
+      backgroundColor: colors.accentAlert,
+      paddingVertical: 10,
+      paddingHorizontal: 18,
+      borderRadius: geometry.borderRadiusSm,
+    },
+    btnText: {
+      fontFamily: fonts.bodySemiBold,
+      fontSize: fontSizes.md,
+      color: '#0A0800',
+    },
+  });
+}

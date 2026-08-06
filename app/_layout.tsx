@@ -10,6 +10,7 @@ import { useFonts as useJetBrainsMono, JetBrainsMono_400Regular, JetBrainsMono_5
 import { colors } from '../src/theme/colors';
 import { ReputationProvider } from '../src/state/ReputationContext';
 import { RoomProvider } from '../src/state/RoomContext';
+import { ThemeProvider } from '../src/state/ThemeContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -49,16 +50,18 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ReputationProvider>
-        <RoomProvider>
-          <View style={{ flex: 1, backgroundColor: colors.bgBase }}>
-            <StatusBar style="light" />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgBase } }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
-          </View>
-        </RoomProvider>
-      </ReputationProvider>
+      <ThemeProvider>
+        <ReputationProvider>
+          <RoomProvider>
+            <View style={{ flex: 1, backgroundColor: colors.bgBase }}>
+              <StatusBar style="light" />
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgBase } }}>
+                <Stack.Screen name="(tabs)" />
+              </Stack>
+            </View>
+          </RoomProvider>
+        </ReputationProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

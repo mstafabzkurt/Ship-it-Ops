@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import StatusPill from './StatusPill';
 import { getCompanyInitial, useReputation } from '../state/ReputationContext';
-import { colors } from '../theme/colors';
+import { useTheme } from '../state/ThemeContext';
 import { fonts, fontSizes } from '../theme/typography';
 
 interface TopbarProps {
@@ -11,24 +11,26 @@ interface TopbarProps {
   statusVariant: 'positive' | 'crisis';
 }
 
-// .topbar (.brand + .status-pill) karşılığı — logo ve şirket adı ReputationContext'ten gelir.
 export default function Topbar({ statusLabel, statusVariant }: TopbarProps) {
   const { companyName } = useReputation();
+  const { theme } = useTheme();
+  const { colors } = theme;
   const brandInitial = getCompanyInitial(companyName);
 
   return (
     <View style={styles.topbar}>
       <View style={styles.brand}>
-        <LinearGradient colors={[colors.accentPositive, '#1f9d82']} style={styles.brandMark}>
+        <LinearGradient colors={[colors.accentPositive, colors.accentPositive + '99']} style={styles.brandMark}>
           <Text style={styles.brandMarkText}>{brandInitial}</Text>
         </LinearGradient>
-        <Text style={styles.brandName}>{companyName}</Text>
+        <Text style={[styles.brandName, { color: colors.textPrimary }]}>{companyName}</Text>
       </View>
       <StatusPill label={statusLabel} variant={statusVariant} pulse={statusVariant === 'crisis'} />
     </View>
   );
 }
 
+// Structural-only styles — colors applied inline
 const styles = StyleSheet.create({
   topbar: {
     flexDirection: 'row',
@@ -53,11 +55,10 @@ const styles = StyleSheet.create({
   brandMarkText: {
     fontFamily: fonts.headingBold,
     fontSize: fontSizes.xl,
-    color: '#06120F',
+    color: '#060D10',
   },
   brandName: {
     fontFamily: fonts.headingSemiBold,
     fontSize: fontSizes['2xl'],
-    color: colors.textPrimary,
   },
 });

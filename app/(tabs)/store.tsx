@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -11,28 +11,35 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useReputation } from '../../src/state/ReputationContext';
-import { OFFICE_ITEMS, PREMIUM_ITEMS, type StoreItem } from '../../src/data/storeItems';
-import { colors } from '../../src/theme/colors';
+import { useTheme } from '../../src/state/ThemeContext';
+import type { Theme } from '../../src/theme/themes';
+import { THEME_ITEMS, type StoreItem } from '../../src/data/storeItems';
 import { fonts, fontSizes } from '../../src/theme/typography';
 
-// ---------------------------------------------------------------------------
-// Toast types
-// ---------------------------------------------------------------------------
-type ToastVariant = 'success' | 'error' | 'warning';
-interface ToastState {
-  visible: boolean;
-  message: string;
-  variant: ToastVariant;
-}
+type ToastVariant = 'success' | 'error' | 'warning' | 'equip';
+interface ToastState { visible: boolean; message: string; variant: ToastVariant; }
 
-// ---------------------------------------------------------------------------
-// Main Screen
-// ---------------------------------------------------------------------------
+// ── Theme feature blocks — shown inside each card ─────────────────────────────
+const THEME_FEATURES: Record<string, string[]> = {
+  theme_cyberpunk: [
+    'Neon Cyan & Neon Pembe vurgular',
+    'Keskin köşeler (borderRadius: 2)',
+    'Agresif glow efektleri',
+    'Derin siyah arka plan (#05070A)',
+  ],
+  theme_hacker_green: [
+    'Fosforlu yeşil vurgular',
+    'Terminal monospace estetiği',
+    'Minimal koyu arka plan',
+    'Düşük kontrast, göz dostu gece modu',
+  ],
+};
+
 export default function StoreScreen() {
-  const { budget, techTokens, inventory, purchaseItem } = useReputation();
-  const [activeTab, setActiveTab] = useState<'office' | 'premium'>('office');
+  const { techTokens, inventory, purchaseItem } = useReputation();
+  const { theme, themeId, setThemeId } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  // Toast state
   const [toast, setToast] = useState<ToastState>({ visible: false, message: '', variant: 'success' });
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -42,138 +49,120 @@ export default function StoreScreen() {
     setToast({ visible: true, message, variant });
     toastAnim.setValue(0);
     Animated.timing(toastAnim, {
-      toValue: 1,
-      duration: 260,
-      easing: Easing.out(Easing.back(1.2)),
-      useNativeDriver: true,
+      toValue: 1, duration: 260, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true,
     }).start();
     toastTimeout.current = setTimeout(() => {
       Animated.timing(toastAnim, {
-        toValue: 0,
-        duration: 200,
-        easing: Easing.in(Easing.ease),
-        useNativeDriver: true,
+        toValue: 0, duration: 200, easing: Easing.in(Easing.ease), useNativeDriver: true,
       }).start(() => setToast(prev => ({ ...prev, visible: false })));
-    }, 2800);
+    }, 3000);
   };
 
-  const handlePurchase = async (item: StoreItem) => {
-    const currency = item.category === 'office' ? 'budget' : 'tt';
-    const result = await purchaseItem(item.id, currency, item.price);
-    if (result === 'ok') {
-      showToast(`✓ "${item.title}" satın alındı!`, 'success');
-    } else if (result === 'already_owned') {
-      showToast(`Bu ürün zaten envanterinde var.`, 'warning');
+  const handleThemeAction = async (item: StoreItem) => {
+    // "Yakında" items have no themeIdKey — show coming soon toast
+    if (!item.themeIdKey) {
+      showToast('⏳ Bu tema yakında geliyor!', 'warning');
+      return;
+    }
+
+    const owned = inventory.includes(item.id);
+
+    if (!owned) {
+      const result = await purchaseItem(item.id, 'tt', item.price);
+      if (result === 'ok') {
+        await setThemeId(item.themeIdKey);
+        showToast(`⚡ "${item.title}" satın alındı ve etkinleştirildi!`, 'equip');
+      } else if (result === 'already_owned') {
+        showToast('Bu tema zaten envanterinde.', 'warning');
+      } else {
+        showToast(`Yetersiz TechToken! Gerekli: ${item.price} tt`, 'error');
+      }
     } else {
-      showToast(
-        currency === 'budget'
-          ? `Yetersiz bütçe! Gerekli: $${item.price.toLocaleString('tr-TR')}`
-          : `Yetersiz TechToken! Gerekli: ${item.price} tt`,
-        'error',
-      );
+      if (themeId === item.themeIdKey) return; // already active
+      await setThemeId(item.themeIdKey);
+      showToast(`⚡ "${item.title}" etkinleştirildi!`, 'equip');
     }
   };
 
-  const activeItems = activeTab === 'office' ? OFFICE_ITEMS : PREMIUM_ITEMS;
+  const handleEquipDefault = async () => {
+    if (themeId === 'default') return;
+    await setThemeId('default');
+    showToast('✓ Varsayılan tema etkinleştirildi.', 'success');
+  };
+
+  const { colors, geometry, effects } = theme;
 
   const toastBorderColor =
-    toast.variant === 'success'
-      ? colors.accentPositive
-      : toast.variant === 'error'
-        ? colors.accentDanger
-        : colors.accentAlert;
+    toast.variant === 'equip' ? colors.accentAlert :
+    toast.variant === 'success' ? colors.accentPositive :
+    toast.variant === 'error' ? colors.accentDanger :
+    colors.accentAlert;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      {/* ---- Header ---- */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>🛍️ Şirket Mağazası</Text>
-        <Text style={styles.headerSub}>Bütçeni ve TechToken'ını akıllıca harca</Text>
-      </View>
-
-      {/* ---- Currency Bar ---- */}
-      <View style={styles.currencyBar}>
-        <View style={styles.currencyChip}>
-          <Text style={styles.currencyIcon}>💰</Text>
-          <View>
-            <Text style={styles.currencyLabel}>Şirket Bütçesi</Text>
-            <Text style={styles.currencyValue}>${budget.toLocaleString('tr-TR')}</Text>
+        <View style={styles.headerTop}>
+          <Text style={styles.headerTitle}>🎨 Tema Mağazası</Text>
+          <View style={styles.ttChip}>
+            <Text style={styles.ttChipIcon}>🪙</Text>
+            <Text style={styles.ttChipValue}>{techTokens} tt</Text>
           </View>
         </View>
-        <View style={styles.currencySep} />
-        <View style={styles.currencyChip}>
-          <Text style={styles.currencyIcon}>🪙</Text>
-          <View>
-            <Text style={styles.currencyLabel}>TechToken</Text>
-            <Text style={[styles.currencyValue, styles.ttValue]}>{techTokens} tt</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* ---- Segmented Tabs ---- */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'office' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('office')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.tabIcon}>🏢</Text>
-          <Text style={[styles.tabLabel, activeTab === 'office' && styles.tabLabelActive]}>
-            Ofis &amp; Bütçe
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'premium' && styles.tabButtonPremiumActive]}
-          onPress={() => setActiveTab('premium')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.tabIcon}>⚡</Text>
-          <Text style={[styles.tabLabel, activeTab === 'premium' && styles.tabLabelPremiumActive]}>
-            Premium / tt
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ---- Category Hint ---- */}
-      <View
-        style={[
-          styles.categoryHint,
-          activeTab === 'premium' && styles.categoryHintPremium,
-        ]}
-      >
-        <Text style={styles.categoryHintText}>
-          {activeTab === 'office'
-            ? '💰 Ofis ürünleri şirket bütçesiyle satın alınır'
-            : '⚡ Premium içerikler TechToken (tt) ile satın alınır'}
+        <Text style={styles.headerSub}>
+          TechToken kazanarak premium temalar satın al ve uygulamana kişilik kat.
         </Text>
       </View>
 
-      {/* ---- Items List ---- */}
+      {/* ── Active theme banner ─────────────────────────────────────────────── */}
+      <View style={styles.activeBanner}>
+        <View style={styles.activeBannerLeft}>
+          <View style={styles.activeDot} />
+          <Text style={styles.activeBannerLabel}>Aktif Tema:</Text>
+          <Text style={styles.activeBannerName}>
+            {themeId === 'cyberpunk' ? '⚡ Cyberpunk' : '🌑 Varsayılan'}
+          </Text>
+        </View>
+        {themeId !== 'default' && (
+          <TouchableOpacity
+            style={styles.revertBtn}
+            onPress={handleEquipDefault}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.revertBtnText}>Varsayılana Dön</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ── Item list ──────────────────────────────────────────────────────── */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {activeItems.map((item) => {
+        {THEME_ITEMS.map((item) => {
           const owned = inventory.includes(item.id);
-          const canAfford =
-            item.category === 'office' ? budget >= item.price : techTokens >= item.price;
-
+          const isActive = themeId === item.themeIdKey;
+          const canAfford = techTokens >= item.price;
+          const isComingSoon = !item.themeIdKey;
           return (
-            <StoreCard
+            <ThemeCard
               key={item.id}
               item={item}
               owned={owned}
+              isActive={isActive}
               canAfford={canAfford}
-              onBuy={handlePurchase}
+              isComingSoon={isComingSoon}
+              onAction={handleThemeAction}
+              theme={theme}
+              features={THEME_FEATURES[item.id] ?? []}
             />
           );
         })}
-        {/* Bottom padding to avoid tab bar overlap */}
-        <View style={{ height: 20 }} />
+        <View style={{ height: 24 }} />
       </ScrollView>
 
-      {/* ---- Toast Notification ---- */}
+      {/* ── Toast ──────────────────────────────────────────────────────────── */}
       {toast.visible && (
         <Animated.View
           pointerEvents="none"
@@ -183,18 +172,8 @@ export default function StoreScreen() {
             {
               opacity: toastAnim,
               transform: [
-                {
-                  translateY: toastAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [24, 0],
-                  }),
-                },
-                {
-                  scale: toastAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.94, 1],
-                  }),
-                },
+                { translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+                { scale: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
               ],
             },
           ]}
@@ -206,111 +185,180 @@ export default function StoreScreen() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// StoreCard Component
-// ---------------------------------------------------------------------------
-interface StoreCardProps {
+// ── Theme Card Component ──────────────────────────────────────────────────────
+interface ThemeCardProps {
   item: StoreItem;
   owned: boolean;
+  isActive: boolean;
   canAfford: boolean;
-  onBuy: (item: StoreItem) => void;
+  isComingSoon: boolean;
+  features: string[];
+  onAction: (item: StoreItem) => void;
+  theme: Theme;
 }
 
-function StoreCard({ item, owned, canAfford, onBuy }: StoreCardProps) {
-  const isPremium = item.category === 'premium';
-  const currency = isPremium ? 'tt' : '$';
-  const priceDisplay = isPremium
-    ? `${item.price} tt`
-    : `$${item.price.toLocaleString('tr-TR')}`;
+function ThemeCard({ item, owned, isActive, canAfford, isComingSoon, features, onAction, theme }: ThemeCardProps) {
+  const { colors, geometry, effects } = theme;
 
-  const buttonDisabled = owned || !canAfford;
+  // ── Card visuals ────────────────────────────────────────────────────────
+  const cardBg = isActive ? colors.alertBg : owned ? colors.positiveBg : colors.panel;
+  const cardBorder = isActive ? colors.alertBorder : owned ? colors.positiveBorder : isComingSoon ? colors.border : colors.border;
+  const cardGlow = isActive ? effects.glowAlert : owned ? effects.glowPositive : effects.cardShadow;
 
-  const buttonStyle = [
-    styles.buyButton,
-    owned
-      ? styles.buyButtonOwned
-      : canAfford
-        ? isPremium
-          ? styles.buyButtonPremium
-          : styles.buyButtonBudget
-        : styles.buyButtonDisabled,
-  ];
+  // ── Button state ─────────────────────────────────────────────────────────
+  let buttonLabel: string;
+  let buttonBg: string;
+  let buttonTextColor: string;
+  let buttonDisabled = false;
+  let buttonGlow = {};
 
-  const buttonLabel = owned
-    ? '✓ Sahip Olundu'
-    : canAfford
-      ? isPremium
-        ? `⚡ ${priceDisplay} ile Al`
-        : `💰 ${priceDisplay} ile Satın Al`
-      : 'Yetersiz Bakiye';
+  if (isComingSoon) {
+    buttonLabel = '🔒 Yakında Geliyor';
+    buttonBg = colors.panelAlt;
+    buttonTextColor = colors.textMuted;
+    buttonDisabled = true;
+  } else if (isActive) {
+    buttonLabel = '✓ Etkin — Aktif';
+    buttonBg = colors.alertBg;
+    buttonTextColor = colors.accentAlert;
+    buttonDisabled = true;
+  } else if (owned) {
+    buttonLabel = '⚡ Giy (Equip)';
+    buttonBg = colors.accentPositive;
+    buttonTextColor = '#060D10';
+    buttonGlow = effects.glowPositive;
+  } else if (canAfford) {
+    buttonLabel = `⚡ ${item.price} tt ile Satın Al`;
+    buttonBg = colors.accentAlert;
+    buttonTextColor = '#060D10';
+    buttonGlow = effects.glowAlert;
+  } else {
+    buttonLabel = `🪙 ${item.price} tt Gerekli`;
+    buttonBg = colors.panelAlt;
+    buttonTextColor = colors.textMuted;
+    buttonDisabled = true;
+  }
 
   return (
-    <View
-      style={[
-        styles.card,
-        owned && styles.cardOwned,
-        isPremium && styles.cardPremium,
-      ]}
-    >
-      {/* Left: Icon */}
-      <View
-        style={[
-          styles.cardIconWrap,
-          owned && styles.cardIconWrapOwned,
-          isPremium && !owned && styles.cardIconWrapPremium,
-        ]}
-      >
-        <Text style={styles.cardIcon}>{item.icon}</Text>
-      </View>
+    <View style={{
+      backgroundColor: cardBg,
+      borderWidth: geometry.borderWidth,
+      borderColor: cardBorder,
+      borderRadius: geometry.borderRadius,
+      overflow: 'hidden',
+      ...cardGlow,
+    }}>
+      {/* Top strip */}
+      <View style={{
+        paddingHorizontal: 18,
+        paddingTop: 18,
+        paddingBottom: 14,
+        gap: 10,
+      }}>
+        {/* Title row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{
+            width: 48, height: 48, borderRadius: geometry.borderRadius,
+            backgroundColor: isActive ? colors.alertBg : owned ? colors.positiveBg : colors.panelAlt,
+            borderWidth: geometry.borderWidth,
+            borderColor: isActive ? colors.alertBorder : owned ? colors.positiveBorder : colors.border,
+            alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+          </View>
 
-      {/* Middle: Info */}
-      <View style={styles.cardInfo}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {item.title}
-          </Text>
-          {owned && (
-            <View style={styles.ownedBadge}>
-              <Text style={styles.ownedBadgeText}>KİLİTSİZ</Text>
+          <View style={{ flex: 1, gap: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={{ fontFamily: fonts.headingSemiBold, fontSize: fontSizes['2xl'], color: colors.textPrimary, flex: 1 }}>
+                {item.title}
+              </Text>
+              {/* Status badge */}
+              {isActive && (
+                <View style={{ backgroundColor: colors.alertBg, borderWidth: geometry.borderWidth, borderColor: colors.alertBorder, paddingHorizontal: 7, paddingVertical: 2, borderRadius: geometry.borderRadiusSm }}>
+                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.xs, color: colors.accentAlert, letterSpacing: 0.6 }}>AKTİF</Text>
+                </View>
+              )}
+              {owned && !isActive && (
+                <View style={{ backgroundColor: colors.positiveBg, borderWidth: geometry.borderWidth, borderColor: colors.positiveBorder, paddingHorizontal: 7, paddingVertical: 2, borderRadius: geometry.borderRadiusSm }}>
+                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.xs, color: colors.accentPositive }}>ALINDI</Text>
+                </View>
+              )}
+              {isComingSoon && (
+                <View style={{ backgroundColor: colors.panelAlt, borderWidth: geometry.borderWidth, borderColor: colors.border, paddingHorizontal: 7, paddingVertical: 2, borderRadius: geometry.borderRadiusSm }}>
+                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.xs, color: colors.textMuted, letterSpacing: 0.5 }}>YAKINDA</Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
-        <Text style={styles.cardDesc} numberOfLines={2}>
-          {item.description}
-        </Text>
-
-        {/* Price tag */}
-        <View style={styles.priceRow}>
-          <View
-            style={[
-              styles.priceTag,
-              isPremium ? styles.priceTagPremium : styles.priceTagBudget,
-            ]}
-          >
-            <Text
-              style={[
-                styles.priceTagText,
-                isPremium ? styles.priceTagTextPremium : styles.priceTagTextBudget,
-              ]}
-            >
-              {priceDisplay}
+            <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted, lineHeight: 17 }}>
+              {item.description}
             </Text>
           </View>
         </View>
 
-        {/* Buy Button */}
+        {/* Feature list */}
+        {features.length > 0 && (
+          <View style={{ gap: 5, paddingLeft: 4 }}>
+            {features.map((f, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: isActive ? colors.accentAlert : owned ? colors.accentPositive : colors.textMuted }} />
+                <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: isActive ? colors.textPrimary : colors.textMuted, flex: 1 }}>
+                  {f}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* Bottom action strip */}
+      <View style={{
+        borderTopWidth: geometry.borderWidth,
+        borderTopColor: isActive ? colors.alertBorder : owned ? colors.positiveBorder : colors.border,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        gap: 12,
+        backgroundColor: isActive ? colors.alertBg + '88' : owned ? colors.positiveBg + '55' : colors.panelAlt,
+      }}>
+        {/* Price chip (only shown if not yet owned and not coming soon) */}
+        {!owned && !isComingSoon ? (
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            backgroundColor: canAfford ? colors.alertBg : colors.dangerBg,
+            borderWidth: geometry.borderWidth,
+            borderColor: canAfford ? colors.alertBorder : colors.dangerBorder,
+            borderRadius: geometry.borderRadiusSm,
+            paddingHorizontal: 10, paddingVertical: 5,
+          }}>
+            <Text style={{ fontSize: 12 }}>🪙</Text>
+            <Text style={{ fontFamily: fonts.monoSemiBold, fontSize: fontSizes.md, color: canAfford ? colors.accentAlert : colors.accentDanger }}>
+              {item.price} tt
+            </Text>
+          </View>
+        ) : (
+          <View /> // spacer
+        )}
+
+        {/* Action button */}
         <TouchableOpacity
-          style={buttonStyle}
-          onPress={() => !buttonDisabled && onBuy(item)}
+          style={{
+            paddingVertical: 9,
+            paddingHorizontal: 18,
+            borderRadius: geometry.borderRadiusSm,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: buttonBg,
+            borderWidth: buttonDisabled ? geometry.borderWidth : 0,
+            borderColor: isActive ? colors.alertBorder : colors.border,
+            ...buttonGlow,
+          }}
+          onPress={() => !buttonDisabled && onAction(item)}
           activeOpacity={buttonDisabled ? 1 : 0.75}
           disabled={buttonDisabled}
         >
-          <Text
-            style={[
-              styles.buyButtonText,
-              owned ? styles.buyButtonTextOwned : !canAfford ? styles.buyButtonTextDisabled : null,
-            ]}
-          >
+          <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.sm, color: buttonTextColor }}>
             {buttonLabel}
           </Text>
         </TouchableOpacity>
@@ -319,312 +367,57 @@ function StoreCard({ item, owned, canAfford, onBuy }: StoreCardProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.bgBase,
-  },
+// ── Styles ────────────────────────────────────────────────────────────────────
+function makeStyles(theme: Theme) {
+  const { colors, geometry, effects } = theme;
+  return StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.bgBase },
 
-  /* Header */
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  headerTitle: {
-    fontFamily: fonts.headingBold,
-    fontSize: fontSizes['3xl'],
-    color: colors.textPrimary,
-  },
-  headerSub: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.sm,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
+    header: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 14 },
+    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+    headerTitle: { fontFamily: fonts.headingBold, fontSize: fontSizes['3xl'], color: colors.textPrimary },
+    headerSub: { fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted, lineHeight: 18 },
+    ttChip: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      backgroundColor: colors.alertBg, borderWidth: geometry.borderWidth,
+      borderColor: colors.alertBorder, borderRadius: 20,
+      paddingHorizontal: 12, paddingVertical: 6,
+      ...effects.glowAlert,
+    },
+    ttChipIcon: { fontSize: 14 },
+    ttChipValue: { fontFamily: fonts.monoBold, fontSize: fontSizes.md, color: colors.accentAlert },
 
-  /* Currency Bar */
-  currencyBar: {
-    marginHorizontal: 20,
-    marginBottom: 14,
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  currencyChip: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  currencyIcon: {
-    fontSize: 22,
-  },
-  currencyLabel: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.xs,
-    color: colors.textMuted,
-  },
-  currencyValue: {
-    fontFamily: fonts.monoBold,
-    fontSize: fontSizes.lg,
-    color: colors.accentPositive,
-    marginTop: 1,
-  },
-  ttValue: {
-    color: colors.accentAlert,
-  },
-  currencySep: {
-    width: 1,
-    height: 36,
-    backgroundColor: colors.border,
-    marginHorizontal: 14,
-  },
+    activeBanner: {
+      marginHorizontal: 20, marginBottom: 14,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      backgroundColor: colors.panel, borderWidth: geometry.borderWidth,
+      borderColor: colors.border, borderRadius: geometry.borderRadius,
+      paddingHorizontal: 14, paddingVertical: 10,
+      ...effects.cardShadow,
+    },
+    activeBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    activeDot: {
+      width: 8, height: 8, borderRadius: 4,
+      backgroundColor: colors.accentPositive,
+    },
+    activeBannerLabel: { fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted },
+    activeBannerName: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.sm, color: colors.textPrimary },
+    revertBtn: {
+      backgroundColor: colors.panelAlt, borderWidth: geometry.borderWidth,
+      borderColor: colors.border, borderRadius: geometry.borderRadiusSm,
+      paddingHorizontal: 10, paddingVertical: 5,
+    },
+    revertBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSizes.xs, color: colors.textMuted },
 
-  /* Tab Bar */
-  tabBar: {
-    flexDirection: 'row',
-    marginHorizontal: 20,
-    marginBottom: 10,
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 4,
-    gap: 4,
-  },
-  tabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 9,
-    borderRadius: 9,
-  },
-  tabButtonActive: {
-    backgroundColor: colors.positiveBg,
-    borderWidth: 1,
-    borderColor: colors.positiveBorder,
-  },
-  tabButtonPremiumActive: {
-    backgroundColor: colors.alertBg,
-    borderWidth: 1,
-    borderColor: colors.alertBorder,
-  },
-  tabIcon: {
-    fontSize: 14,
-  },
-  tabLabel: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: fontSizes.sm,
-    color: colors.textMuted,
-  },
-  tabLabelActive: {
-    color: colors.accentPositive,
-  },
-  tabLabelPremiumActive: {
-    color: colors.accentAlert,
-  },
+    scroll: { flex: 1 },
+    scrollContent: { paddingHorizontal: 20, gap: 14 },
 
-  /* Category Hint */
-  categoryHint: {
-    marginHorizontal: 20,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: colors.positiveBg,
-    borderWidth: 1,
-    borderColor: colors.positiveBorder,
-  },
-  categoryHintPremium: {
-    backgroundColor: colors.alertBg,
-    borderColor: colors.alertBorder,
-  },
-  categoryHintText: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: fontSizes.xs,
-    color: colors.textMuted,
-  },
-
-  /* Scroll */
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-
-  /* Store Card */
-  card: {
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: 'row',
-    gap: 14,
-  },
-  cardOwned: {
-    borderColor: colors.positiveBorder,
-    backgroundColor: colors.positiveBg,
-  },
-  cardPremium: {
-    borderColor: colors.alertBorder,
-  },
-  cardIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: colors.panelAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    flexShrink: 0,
-  },
-  cardIconWrapOwned: {
-    borderColor: colors.positiveBorder,
-    backgroundColor: colors.positiveBg,
-  },
-  cardIconWrapPremium: {
-    borderColor: colors.alertBorder,
-    backgroundColor: colors.alertBg,
-  },
-  cardIcon: {
-    fontSize: 24,
-  },
-  cardInfo: {
-    flex: 1,
-    gap: 5,
-  },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  cardTitle: {
-    fontFamily: fonts.headingSemiBold,
-    fontSize: fontSizes.md,
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  ownedBadge: {
-    backgroundColor: colors.positiveBg,
-    borderWidth: 1,
-    borderColor: colors.positiveBorder,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-  },
-  ownedBadgeText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: fontSizes.xs,
-    color: colors.accentPositive,
-    letterSpacing: 0.5,
-  },
-  cardDesc: {
-    fontFamily: fonts.body,
-    fontSize: fontSizes.xs,
-    color: colors.textMuted,
-    lineHeight: 16,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  priceTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  priceTagBudget: {
-    backgroundColor: 'rgba(53,201,163,0.08)',
-    borderColor: colors.positiveBorder,
-  },
-  priceTagPremium: {
-    backgroundColor: 'rgba(242,169,59,0.10)',
-    borderColor: colors.alertBorder,
-  },
-  priceTagText: {
-    fontFamily: fonts.monoSemiBold,
-    fontSize: fontSizes.sm,
-  },
-  priceTagTextBudget: {
-    color: colors.accentPositive,
-  },
-  priceTagTextPremium: {
-    color: colors.accentAlert,
-  },
-
-  /* Buy Button */
-  buyButton: {
-    borderRadius: 9,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  buyButtonBudget: {
-    backgroundColor: colors.accentPositive,
-  },
-  buyButtonPremium: {
-    backgroundColor: colors.accentAlert,
-  },
-  buyButtonOwned: {
-    backgroundColor: colors.positiveBg,
-    borderWidth: 1,
-    borderColor: colors.positiveBorder,
-  },
-  buyButtonDisabled: {
-    backgroundColor: colors.panelAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  buyButtonText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: fontSizes.sm,
-    color: colors.bgBase,
-  },
-  buyButtonTextOwned: {
-    color: colors.accentPositive,
-  },
-  buyButtonTextDisabled: {
-    color: colors.textMuted,
-  },
-
-  /* Toast */
-  toast: {
-    position: 'absolute',
-    bottom: 28,
-    left: 20,
-    right: 20,
-    backgroundColor: colors.panelAlt,
-    borderWidth: 1.5,
-    borderRadius: 13,
-    paddingVertical: 13,
-    paddingHorizontal: 18,
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 8,
-  },
-  toastText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: fontSizes.md,
-  },
-});
+    toast: {
+      position: 'absolute', bottom: 28, left: 20, right: 20,
+      backgroundColor: colors.panelAlt, borderWidth: geometry.borderWidth,
+      borderRadius: geometry.borderRadius, paddingVertical: 13, paddingHorizontal: 18,
+      ...effects.panelShadow,
+    },
+    toastText: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.md },
+  });
+}
