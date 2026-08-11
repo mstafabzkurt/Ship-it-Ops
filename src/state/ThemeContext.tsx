@@ -10,7 +10,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { THEMES, cyberpunkTheme } from '../theme/themes';
+import { THEMES, defaultTheme } from '../theme/themes';
 import type { Theme } from '../theme/themes';
 
 const THEME_STORAGE_KEY = '@shipit_theme_id';
@@ -23,6 +23,12 @@ interface ThemeContextValue {
   themeId: Theme['id'];
   /** Switch to a different theme and persist the choice */
   setThemeId: (id: Theme['id']) => Promise<void>;
+  /**
+   * Called during a full progress reset: immediately reverts the active theme
+   * to 'default' in state AND removes the persisted @shipit_theme_id key from
+   * AsyncStorage so the default theme survives app reload.
+   */
+  resetTheme: () => Promise<void>;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -58,10 +64,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const theme = THEMES[themeId] ?? cyberpunkTheme;
+  const resetTheme = async () => {
+    setThemeIdState('default');
+    try {
+      await AsyncStorage.removeItem(THEME_STORAGE_KEY);
+    } catch (e) {
+      console.error('[ThemeContext] Tema sıfırlanamadı:', e);
+    }
+  };
+
+  const theme = THEMES[themeId] ?? defaultTheme;
 
   return (
-    <ThemeContext.Provider value={{ theme, themeId, setThemeId }}>
+    <ThemeContext.Provider value={{ theme, themeId, setThemeId, resetTheme }}>
       {children}
     </ThemeContext.Provider>
   );

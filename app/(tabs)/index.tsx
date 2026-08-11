@@ -19,6 +19,7 @@ import { useReputation, STREAK_REWARDS } from '../../src/state/ReputationContext
 import { useTheme } from '../../src/state/ThemeContext';
 import type { Theme } from '../../src/theme/themes';
 import { fonts, fontSizes } from '../../src/theme/typography';
+import GradientBackground from '../../src/components/GradientBackground';
 
 const DAY_LABELS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
@@ -57,7 +58,8 @@ export default function DashboardScreen() {
   const todayClaimed = streakDays[todayIndex] === true;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <GradientBackground>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: 'transparent' }]} edges={['top']}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Topbar statusLabel="Kriz Modu" statusVariant="crisis" />
 
@@ -169,7 +171,8 @@ export default function DashboardScreen() {
           <Text style={styles.toastText}>{toastMsg}</Text>
         </Animated.View>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </GradientBackground>
   );
 }
 

@@ -19,6 +19,7 @@ import { useRoom } from '../../src/state/RoomContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import type { Theme } from '../../src/theme/themes';
 import { fonts, fontSizes } from '../../src/theme/typography';
+import GradientBackground from '../../src/components/GradientBackground';
 
 export default function ProfileScreen() {
   const {
@@ -32,7 +33,7 @@ export default function ProfileScreen() {
   } = useReputation();
 
   const { resetRoom } = useRoom();
-  const { theme } = useTheme();
+  const { theme, resetTheme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   // Dynamic calculations
@@ -70,7 +71,7 @@ export default function ProfileScreen() {
     if (Platform.OS === 'web') {
       const isConfirmed = window.confirm('Tüm puanlar, bütçe, görülen senaryolar ve kullanıcı istatistikleri sıfırlanacak. Emin misiniz?');
       if (isConfirmed) {
-        await Promise.all([resetProgress(), resetRoom()]);
+        await Promise.all([resetProgress(), resetRoom(), resetTheme()]);
         window.alert('Bilgi: Tüm ilerleme ve istatistikler sıfırlandı.');
       }
     } else {
@@ -83,7 +84,7 @@ export default function ProfileScreen() {
             text: 'Sıfırla',
             style: 'destructive',
             onPress: async () => {
-              await Promise.all([resetProgress(), resetRoom()]);
+              await Promise.all([resetProgress(), resetRoom(), resetTheme()]);
               Alert.alert('Bilgi', 'Tüm ilerleme ve istatistikler sıfırlandı.');
             },
           },
@@ -93,13 +94,13 @@ export default function ProfileScreen() {
   };
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
 
   const initialLetter = getCompanyInitial(companyName);
   const { colors } = theme;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <GradientBackground>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: 'transparent' }]} edges={['top']}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -181,21 +182,6 @@ export default function ProfileScreen() {
               thumbColor={colors.textPrimary}
             />
           </View>
-          <View style={styles.divider} />
-          <View style={styles.preferenceRow}>
-            <View style={styles.preferenceTextWrap}>
-              <Text style={styles.preferenceTitle}>Karanlık Tema (Dark Mode)</Text>
-              <Text style={styles.preferenceSub}>
-                {isDarkMode ? 'Karanlık tema aktif' : 'Aydınlık tema aktif'}
-              </Text>
-            </View>
-            <Switch
-              value={isDarkMode}
-              onValueChange={setIsDarkMode}
-              trackColor={{ false: colors.border, true: colors.accentPositive }}
-              thumbColor={colors.textPrimary}
-            />
-          </View>
         </View>
 
         {/* Reset Button */}
@@ -220,7 +206,8 @@ export default function ProfileScreen() {
           <Text style={styles.toastText}>Şirket adı başarıyla güncellendi!</Text>
         </Animated.View>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </GradientBackground>
   );
 }
 

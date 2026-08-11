@@ -15,7 +15,7 @@ export interface StoreItem {
    * Sadece 'theme' kategorisindeki öğeler için — ThemeContext'teki themeId değeri.
    * Equip edildiğinde setThemeId(themeIdKey) çağrılır.
    */
-  themeIdKey?: 'default' | 'cyberpunk';
+  themeIdKey?: 'default' | 'cyberpunk' | 'hardware' | 'nebula';
 }
 
 // --- Kategori A: Ofis / Şirket Bütçesi --------------------------------
@@ -144,14 +144,24 @@ export const THEME_ITEMS: StoreItem[] = [
     themeIdKey: 'cyberpunk',
   },
   {
-    id: 'theme_hacker_green',
+    id: 'theme_hardware',
     category: 'theme',
-    icon: '💚',
-    title: 'Hacker Yeşil Tema',
+    icon: '🖥️',
+    title: 'Hardware Tema',
     description:
-      'Klasik terminal estetiği. Matrix hissi, fosforlu yeşil tonlar ve minimal arayüz. Konsola aşık geliştiriciler için.',
+      'Derin orman yeşili, taktik tablo ve keskin sıfır-border-radius estetiği. Saha operasyonları ruhunu ekrana taşır.',
     price: 350,
-    themeIdKey: undefined, // Yakında — şu an kilitli
+    themeIdKey: 'hardware',
+  },
+  {
+    id: 'theme_nebula',
+    category: 'theme',
+    icon: '🌌',
+    title: 'Nebula Tema',
+    description:
+      'Derin uzay morları, premium yuvarlak köşeler ve magenta-violet gradyan arka plan. Gece yarısı evreni hissini ekrana taşıyan en premium tema.',
+    price: 800,
+    themeIdKey: 'nebula',
   },
 ];
 

@@ -94,7 +94,7 @@ export const STREAK_REWARDS = [200, 400, 600, 800, 1000, 1200, 1500] as const;
 const DEFAULT_SCORE = 0;
 const DEFAULT_BUDGET = 1000;
 const DEFAULT_COMPANY_NAME = 'ShipIt Inc.';
-const DEFAULT_TECH_TOKENS = 0;
+const DEFAULT_TECH_TOKENS = 2000;
 const DEFAULT_CORRECT_ANSWERS = 0;
 const DEFAULT_WRONG_ANSWERS = 0;
 const DEFAULT_SEEN_IDS: number[] = [];
@@ -442,9 +442,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         STORAGE_KEYS.streakDays,
         STORAGE_KEYS.streakLastDate,
         STORAGE_KEYS.seenIds,
-
         STORAGE_KEYS.correctAnswers,
         STORAGE_KEYS.wrongAnswers,
+        '@shipit_theme_id', // Reset active theme back to default
       ]);
 
       console.log('Tertemiz sıfırlandı!');

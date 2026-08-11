@@ -8,6 +8,7 @@ import { useReputation, RANKS } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import type { Theme } from '../../src/theme/themes';
 import { fonts, fontSizes } from '../../src/theme/typography';
+import GradientBackground from '../../src/components/GradientBackground';
 
 // Tier görsel konfigürasyonu — tier renkler sabit tutulur (tema bağımsız karakter renkleri)
 const TIER_CONFIG: Record<string, { emoji: string; color: string; bg: string; border: string }> = {
@@ -26,7 +27,8 @@ export default function ReputationScreen() {
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <GradientBackground>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: 'transparent' }]} edges={['top']}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.header}>İtibar</Text>
 
@@ -102,7 +104,8 @@ export default function ReputationScreen() {
           ))}
         </View>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </GradientBackground>
   );
 }
 
