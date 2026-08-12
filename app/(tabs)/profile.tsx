@@ -27,6 +27,8 @@ export default function ProfileScreen() {
     setCompanyName,
     currentRank,
     score,
+    budget,
+    addBudget,
     resetProgress,
     correctAnswers,
     wrongAnswers,
@@ -98,6 +100,10 @@ export default function ProfileScreen() {
   const initialLetter = getCompanyInitial(companyName);
   const { colors } = theme;
 
+  const handleAddDebugBudget = () => {
+    void addBudget(10_000);
+  };
+
   return (
     <GradientBackground>
       <SafeAreaView style={[styles.safeArea, { backgroundColor: 'transparent' }]} edges={['top']}>
@@ -121,6 +127,14 @@ export default function ProfileScreen() {
             </View>
             <Text style={styles.scoreText}>{score.toLocaleString('tr-TR')} İtibar Puanı</Text>
           </View>
+        </View>
+
+        <View style={styles.debugCard}>
+          <Text style={styles.debugTitle}>Developer Budget</Text>
+          <Text style={styles.debugBalance}>${budget.toLocaleString('tr-TR')}</Text>
+          <TouchableOpacity style={styles.debugButton} onPress={handleAddDebugBudget} activeOpacity={0.8}>
+            <Text style={styles.debugButtonText}>Add 10,000 Budget</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Stats */}
@@ -271,6 +285,11 @@ function makeStyles(theme: Theme) {
       textTransform: 'uppercase',
     },
     scoreText: { fontFamily: fonts.mono, fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 2 },
+    debugCard: { marginHorizontal: 20, marginTop: 16, padding: 16, borderRadius: geometry.borderRadius, backgroundColor: colors.alertBg, borderWidth: geometry.borderWidth, borderColor: colors.alertBorder, ...effects.glowAlert },
+    debugTitle: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.sm, color: colors.accentAlert, textTransform: 'uppercase', letterSpacing: 0.6 },
+    debugBalance: { fontFamily: fonts.monoBold, fontSize: fontSizes['2xl'], color: colors.textPrimary, marginTop: 4, marginBottom: 12 },
+    debugButton: { backgroundColor: colors.accentAlert, borderRadius: geometry.borderRadiusSm, paddingVertical: 13, alignItems: 'center' },
+    debugButtonText: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.md, color: '#0A0800' },
     sectionLabel: {
       fontFamily: fonts.bodySemiBold,
       fontSize: fontSizes.base,

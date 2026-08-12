@@ -140,6 +140,8 @@ interface ReputationContextValue {
   addScore: (amount: number) => Promise<Badge[]>;
   /** Bir senaryo/olay sonucunda hem skoru hem bütçeyi tek çağrıda günceller. */
   applyOutcome: (scoreDelta: number, budgetDelta: number) => Promise<Badge[]>;
+  /** Bütçeyi skor veya rozet durumunu değiştirmeden günceller. */
+  addBudget: (amount: number) => Promise<Badge[]>;
   /** Yeni kazanılan ama henüz kullanıcıya gösterilmemiş rozetler (toast kuyruğu). */
   pendingBadges: Badge[];
   dismissBadge: () => void;
@@ -175,6 +177,8 @@ interface ReputationContextValue {
   setWrongAnswers: React.Dispatch<React.SetStateAction<number>>;
   /** Görülen soru ID'lerini günceller */
   setSeenIds: React.Dispatch<React.SetStateAction<number[]>>;
+  /** Görülen soru ID'lerini hem state/ref hem de kalıcı depolamada temizler. */
+  clearSeenIds: () => Promise<void>;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -374,6 +378,17 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     });
   };
 
+  const clearSeenIds = async () => {
+    const emptySeenIds: number[] = [];
+    seenIdsRef.current = emptySeenIds;
+    setSeenIds(emptySeenIds);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(emptySeenIds));
+    } catch (error) {
+      console.error('Görülen soru IDleri temizlenemedi:', error);
+    }
+  };
+
   const applyDelta = async (scoreDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
     const newScore = Math.max(0, oldScore + scoreDelta);
@@ -408,6 +423,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
   const addScore = (amount: number) => applyDelta(amount, 0);
   const applyOutcome = (scoreDelta: number, budgetDelta: number) => applyDelta(scoreDelta, budgetDelta);
+  const addBudget = (amount: number) => applyDelta(0, amount);
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));
 
   const resetProgress = async () => {
@@ -416,7 +432,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     budgetRef.current = DEFAULT_BUDGET;
     techTokensRef.current = DEFAULT_TECH_TOKENS;
     inventoryRef.current = [];
-    seenIdsRef.current = DEFAULT_SEEN_IDS;
+    seenIdsRef.current = [];
     correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
     wrongAnswersRef.current = DEFAULT_WRONG_ANSWERS;
 
@@ -430,7 +446,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     // 3. EKSİK OLANLARI BURAYA EKLE (Kendi değişken isimlerine göre düzelt)
     setCorrectAnswers(DEFAULT_CORRECT_ANSWERS);
     setWrongAnswers(DEFAULT_WRONG_ANSWERS);
-    setSeenIds(DEFAULT_SEEN_IDS);
+    setSeenIds([]);
 
     try {
       // 3. AsyncStorage'dan tüm ilerlemeyi temizle
@@ -446,6 +462,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         STORAGE_KEYS.wrongAnswers,
         '@shipit_theme_id', // Reset active theme back to default
       ]);
+      // Persist an explicit empty list so no stale seen IDs can be restored.
+      await AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify([]));
 
       console.log('Tertemiz sıfırlandı!');
     } catch (error) {
@@ -551,6 +569,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       inventory,
       addScore,
       applyOutcome,
+      addBudget,
       pendingBadges,
       dismissBadge,
       resetProgress,
@@ -566,6 +585,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       setCorrectAnswers: setCorrectAnswersHandler,
       setWrongAnswers: setWrongAnswersHandler,
       setSeenIds: setSeenIdsHandler,
+      clearSeenIds,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
