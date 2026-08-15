@@ -1,4 +1,4 @@
-// Mağaza öğeleri — Kategori A (Şirket Bütçesi), Kategori B (TechToken), Kategori C (Temalar).
+// Mağaza öğeleri — all purchases use the standard company budget.
 // Tüm fiyat, açıklama ve kategori bilgisi tek yerden yönetilir.
 
 export type StoreCategory = 'office' | 'premium' | 'theme';
@@ -9,7 +9,7 @@ export interface StoreItem {
   icon: string;
   title: string;
   description: string;
-  /** Kategori A için şirket bütçesi ($), Kategori B/C için TechToken (tt) */
+  /** Şirket bütçesi ($) */
   price: number;
   /**
    * Sadece 'theme' kategorisindeki öğeler için — ThemeContext'teki themeId değeri.
@@ -86,7 +86,7 @@ export const OFFICE_ITEMS: StoreItem[] = [
   },
 ];
 
-// --- Kategori B: Premium / TechToken (tt) --------------------------------
+// --- Kategori B: Premium --------------------------------------------------
 export const PREMIUM_ITEMS: StoreItem[] = [
   {
     id: 'profile_neon_ring',
@@ -130,7 +130,7 @@ export const PREMIUM_ITEMS: StoreItem[] = [
   },
 ];
 
-// --- Kategori C: Temalar / TechToken (tt) --------------------------------
+// --- Kategori C: Temalar --------------------------------------------------
 // 'themeIdKey' alanı hangi ThemeContext ID'sini etkinleştireceğini belirtir.
 export const THEME_ITEMS: StoreItem[] = [
   {

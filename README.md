@@ -48,12 +48,12 @@ Kriz gelir → Seçenekler karıştırılır → Karar verilir
 
 ## 🕹️ Oyun mekaniği
 
-| Sonuç | İtibar | Bütçe | UI tepkisi |
-|---|---:|---:|---|
-| `optimal` | +15 | +2.000 | Yeşil başarı geri bildirimi |
-| `acceptable` | +5 | +750 | Yeşil olumlu geri bildirim |
-| `wrong` | -5 | -750 | Kırmızı feedback + optimal cevap |
-| `fatal` | -15 | -2.000 | Kırmızı feedback + optimal cevap |
+| Sonuç | Kariyer XP | İtibar | Bütçe | UI tepkisi |
+|---|---:|---:|---:|---|
+| Başarı (`optimal`) | +100 | +15 | +2.000 | Teal başarı geri bildirimi |
+| Kısmi (`acceptable`) | +75 | +5 | +500 | Amber kısmi başarı geri bildirimi |
+| Başarısız (`wrong` / `fatal`) | +50 | -10 | -1.000 | Kırmızı feedback + optimal cevap |
+| Timeout | +35 | -15 | -2.000 | Kırmızı timeout geri bildirimi |
 
 ## 🧩 Supabase soru şeması
 
@@ -62,7 +62,7 @@ Quiz ekranının kullandığı alanlar:
 | Alan | Zorunlu | Kullanım |
 |---|:---:|---|
 | `id` | ✅ | Görülen soruları takip eden benzersiz kimlik |
-| `rank_level` | ✅ | Oyuncunun seviyesine uygun soruları filtreleme |
+| `rank_level` | ✅ | Kariyer seviyesine göre junior/mid/senior soru ağırlıklandırması |
 | `tag` | ✅ | Kriz kategorisi veya kısa bağlam |
 | `title` | ✅ | Ekranda gösterilen ana ve tam soru metni |
 | `optimal_text` | ✅ | En iyi çözüm |
@@ -130,14 +130,12 @@ Ship-it-Ops/
 │       ├── index.tsx         # Dashboard
 │       ├── profile.tsx       # Profil, istatistikler ve debug bütçe kontrolü
 │       ├── reputation.tsx    # Kariyer ve itibar görünümü
-│       ├── room-store.tsx    # Oda yükseltmeleri
 │       └── store.tsx         # Mağaza
 ├── src/
 │   ├── config/
 │   │   └── gameRewards.ts    # Merkezi dört kademeli ödül/ceza ayarları
 │   ├── state/
 │   │   ├── ReputationContext.tsx
-│   │   ├── RoomContext.tsx
 │   │   └── ThemeContext.tsx
 │   ├── theme/                # Renk, tipografi ve tema sistemi
 │   └── supabase.ts           # Supabase istemcisi

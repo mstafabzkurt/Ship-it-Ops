@@ -1,26 +1,29 @@
-import React, { useState, useMemo, useRef } from 'react';
-import {
-  ScrollView,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Animated,
-  Easing,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import JokerStoreCard from '../../src/components/store/JokerStoreCard';
+import StoreComingSoon from '../../src/components/store/StoreComingSoon';
+import StoreTabs, { type StoreTabId } from '../../src/components/store/StoreTabs';
+import ThemeStoreCard from '../../src/components/store/ThemeStoreCard';
+import { dashboardType, getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
+import { THEME_ITEMS, type StoreItem } from '../../src/data/storeItems';
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
-import type { Theme } from '../../src/theme/themes';
-import { THEME_ITEMS, type StoreItem } from '../../src/data/storeItems';
-import { fonts, fontSizes } from '../../src/theme/typography';
-import GradientBackground from '../../src/components/GradientBackground';
+import { fonts } from '../../src/theme/typography';
+import { formatCurrency } from '../../src/utils/format';
 
 type ToastVariant = 'success' | 'error' | 'warning' | 'equip';
-interface ToastState { visible: boolean; message: string; variant: ToastVariant; }
+interface ToastState { visible: boolean; message: string; variant: ToastVariant }
 
-// ── Theme feature blocks — shown inside each card ─────────────────────────────
+const DEFAULT_THEME_FEATURES = [
+  'Dengeli koyu mavi palet (#0B0F17)',
+  'Yuvarlak köşeler (borderRadius: 12)',
+  'Standart gölge efektleri',
+  'Tüm kullanıcılar için ücretsiz — her zaman erişilebilir',
+];
+
 const THEME_FEATURES: Record<string, string[]> = {
   theme_cyberpunk: [
     'Neon Cyan & Neon Pembe vurgular',
@@ -42,52 +45,80 @@ const THEME_FEATURES: Record<string, string[]> = {
   ],
 };
 
-export default function StoreScreen() {
-  const { techTokens, inventory, purchaseItem } = useReputation();
-  const { theme, themeId, setThemeId } = useTheme();
-  const styles = useMemo(() => makeStyles(theme), [theme]);
+const THEME_PREVIEWS: Record<string, [string, string, string]> = {
+  default: ['#111229', '#8B7CF6', '#49D7C5'],
+  theme_cyberpunk: ['#05070A', '#00F5FF', '#FF3CAC'],
+  theme_hardware: ['#07120C', '#00FF66', '#6F8F45'],
+  theme_nebula: ['#17102E', '#A78BFA', '#E94057'],
+};
 
+const JOKERS = [
+  { id: 'codeReview', name: 'Code Review', icon: '🔍', description: 'İki zayıf seçeneği eler' },
+  { id: 'gitRevert', name: 'Git Revert', icon: '↩️', description: 'Son kararı geri alır' },
+  { id: 'serverScaleUp', name: 'Scale Up', icon: '⚡', description: 'Müdahale süresini uzatır' },
+  { id: 'snapshotBackup', name: 'Snapshot', icon: '📸', description: 'Kriz durumunu korur' },
+] as const;
+
+export default function StoreScreen() {
+  const { width } = useWindowDimensions();
+  const {
+    budget,
+    inventory,
+    purchaseItem,
+    codeReview,
+    gitRevert,
+    serverScaleUp,
+    snapshotBackup,
+  } = useReputation();
+  const { theme, themeId, setThemeId } = useTheme();
+  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const [activeTab, setActiveTab] = useState<StoreTabId>('themes');
   const [toast, setToast] = useState<ToastState>({ visible: false, message: '', variant: 'success' });
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTablet = width >= 700;
+  const isDesktop = width >= 1040;
+
+  useEffect(() => () => {
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+  }, []);
 
   const showToast = (message: string, variant: ToastVariant) => {
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
     setToast({ visible: true, message, variant });
     toastAnim.setValue(0);
     Animated.timing(toastAnim, {
-      toValue: 1, duration: 260, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true,
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.back(1.2)),
+      useNativeDriver: true,
     }).start();
     toastTimeout.current = setTimeout(() => {
       Animated.timing(toastAnim, {
-        toValue: 0, duration: 200, easing: Easing.in(Easing.ease), useNativeDriver: true,
-      }).start(() => setToast(prev => ({ ...prev, visible: false })));
+        toValue: 0,
+        duration: 200,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }).start(() => setToast((previous) => ({ ...previous, visible: false })));
     }, 3000);
   };
 
   const handleThemeAction = async (item: StoreItem) => {
     const owned = inventory.includes(item.id);
-
     if (!owned) {
-      // Purchase with TechTokens
-      const result = await purchaseItem(item.id, 'tt', item.price);
+      const result = await purchaseItem(item.id, item.price);
       if (result === 'ok') {
-        // Auto-equip on purchase
-        if (item.themeIdKey) {
-          await setThemeId(item.themeIdKey);
-        }
+        if (item.themeIdKey) await setThemeId(item.themeIdKey);
         showToast(`⚡ "${item.title}" satın alındı ve etkinleştirildi!`, 'equip');
       } else if (result === 'already_owned') {
         showToast('Bu tema zaten envanterinde.', 'warning');
       } else {
-        showToast(`Yetersiz TechToken! Gerekli: ${item.price} tt`, 'error');
+        showToast(`Yetersiz bütçe! Gerekli: ${formatCurrency(item.price)}`, 'error');
       }
-    } else {
-      // Already owned — equip it
-      if (item.themeIdKey && themeId !== item.themeIdKey) {
-        await setThemeId(item.themeIdKey);
-        showToast(`⚡ "${item.title}" etkinleştirildi!`, 'equip');
-      }
+    } else if (item.themeIdKey && themeId !== item.themeIdKey) {
+      await setThemeId(item.themeIdKey);
+      showToast(`⚡ "${item.title}" etkinleştirildi!`, 'equip');
     }
   };
 
@@ -97,450 +128,208 @@ export default function StoreScreen() {
     showToast('✓ Varsayılan tema etkinleştirildi.', 'success');
   };
 
-  const { colors, geometry, effects } = theme;
-
-  const toastBorderColor =
-    toast.variant === 'equip' ? colors.accentAlert :
-    toast.variant === 'success' ? colors.accentPositive :
-    toast.variant === 'error' ? colors.accentDanger :
-    colors.accentAlert;
-
-  const activeThemeLabel =
-    themeId === 'cyberpunk' ? '⚡ Cyberpunk' :
-    themeId === 'hardware' ? '🖥️ Hardware' :
-    themeId === 'nebula' ? '🌌 Nebula' :
-    '🌑 Varsayılan';
-
-  return (
-    <GradientBackground>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: 'transparent' }]} edges={['top']}>
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>🎨 Tema Mağazası</Text>
-          <View style={styles.ttChip}>
-            <Text style={styles.ttChipIcon}>🪙</Text>
-            <Text style={styles.ttChipValue}>{techTokens} tt</Text>
-          </View>
-        </View>
-        <Text style={styles.headerSub}>
-          TechToken kazanarak premium temalar satın al ve uygulamana kişilik kat.
-        </Text>
-      </View>
-
-      {/* ── Active theme banner ─────────────────────────────────────────────── */}
-      <View style={styles.activeBanner}>
-        <View style={styles.activeBannerLeft}>
-          <View style={styles.activeDot} />
-          <Text style={styles.activeBannerLabel}>Aktif Tema:</Text>
-          <Text style={styles.activeBannerName}>{activeThemeLabel}</Text>
-        </View>
-        {themeId !== 'default' && (
-          <TouchableOpacity
-            style={styles.revertBtn}
-            onPress={handleEquipDefault}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.revertBtnText}>Varsayılana Dön</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* ── Section label ──────────────────────────────────────────────────── */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionLabel}>🎨 Temalar</Text>
-        <View style={styles.sectionDivider} />
-      </View>
-
-      {/* ── Default theme equip card ─────────────────────────────────────── */}
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Default theme entry */}
-        <DefaultThemeCard
-          isActive={themeId === 'default'}
-          onEquip={handleEquipDefault}
-          theme={theme}
-        />
-
-        {/* Purchasable themes */}
-        {THEME_ITEMS.map((item) => {
-          const owned = inventory.includes(item.id);
-          const isActive = themeId === item.themeIdKey;
-          const canAfford = techTokens >= item.price;
-          return (
-            <ThemeCard
-              key={item.id}
-              item={item}
-              owned={owned}
-              isActive={isActive}
-              canAfford={canAfford}
-              onAction={handleThemeAction}
-              theme={theme}
-              features={THEME_FEATURES[item.id] ?? []}
-            />
-          );
-        })}
-        <View style={{ height: 24 }} />
-      </ScrollView>
-
-      {/* ── Toast ──────────────────────────────────────────────────────────── */}
-      {toast.visible && (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.toast,
-            { borderColor: toastBorderColor },
-            {
-              opacity: toastAnim,
-              transform: [
-                { translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
-                { scale: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
-              ],
-            },
-          ]}
-        >
-          <Text style={[styles.toastText, { color: toastBorderColor }]}>{toast.message}</Text>
-        </Animated.View>
-      )}
-      </SafeAreaView>
-    </GradientBackground>
-  );
-}
-
-// ── Default Theme Card ────────────────────────────────────────────────────────
-interface DefaultThemeCardProps {
-  isActive: boolean;
-  onEquip: () => void;
-  theme: Theme;
-}
-
-function DefaultThemeCard({ isActive, onEquip, theme }: DefaultThemeCardProps) {
-  const { colors, geometry, effects } = theme;
-
-  const cardBg = isActive ? colors.alertBg : colors.panel;
-  const cardBorder = isActive ? colors.alertBorder : colors.border;
-  const cardGlow = isActive ? effects.glowAlert : effects.cardShadow;
+  const activeThemeLabel = themeId === 'cyberpunk'
+    ? '⚡ Cyberpunk'
+    : themeId === 'hardware'
+      ? '🖥️ Hardware'
+      : themeId === 'nebula'
+        ? '🌌 Nebula'
+        : '🌑 Varsayılan';
+  const jokerCounts = { codeReview, gitRevert, serverScaleUp, snapshotBackup };
+  const toastColor = toast.variant === 'error'
+    ? tokens.colors.danger
+    : toast.variant === 'success'
+      ? tokens.colors.secondary
+      : tokens.colors.warning;
 
   return (
-    <View style={{
-      backgroundColor: cardBg,
-      borderWidth: geometry.borderWidth,
-      borderColor: cardBorder,
-      borderRadius: geometry.borderRadius,
-      overflow: 'hidden',
-      ...cardGlow,
-    }}>
-      <View style={{ paddingHorizontal: 18, paddingTop: 18, paddingBottom: 14, gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{
-            width: 48, height: 48, borderRadius: geometry.borderRadius,
-            backgroundColor: isActive ? colors.alertBg : colors.panelAlt,
-            borderWidth: geometry.borderWidth,
-            borderColor: isActive ? colors.alertBorder : colors.border,
-            alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <Text style={{ fontSize: 22 }}>🌑</Text>
-          </View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text style={{ fontFamily: fonts.headingSemiBold, fontSize: fontSizes['2xl'], color: colors.textPrimary, flex: 1 }}>
-                Varsayılan Tema
-              </Text>
-              {isActive && (
-                <View style={{ backgroundColor: colors.alertBg, borderWidth: geometry.borderWidth, borderColor: colors.alertBorder, paddingHorizontal: 7, paddingVertical: 2, borderRadius: geometry.borderRadiusSm }}>
-                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.xs, color: colors.accentAlert, letterSpacing: 0.6 }}>AKTİF</Text>
-                </View>
-              )}
-            </View>
-            <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted, lineHeight: 17 }}>
-              Yumuşak koyu palet, yuvarlak köşeler ve dengeli renkler. Tüm kullanıcılar için ücretsiz.
-            </Text>
-          </View>
-        </View>
-        <View style={{ gap: 5, paddingLeft: 4 }}>
-          {['Dengeli koyu mavi palet (#0B0F17)', 'Yuvarlak köşeler (borderRadius: 12)', 'Standart gölge efektleri', 'Tüm kullanıcılar için ücretsiz — her zaman erişilebilir'].map((f, i) => (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: isActive ? colors.accentAlert : colors.textMuted }} />
-              <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: isActive ? colors.textPrimary : colors.textMuted, flex: 1 }}>{f}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Bottom action strip */}
-      <View style={{
-        borderTopWidth: geometry.borderWidth,
-        borderTopColor: isActive ? colors.alertBorder : colors.border,
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
-        paddingHorizontal: 18, paddingVertical: 12, gap: 12,
-        backgroundColor: isActive ? colors.alertBg + '88' : colors.panelAlt,
-      }}>
-        <TouchableOpacity
-          style={{
-            paddingVertical: 9, paddingHorizontal: 18,
-            borderRadius: geometry.borderRadiusSm,
-            alignItems: 'center', justifyContent: 'center',
-            backgroundColor: isActive ? colors.alertBg : colors.accentPositive,
-            borderWidth: isActive ? geometry.borderWidth : 0,
-            borderColor: colors.alertBorder,
-            ...(isActive ? {} : effects.glowPositive),
-          }}
-          onPress={onEquip}
-          activeOpacity={isActive ? 1 : 0.75}
-          disabled={isActive}
-        >
-          <Text style={{
-            fontFamily: fonts.bodySemiBold, fontSize: fontSizes.sm,
-            color: isActive ? colors.accentAlert : '#060D10',
-          }}>
-            {isActive ? '✓ Etkin — Aktif' : '⚡ Varsayılanı Giy'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-// ── Purchasable Theme Card ────────────────────────────────────────────────────
-interface ThemeCardProps {
-  item: StoreItem;
-  owned: boolean;
-  isActive: boolean;
-  canAfford: boolean;
-  features: string[];
-  onAction: (item: StoreItem) => void;
-  theme: Theme;
-}
-
-function ThemeCard({ item, owned, isActive, canAfford, features, onAction, theme }: ThemeCardProps) {
-  const { colors, geometry, effects } = theme;
-
-  // ── Card visuals ────────────────────────────────────────────────────────
-  const cardBg = isActive ? colors.alertBg : owned ? colors.positiveBg : colors.panel;
-  const cardBorder = isActive ? colors.alertBorder : owned ? colors.positiveBorder : colors.border;
-  const cardGlow = isActive ? effects.glowAlert : owned ? effects.glowPositive : effects.cardShadow;
-
-  // ── Button state ─────────────────────────────────────────────────────────
-  let buttonLabel: string;
-  let buttonBg: string;
-  let buttonTextColor: string;
-  let buttonDisabled = false;
-  let buttonGlow = {};
-
-  if (isActive) {
-    buttonLabel = '✓ Kuşanıldı';
-    buttonBg = colors.alertBg;
-    buttonTextColor = colors.accentAlert;
-    buttonDisabled = true;
-  } else if (owned) {
-    buttonLabel = '⚡ Kuşan (Equip)';
-    buttonBg = colors.accentPositive;
-    buttonTextColor = '#060D10';
-    buttonGlow = effects.glowPositive;
-  } else if (canAfford) {
-    buttonLabel = `🛒 Satın Al — ${item.price} tt`;
-    buttonBg = colors.accentAlert;
-    buttonTextColor = '#060D10';
-    buttonGlow = effects.glowAlert;
-  } else {
-    buttonLabel = `🪙 ${item.price} tt Gerekli`;
-    buttonBg = colors.panelAlt;
-    buttonTextColor = colors.textMuted;
-    buttonDisabled = true;
-  }
-
-  return (
-    <View style={{
-      backgroundColor: cardBg,
-      borderWidth: geometry.borderWidth,
-      borderColor: cardBorder,
-      borderRadius: geometry.borderRadius,
-      overflow: 'hidden',
-      ...cardGlow,
-    }}>
-      {/* Top strip */}
-      <View style={{
-        paddingHorizontal: 18,
-        paddingTop: 18,
-        paddingBottom: 14,
-        gap: 10,
-      }}>
-        {/* Title row */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{
-            width: 48, height: 48, borderRadius: geometry.borderRadius,
-            backgroundColor: isActive ? colors.alertBg : owned ? colors.positiveBg : colors.panelAlt,
-            borderWidth: geometry.borderWidth,
-            borderColor: isActive ? colors.alertBorder : owned ? colors.positiveBorder : colors.border,
-            alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
-          </View>
-
-          <View style={{ flex: 1, gap: 4 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text style={{ fontFamily: fonts.headingSemiBold, fontSize: fontSizes['2xl'], color: colors.textPrimary, flex: 1 }}>
-                {item.title}
-              </Text>
-              {/* Status badge */}
-              {isActive && (
-                <View style={{ backgroundColor: colors.alertBg, borderWidth: geometry.borderWidth, borderColor: colors.alertBorder, paddingHorizontal: 7, paddingVertical: 2, borderRadius: geometry.borderRadiusSm }}>
-                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.xs, color: colors.accentAlert, letterSpacing: 0.6 }}>AKTİF</Text>
-                </View>
-              )}
-              {owned && !isActive && (
-                <View style={{ backgroundColor: colors.positiveBg, borderWidth: geometry.borderWidth, borderColor: colors.positiveBorder, paddingHorizontal: 7, paddingVertical: 2, borderRadius: geometry.borderRadiusSm }}>
-                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.xs, color: colors.accentPositive }}>ALINDI</Text>
-                </View>
-              )}
-            </View>
-            <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted, lineHeight: 17 }}>
-              {item.description}
-            </Text>
-          </View>
-        </View>
-
-        {/* Feature list */}
-        {features.length > 0 && (
-          <View style={{ gap: 5, paddingLeft: 4 }}>
-            {features.map((f, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: isActive ? colors.accentAlert : owned ? colors.accentPositive : colors.textMuted }} />
-                <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: isActive ? colors.textPrimary : colors.textMuted, flex: 1 }}>
-                  {f}
-                </Text>
+    <LinearGradient
+      colors={[tokens.colors.canvasGlow, tokens.colors.canvas, tokens.colors.canvas]}
+      locations={[0, 0.34, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.background}
+    >
+      <View pointerEvents="none" style={styles.orbPrimary} />
+      <View pointerEvents="none" style={styles.orbSecondary} />
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={[styles.container, isDesktop && styles.containerDesktop]}>
+            <View style={styles.header}>
+              <View style={styles.headerCopy}>
+                <Text style={styles.eyebrow}>OPERASYON TEDARİK MERKEZİ</Text>
+                <Text style={styles.headerTitle}>Mağaza</Text>
+                <Text style={styles.headerDescription}>Operasyon görünümünü ve oyun envanterini buradan yönet.</Text>
               </View>
-            ))}
-          </View>
-        )}
-      </View>
+              <View style={styles.budgetCard}>
+                <Text style={styles.budgetLabel}>ŞİRKET BÜTÇESİ</Text>
+                <Text style={styles.budgetValue}>{formatCurrency(budget)}</Text>
+              </View>
+            </View>
 
-      {/* Bottom action strip */}
-      <View style={{
-        borderTopWidth: geometry.borderWidth,
-        borderTopColor: isActive ? colors.alertBorder : owned ? colors.positiveBorder : colors.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 18,
-        paddingVertical: 12,
-        gap: 12,
-        backgroundColor: isActive ? colors.alertBg + '88' : owned ? colors.positiveBg + '55' : colors.panelAlt,
-      }}>
-        {/* Price chip (only shown if not yet owned) */}
-        {!owned ? (
-          <View style={{
-            flexDirection: 'row', alignItems: 'center', gap: 6,
-            backgroundColor: canAfford ? colors.alertBg : colors.dangerBg,
-            borderWidth: geometry.borderWidth,
-            borderColor: canAfford ? colors.alertBorder : colors.dangerBorder,
-            borderRadius: geometry.borderRadiusSm,
-            paddingHorizontal: 10, paddingVertical: 5,
-          }}>
-            <Text style={{ fontSize: 12 }}>🪙</Text>
-            <Text style={{ fontFamily: fonts.monoSemiBold, fontSize: fontSizes.md, color: canAfford ? colors.accentAlert : colors.accentDanger }}>
-              {item.price} tt
-            </Text>
-          </View>
-        ) : (
-          <View /> // spacer
-        )}
+            <StoreTabs activeTab={activeTab} onChange={setActiveTab} />
 
-        {/* Action button */}
-        <TouchableOpacity
-          style={{
-            paddingVertical: 9,
-            paddingHorizontal: 18,
-            borderRadius: geometry.borderRadiusSm,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: buttonBg,
-            borderWidth: buttonDisabled ? geometry.borderWidth : 0,
-            borderColor: isActive ? colors.alertBorder : colors.border,
-            ...buttonGlow,
-          }}
-          onPress={() => !buttonDisabled && onAction(item)}
-          activeOpacity={buttonDisabled ? 1 : 0.75}
-          disabled={buttonDisabled}
-        >
-          <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: fontSizes.sm, color: buttonTextColor }}>
-            {buttonLabel}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+            {activeTab === 'themes' ? (
+              <View style={styles.tabContent}>
+                <View style={styles.activeThemeBanner}>
+                  <View style={styles.activeThemeCopy}>
+                    <View style={styles.activeDot} />
+                    <Text style={styles.activeThemeLabel}>Aktif Tema:</Text>
+                    <Text style={styles.activeThemeName}>{activeThemeLabel}</Text>
+                  </View>
+                  {themeId !== 'default' ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Varsayılan temaya dön"
+                      onPress={handleEquipDefault}
+                      style={({ pressed }) => [styles.defaultButton, pressed && styles.buttonPressed]}
+                    >
+                      <Text style={styles.defaultButtonText}>Varsayılana Dön</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                <View style={styles.sectionHeading}>
+                  <Text style={styles.sectionTitle}>Temalar</Text>
+                  <Text style={styles.sectionDescription}>Satın aldığın temaları istediğin zaman yeniden kuşanabilirsin.</Text>
+                </View>
+                <View style={styles.themeGrid}>
+                  <View style={[styles.themeGridItem, isTablet && styles.themeGridItemTablet]}>
+                    <ThemeStoreCard
+                      icon="🌑"
+                      title="Varsayılan Tema"
+                      description="Yumuşak koyu palet, yuvarlak köşeler ve dengeli renkler. Tüm kullanıcılar için ücretsiz."
+                      features={DEFAULT_THEME_FEATURES}
+                      previewColors={THEME_PREVIEWS.default}
+                      owned
+                      active={themeId === 'default'}
+                      canAfford
+                      isDefault
+                      onAction={() => void handleEquipDefault()}
+                    />
+                  </View>
+                  {THEME_ITEMS.map((item) => {
+                    const owned = inventory.includes(item.id);
+                    return (
+                      <View key={item.id} style={[styles.themeGridItem, isTablet && styles.themeGridItemTablet]}>
+                        <ThemeStoreCard
+                          icon={item.icon}
+                          title={item.title}
+                          description={item.description}
+                          features={THEME_FEATURES[item.id] ?? []}
+                          previewColors={THEME_PREVIEWS[item.id]}
+                          price={item.price}
+                          owned={owned}
+                          active={themeId === item.themeIdKey}
+                          canAfford={budget >= item.price}
+                          onAction={() => void handleThemeAction(item)}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {activeTab === 'jokers' ? (
+              <View style={styles.tabContent}>
+                <View style={styles.sectionHeading}>
+                  <Text style={styles.sectionTitle}>Jokerler</Text>
+                  <Text style={styles.sectionDescription}>Mevcut oyun jokerlerin ve envanter adetlerin.</Text>
+                </View>
+                <View style={styles.jokerNotice}>
+                  <Text style={styles.jokerNoticeText}>Joker satın alma özelliği yakında eklenecek. Mevcut adetlerini buradan takip edebilirsin.</Text>
+                </View>
+                <View style={styles.jokerGrid}>
+                  {JOKERS.map((joker) => (
+                    <View
+                      key={joker.id}
+                      style={[
+                        styles.jokerGridItem,
+                        isTablet && styles.jokerGridItemTablet,
+                        isDesktop && styles.jokerGridItemDesktop,
+                      ]}
+                    >
+                      <JokerStoreCard {...joker} count={jokerCounts[joker.id]} />
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            {activeTab === 'cosmetics' ? (
+              <View style={styles.tabContent}>
+                <StoreComingSoon />
+              </View>
+            ) : null}
+          </View>
+        </ScrollView>
+
+        {toast.visible ? (
+          <Animated.View
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+            pointerEvents="none"
+            style={[
+              styles.toast,
+              { borderColor: toastColor },
+              {
+                opacity: toastAnim,
+                transform: [
+                  { translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+                  { scale: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+                ],
+              },
+            ]}
+          >
+            <Text style={[styles.toastText, { color: toastColor }]}>{toast.message}</Text>
+          </Animated.View>
+        ) : null}
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-function makeStyles(theme: Theme) {
-  const { colors, geometry, effects } = theme;
+function makeStyles(tokens: DashboardTokens) {
+  const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: colors.bgBase },
-
-    header: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 14 },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-    headerTitle: { fontFamily: fonts.headingBold, fontSize: fontSizes['3xl'], color: colors.textPrimary },
-    headerSub: { fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted, lineHeight: 18 },
-    ttChip: {
-      flexDirection: 'row', alignItems: 'center', gap: 6,
-      backgroundColor: colors.alertBg, borderWidth: geometry.borderWidth,
-      borderColor: colors.alertBorder, borderRadius: 20,
-      paddingHorizontal: 12, paddingVertical: 6,
-      ...effects.glowAlert,
-    },
-    ttChipIcon: { fontSize: 14 },
-    ttChipValue: { fontFamily: fonts.monoBold, fontSize: fontSizes.md, color: colors.accentAlert },
-
-    activeBanner: {
-      marginHorizontal: 20, marginBottom: 10,
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      backgroundColor: colors.panel, borderWidth: geometry.borderWidth,
-      borderColor: colors.border, borderRadius: geometry.borderRadius,
-      paddingHorizontal: 14, paddingVertical: 10,
-      ...effects.cardShadow,
-    },
-    activeBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    activeDot: {
-      width: 8, height: 8, borderRadius: 4,
-      backgroundColor: colors.accentPositive,
-    },
-    activeBannerLabel: { fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted },
-    activeBannerName: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.sm, color: colors.textPrimary },
-    revertBtn: {
-      backgroundColor: colors.panelAlt, borderWidth: geometry.borderWidth,
-      borderColor: colors.border, borderRadius: geometry.borderRadiusSm,
-      paddingHorizontal: 10, paddingVertical: 5,
-    },
-    revertBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSizes.xs, color: colors.textMuted },
-
-    sectionHeader: {
-      flexDirection: 'row', alignItems: 'center',
-      paddingHorizontal: 20, marginBottom: 10, gap: 12,
-    },
-    sectionLabel: {
-      fontFamily: fonts.headingSemiBold,
-      fontSize: fontSizes.sm,
-      color: colors.textMuted,
-      letterSpacing: 1.2,
-      textTransform: 'uppercase',
-    },
-    sectionDivider: {
-      flex: 1, height: 1, backgroundColor: colors.border,
-    },
-
+    background: { flex: 1, backgroundColor: colors.canvas },
+    orbPrimary: { position: 'absolute', width: 300, height: 300, top: -175, right: -105, borderRadius: 150, backgroundColor: colors.primarySoft, opacity: 0.7 },
+    orbSecondary: { position: 'absolute', width: 250, height: 250, top: 560, left: -180, borderRadius: 125, backgroundColor: colors.secondarySoft, opacity: 0.4 },
+    safeArea: { flex: 1, backgroundColor: 'transparent' },
     scroll: { flex: 1 },
-    scrollContent: { paddingHorizontal: 20, gap: 14 },
-
-    toast: {
-      position: 'absolute', bottom: 28, left: 20, right: 20,
-      backgroundColor: colors.panelAlt, borderWidth: geometry.borderWidth,
-      borderRadius: geometry.borderRadius, paddingVertical: 13, paddingHorizontal: 18,
-      ...effects.panelShadow,
-    },
-    toastText: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.md },
+    scrollContent: { paddingBottom: tokens.layout.pageBottom },
+    container: { width: '100%', maxWidth: tokens.layout.contentMaxWidth, alignSelf: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingTop: tokens.layout.pageTop },
+    containerDesktop: { paddingHorizontal: tokens.layout.pageGutterWide },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 18, marginBottom: 20 },
+    headerCopy: { flex: 1, minWidth: 240 },
+    eyebrow: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 5 },
+    headerTitle: { ...dashboardType.display, fontFamily: fonts.headingBold, color: colors.text },
+    headerDescription: { ...dashboardType.bodySmall, maxWidth: 560, fontFamily: fonts.body, color: colors.textMuted, marginTop: 4 },
+    budgetCard: { minWidth: 190, paddingHorizontal: 17, paddingVertical: 13, borderRadius: radius.lg, backgroundColor: colors.warningSoft, borderWidth: 1, borderColor: colors.warning, ...shadow.card },
+    budgetLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.65, color: colors.textMuted },
+    budgetValue: { fontFamily: fonts.monoBold, fontSize: 23, lineHeight: 29, color: colors.warning, marginTop: 2 },
+    tabContent: { marginTop: 22 },
+    activeThemeBanner: { minHeight: 66, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, padding: 13, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, ...shadow.card },
+    activeThemeCopy: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
+    activeDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary, shadowColor: colors.secondary, shadowOpacity: 0.55, shadowRadius: 7 },
+    activeThemeLabel: { fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 18, color: colors.textMuted },
+    activeThemeName: { fontFamily: fonts.headingBold, fontSize: 15, lineHeight: 20, color: colors.text },
+    defaultButton: { minHeight: tokens.control.height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.borderStrong },
+    defaultButtonText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.text },
+    buttonPressed: tokens.motion.pressed,
+    sectionHeading: { marginTop: 24, marginBottom: 14 },
+    sectionTitle: { ...dashboardType.title, fontFamily: fonts.headingBold, color: colors.text },
+    sectionDescription: { ...dashboardType.bodySmall, maxWidth: 650, fontFamily: fonts.body, color: colors.textMuted, marginTop: 4 },
+    themeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+    themeGridItem: { width: '100%' },
+    themeGridItemTablet: { width: '48%', flexGrow: 1 },
+    jokerNotice: { marginBottom: 14, padding: 13, borderRadius: radius.md, backgroundColor: colors.warningSoft, borderWidth: 1, borderColor: colors.warning },
+    jokerNoticeText: { ...dashboardType.bodySmall, fontFamily: fonts.bodyMedium, color: colors.warning },
+    jokerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+    jokerGridItem: { width: '100%' },
+    jokerGridItemTablet: { width: '48%', flexGrow: 1 },
+    jokerGridItemDesktop: { width: '23%', flexGrow: 1 },
+    toast: { position: 'absolute', left: tokens.layout.pageGutter, right: tokens.layout.pageGutter, bottom: tokens.layout.floatingInset, maxWidth: 620, alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 13, borderRadius: radius.lg, backgroundColor: colors.surfaceRaised, borderWidth: 1, ...shadow.raised },
+    toastText: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 19, textAlign: 'center' },
   });
 }

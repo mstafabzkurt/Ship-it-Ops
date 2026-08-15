@@ -7,13 +7,13 @@ import { fonts, fontSizes } from '../theme/typography';
 import type { Rank } from '../state/ReputationContext';
 
 interface ReputationBarProps {
-  score: number;
+  careerXp: number;
   currentRank: Rank;
   nextRank: Rank | null;
   progress: number;
 }
 
-export default function ReputationBar({ score, currentRank, nextRank, progress }: ReputationBarProps) {
+export default function ReputationBar({ careerXp, currentRank, nextRank, progress }: ReputationBarProps) {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const { colors } = theme;
@@ -21,7 +21,7 @@ export default function ReputationBar({ score, currentRank, nextRank, progress }
 
   return (
     <View>
-      <Text style={styles.label}>İtibar — {currentRank.name}</Text>
+      <Text style={styles.label}>Kariyer XP — {currentRank.name}</Text>
       <View style={styles.barBg}>
         <LinearGradient
           colors={[colors.accentAlert, colors.accentPositive]}
@@ -32,8 +32,8 @@ export default function ReputationBar({ score, currentRank, nextRank, progress }
       </View>
       <View style={styles.meta}>
         <Text style={styles.metaText}>
-          <Text style={styles.metaBold}>{score.toLocaleString('tr-TR')}</Text>
-          {nextRank ? ` / ${nextRank.threshold.toLocaleString('tr-TR')} puan` : ' — en üst rütbe'}
+          <Text style={styles.metaBold}>{careerXp.toLocaleString('tr-TR')}</Text>
+          {nextRank ? ` / ${nextRank.threshold.toLocaleString('tr-TR')} XP` : ' — en üst rütbe'}
         </Text>
         {nextRank ? (
           <Text style={styles.metaText}>

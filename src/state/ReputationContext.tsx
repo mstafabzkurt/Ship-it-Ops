@@ -1,46 +1,18 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  RECENT_QUESTION_HISTORY_LIMIT,
+  RANKS,
+  calculateProgressionOutcome,
+  getRankForCareerXp,
+  getRankProgress,
+  resolveCareerXpMigration,
+  type Rank,
+} from '../config/progression';
+import { appendRecentQuestionId } from '../utils/questionSelection';
 
-// --- Rütbeler -------------------------------------------------------------
-// 21 aşamalı kademeli sistem: her ana rütbenin I/II/III alt kademeleri var.
-export interface Rank {
-  id: string;
-  name: string;
-  threshold: number;
-  /** Ana rütbe grubu (ikon/renk seçimi için) */
-  tier: 'junior' | 'engineer' | 'senior' | 'lead' | 'manager' | 'director' | 'cto';
-}
-
-export const RANKS: Rank[] = [
-  // --- Junior Mühendis (0 – 200) ---
-  { id: 'junior-i', name: 'Junior Mühendis I', threshold: 0, tier: 'junior' },
-  { id: 'junior-ii', name: 'Junior Mühendis II', threshold: 100, tier: 'junior' },
-  { id: 'junior-iii', name: 'Junior Mühendis III', threshold: 200, tier: 'junior' },
-  // --- Mühendis (300 – 700) ---
-  { id: 'engineer-i', name: 'Mühendis I', threshold: 300, tier: 'engineer' },
-  { id: 'engineer-ii', name: 'Mühendis II', threshold: 500, tier: 'engineer' },
-  { id: 'engineer-iii', name: 'Mühendis III', threshold: 700, tier: 'engineer' },
-  // --- Kıdemli Mühendis (1000 – 1600) ---
-  { id: 'senior-i', name: 'Kıdemli Mühendis I', threshold: 1000, tier: 'senior' },
-  { id: 'senior-ii', name: 'Kıdemli Mühendis II', threshold: 1300, tier: 'senior' },
-  { id: 'senior-iii', name: 'Kıdemli Mühendis III', threshold: 1600, tier: 'senior' },
-  // --- Takım Lideri (2000 – 2800) ---
-  { id: 'lead-i', name: 'Takım Lideri I', threshold: 2000, tier: 'lead' },
-  { id: 'lead-ii', name: 'Takım Lideri II', threshold: 2400, tier: 'lead' },
-  { id: 'lead-iii', name: 'Takım Lideri III', threshold: 2800, tier: 'lead' },
-  // --- Mühendislik Müdürü (3300 – 4300) ---
-  { id: 'manager-i', name: 'Müh. Müdürü I', threshold: 3300, tier: 'manager' },
-  { id: 'manager-ii', name: 'Müh. Müdürü II', threshold: 3800, tier: 'manager' },
-  { id: 'manager-iii', name: 'Müh. Müdürü III', threshold: 4300, tier: 'manager' },
-  // --- Direktör (4900 – 6100) ---
-  { id: 'director-i', name: 'Direktör I', threshold: 4900, tier: 'director' },
-  { id: 'director-ii', name: 'Direktör II', threshold: 5500, tier: 'director' },
-  { id: 'director-iii', name: 'Direktör III', threshold: 6100, tier: 'director' },
-  // --- CTO (6800 – 8200+) ---
-  { id: 'cto-i', name: 'CTO I', threshold: 6800, tier: 'cto' },
-  { id: 'cto-ii', name: 'CTO II', threshold: 7500, tier: 'cto' },
-  { id: 'cto-iii', name: 'CTO III', threshold: 8200, tier: 'cto' },
-];
+export { RANKS } from '../config/progression';
+export type { Rank } from '../config/progression';
 
 // --- Rozetler ---------------------------------------------------------------
 export interface Badge {
@@ -49,6 +21,7 @@ export interface Badge {
   title: string;
   description: string;
   requiredScore: number;
+  requirementType?: 'reputation' | 'careerXp';
   rewardBudget: number;
 }
 
@@ -65,21 +38,21 @@ export const BADGES: Badge[] = [
   { id: 'refactor-king', icon: '♻️', title: 'Refactor Kralı', description: 'Teknik borcu azaltan kapsamlı bir refactor tamamladın.', requiredScore: 2600, rewardBudget: 10000 },
   { id: 'ci-cd-wizard', icon: '⚙️', title: 'CI/CD Sihirbazı', description: 'Deployment süresini yarıya indiren bir pipeline kurdun.', requiredScore: 3200, rewardBudget: 14000 },
   // ── İleri aşama (4.000 – 9.999) ──────────────────────────────────────────
-  { id: 'lead-badge', icon: '🎖️', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaştın. Ekip seni izliyor.', requiredScore: 4000, rewardBudget: 25000 },
+  { id: 'lead-badge', icon: '🎖️', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaştın. Ekip seni izliyor.', requiredScore: 4300, requirementType: 'careerXp', rewardBudget: 25000 },
   { id: 'mentor', icon: '🎓', title: 'Mentor', description: 'Bir junior mühendise 10 PR review yaptın.', requiredScore: 5000, rewardBudget: 20000 },
   { id: 'sre-guardian', icon: '🛡️', title: 'SRE Bekçisi', description: "99.9% uptime'ı 3 ay üst üste korudun.", requiredScore: 6000, rewardBudget: 30000 },
   { id: 'platform-builder', icon: '🔧', title: 'Platform Mimarı', description: 'Tüm takımın kullandığı dahili bir araç geliştirdin.', requiredScore: 7500, rewardBudget: 40000 },
   // ── Efsane (10.000+) ──────────────────────────────────────────────────────
-  { id: 'director-badge', icon: '🌟', title: 'Direktör', description: 'Direktör rütbesine ulaştın. Şirket stratejisini şekillendiriyorsun.', requiredScore: 10000, rewardBudget: 60000 },
+  { id: 'director-badge', icon: '🌟', title: 'Direktör', description: 'Direktör rütbesine ulaştın. Şirket stratejisini şekillendiriyorsun.', requiredScore: 11200, requirementType: 'careerXp', rewardBudget: 60000 },
   { id: 'chaos-engineer', icon: '🌪️', title: 'Kaos Mühendisi', description: 'Chaos Engineering senaryosu tasarlayıp uyguladın.', requiredScore: 14000, rewardBudget: 75000 },
-  { id: 'cto-badge', icon: '👑', title: 'CTO', description: 'Teknoloji vizyonunu tüm şirkete mal ettin. Efsane.', requiredScore: 15000, rewardBudget: 100000 },
+  { id: 'cto-badge', icon: '👑', title: 'CTO', description: 'Teknoloji vizyonunu tüm şirkete mal ettin. Efsane.', requiredScore: 16000, requirementType: 'careerXp', rewardBudget: 100000 },
 ];
 
 const STORAGE_KEYS = {
   score: '@shipit_score',
+  careerXp: '@shipit_career_xp',
   budget: '@shipit_budget',
   companyName: '@shipit_company_name',
-  techTokens: '@shipit_tech_tokens',
   inventory: '@shipit_inventory',
   streakDays: '@shipit_streak_days',
   streakLastDate: '@shipit_streak_last_date',
@@ -92,9 +65,11 @@ const STORAGE_KEYS = {
 export const STREAK_REWARDS = [200, 400, 600, 800, 1000, 1200, 1500] as const;
 
 const DEFAULT_SCORE = 0;
+const DEFAULT_CAREER_XP = 0;
 const DEFAULT_BUDGET = 1000;
 const DEFAULT_COMPANY_NAME = 'ShipIt Inc.';
-const DEFAULT_TECH_TOKENS = 2000;
+const DEFAULT_LIFELINE_COUNT = 3;
+const DEFAULT_UPTIME_STREAK = 0;
 const DEFAULT_CORRECT_ANSWERS = 0;
 const DEFAULT_WRONG_ANSWERS = 0;
 const DEFAULT_SEEN_IDS: number[] = [];
@@ -104,27 +79,23 @@ export function getCompanyInitial(name: string): string {
   return trimmed ? trimmed.charAt(0).toUpperCase() : 'S';
 }
 
-// --- Türetilmiş yardımcılar ---------------------------------------------------
-export function getRankForScore(score: number): { current: Rank; next: Rank | null } {
-  let current = RANKS[0];
-  for (const rank of RANKS) {
-    if (score >= rank.threshold) current = rank;
-  }
-  const currentIndex = RANKS.findIndex((r) => r.id === current.id);
-  const next = currentIndex < RANKS.length - 1 ? RANKS[currentIndex + 1] : null;
-  return { current, next };
+export function isBadgeEarned(badge: Badge, reputation: number, careerXp: number): boolean {
+  return badge.requirementType === 'careerXp'
+    ? careerXp >= badge.requiredScore
+    : reputation >= badge.requiredScore;
 }
 
-function getRankProgress(score: number, current: Rank, next: Rank | null): number {
-  if (!next) return 1;
-  const span = next.threshold - current.threshold;
-  if (span <= 0) return 1;
-  return Math.min(1, Math.max(0, (score - current.threshold) / span));
-}
+// --- Türetilmiş yardımcılar ---------------------------------------------------
+/** @deprecated Rank is now derived from permanent Career XP. */
+export const getRankForScore = getRankForCareerXp;
 
 // --- Context -------------------------------------------------------------
 interface ReputationContextValue {
+  /** Reputation / İtibar. Kept as score for backward-compatible consumers. */
   score: number;
+  reputation: number;
+  /** Permanent, non-decreasing career progression. */
+  careerXp: number;
   budget: number;
   companyName: string;
   isLoaded: boolean;
@@ -132,14 +103,26 @@ interface ReputationContextValue {
   nextRank: Rank | null;
   rankProgress: number; // 0-1 arası, ekranın kendi hesap yapmasına gerek yok
   badges: (Badge & { earned: boolean })[];
-  /** Premium para birimi: TechToken (tt) */
-  techTokens: number;
+  codeReview: number;
+  gitRevert: number;
+  serverScaleUp: number;
+  snapshotBackup: number;
+  uptimeStreak: number;
+  consumeCodeReview: () => void;
+  consumeGitRevert: () => void;
+  consumeServerScaleUp: () => void;
+  consumeSnapshotBackup: () => void;
+  setUptimeStreak: React.Dispatch<React.SetStateAction<number>>;
+  setCodeReview: React.Dispatch<React.SetStateAction<number>>;
+  setGitRevert: React.Dispatch<React.SetStateAction<number>>;
+  setServerScaleUp: React.Dispatch<React.SetStateAction<number>>;
+  setSnapshotBackup: React.Dispatch<React.SetStateAction<number>>;
   /** Satın alınan öğelerin ID listesi */
   inventory: string[];
   /** Sadece skoru değiştirir, o çağrıda yeni kazanılan rozetleri döner. */
   addScore: (amount: number) => Promise<Badge[]>;
-  /** Bir senaryo/olay sonucunda hem skoru hem bütçeyi tek çağrıda günceller. */
-  applyOutcome: (scoreDelta: number, budgetDelta: number) => Promise<Badge[]>;
+  /** Bir kriz sonucunda Career XP, İtibar ve bütçeyi atomik olarak günceller. */
+  applyOutcome: (careerXpDelta: number, reputationDelta: number, budgetDelta: number) => Promise<Badge[]>;
   /** Bütçeyi skor veya rozet durumunu değiştirmeden günceller. */
   addBudget: (amount: number) => Promise<Badge[]>;
   /** Yeni kazanılan ama henüz kullanıcıya gösterilmemiş rozetler (toast kuyruğu). */
@@ -152,11 +135,10 @@ interface ReputationContextValue {
   /**
    * Bir mağaza öğesini satın alır.
    * @param itemId   Satın alınacak öğenin ID'si
-   * @param currency 'budget' → şirket bütçesi, 'tt' → TechToken
    * @param price    Öğenin fiyatı
    * @returns 'ok' | 'insufficient_funds' | 'already_owned'
    */
-  purchaseItem: (itemId: string, currency: 'budget' | 'tt', price: number) => Promise<'ok' | 'insufficient_funds' | 'already_owned'>;
+  purchaseItem: (itemId: string, price: number) => Promise<'ok' | 'insufficient_funds' | 'already_owned'>;
   /** 7-slot boolean array Mon–Sun. true = completed/claimed for current week */
   streakDays: boolean[];
   /** 0=Mon … 6=Sun, based on today */
@@ -185,13 +167,17 @@ const ReputationContext = createContext<ReputationContextValue | null>(null);
 
 export function ReputationProvider({ children }: { children: React.ReactNode }) {
   const [score, setScore] = useState(DEFAULT_SCORE);
+  const [careerXp, setCareerXp] = useState(DEFAULT_CAREER_XP);
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [companyName, setCompanyNameState] = useState(DEFAULT_COMPANY_NAME);
   const [isLoaded, setIsLoaded] = useState(false);
   const [pendingBadges, setPendingBadges] = useState<Badge[]>([]);
-  const [techTokens, setTechTokens] = useState(DEFAULT_TECH_TOKENS);
+  const [codeReview, setCodeReview] = useState(DEFAULT_LIFELINE_COUNT);
+  const [gitRevert, setGitRevert] = useState(DEFAULT_LIFELINE_COUNT);
+  const [serverScaleUp, setServerScaleUp] = useState(DEFAULT_LIFELINE_COUNT);
+  const [snapshotBackup, setSnapshotBackup] = useState(DEFAULT_LIFELINE_COUNT);
+  const [uptimeStreak, setUptimeStreak] = useState(DEFAULT_UPTIME_STREAK);
   const [inventory, setInventory] = useState<string[]>([]);
-  const techTokensRef = useRef(DEFAULT_TECH_TOKENS);
   const inventoryRef = useRef<string[]>([]);
 
   // User statistics & game incident state
@@ -228,6 +214,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   // edilmemiş olmasından kaynaklanan stale-closure riski olmadan doğru
   // eski değeri okuyup rozet farkını buradan hesaplıyoruz.
   const scoreRef = useRef(score);
+  const careerXpRef = useRef(careerXp);
   const budgetRef = useRef(budget);
 
   // Uygulama açıldığında tüm kalıcı verileri hafızadan çek
@@ -236,9 +223,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       try {
         const results = await AsyncStorage.multiGet([
           STORAGE_KEYS.score,
+          STORAGE_KEYS.careerXp,
           STORAGE_KEYS.budget,
           STORAGE_KEYS.companyName,
-          STORAGE_KEYS.techTokens,
           STORAGE_KEYS.inventory,
           STORAGE_KEYS.streakDays,
           STORAGE_KEYS.streakLastDate,
@@ -249,10 +236,25 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         const storedMap = Object.fromEntries(results.map(([k, v]) => [k, v]));
 
         const storedScore = storedMap[STORAGE_KEYS.score];
+        let loadedReputation = DEFAULT_SCORE;
         if (storedScore !== null && storedScore !== undefined) {
           const parsed = parseInt(storedScore, 10);
-          scoreRef.current = parsed;
-          setScore(parsed);
+          if (!isNaN(parsed)) {
+            loadedReputation = Math.max(0, parsed);
+            scoreRef.current = loadedReputation;
+            setScore(loadedReputation);
+          }
+        }
+        const careerXpMigration = resolveCareerXpMigration(
+          storedMap[STORAGE_KEYS.careerXp],
+          storedScore,
+        );
+        careerXpRef.current = careerXpMigration.careerXp;
+        setCareerXp(careerXpMigration.careerXp);
+        if (careerXpMigration.shouldPersist) {
+          // One-time backward-compatible migration preserves the rank implied
+          // by the legacy reputation value without changing that reputation.
+          await AsyncStorage.setItem(STORAGE_KEYS.careerXp, String(careerXpMigration.careerXp));
         }
         const storedBudget = storedMap[STORAGE_KEYS.budget];
         if (storedBudget !== null && storedBudget !== undefined) {
@@ -264,12 +266,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         if (storedCompanyName !== null && storedCompanyName !== undefined && storedCompanyName.trim()) {
           setCompanyNameState(storedCompanyName);
         }
-        const storedTechTokens = storedMap[STORAGE_KEYS.techTokens];
-        if (storedTechTokens !== null && storedTechTokens !== undefined) {
-          const parsed = parseInt(storedTechTokens, 10);
-          techTokensRef.current = parsed;
-          setTechTokens(parsed);
-        }
         const storedInventory = storedMap[STORAGE_KEYS.inventory];
         if (storedInventory !== null && storedInventory !== undefined) {
           const parsed: string[] = JSON.parse(storedInventory);
@@ -280,8 +276,12 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         if (storedSeenIds !== null && storedSeenIds !== undefined) {
           try {
             const parsed: number[] = JSON.parse(storedSeenIds);
-            seenIdsRef.current = parsed;
-            setSeenIds(parsed);
+            const recent = parsed.filter((id) => Number.isInteger(id)).slice(-RECENT_QUESTION_HISTORY_LIMIT);
+            seenIdsRef.current = recent;
+            setSeenIds(recent);
+            if (recent.length !== parsed.length) {
+              await AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(recent));
+            }
           } catch (_) { }
         }
         const storedCorrect = storedMap[STORAGE_KEYS.correctAnswers];
@@ -369,7 +369,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
   const setSeenIdsHandler: React.Dispatch<React.SetStateAction<number[]>> = (action) => {
     setSeenIds((prev) => {
-      const nextVal = typeof action === 'function' ? action(prev) : action;
+      const requested = typeof action === 'function' ? action(prev) : action;
+      const nextVal = requested.reduce<number[]>(
+        (history, id) => appendRecentQuestionId(history, id, RECENT_QUESTION_HISTORY_LIMIT),
+        [],
+      );
       seenIdsRef.current = nextVal;
       AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(nextVal)).catch((e) =>
         console.error('Görülen IDler kaydedilemedi:', e)
@@ -389,13 +393,18 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const applyDelta = async (scoreDelta: number, budgetDelta: number): Promise<Badge[]> => {
+  const applyDelta = async (careerXpDelta: number, reputationDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
-    const newScore = Math.max(0, oldScore + scoreDelta);
+    const oldCareerXp = careerXpRef.current;
+    const progression = calculateProgressionOutcome(oldCareerXp, oldScore, careerXpDelta, reputationDelta);
+    const newScore = progression.reputation;
+    const newCareerXp = progression.careerXp;
     let newBudget = budgetRef.current + budgetDelta;
 
-    // YENİ KAZANILAN ROZETLERİ BUL
-    const earned = BADGES.filter((b) => oldScore < b.requiredScore && newScore >= b.requiredScore);
+    const earned = BADGES.filter((badge) => (
+      !isBadgeEarned(badge, oldScore, oldCareerXp)
+      && isBadgeEarned(badge, newScore, newCareerXp)
+    ));
 
     // YENİ EKLENDİ: Eğer rozet kazanıldıysa, ödül bütçesini de ana bütçeye ekle
     if (earned.length > 0) {
@@ -405,13 +414,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     }
 
     scoreRef.current = newScore;
+    careerXpRef.current = newCareerXp;
     budgetRef.current = newBudget;
     setScore(newScore);
+    setCareerXp(newCareerXp);
     setBudget(newBudget);
 
     try {
       await AsyncStorage.multiSet([
         [STORAGE_KEYS.score, String(newScore)],
+        [STORAGE_KEYS.careerXp, String(newCareerXp)],
         [STORAGE_KEYS.budget, String(newBudget)],
       ]);
     } catch (error) {
@@ -421,16 +433,30 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     return earned;
   };
 
-  const addScore = (amount: number) => applyDelta(amount, 0);
-  const applyOutcome = (scoreDelta: number, budgetDelta: number) => applyDelta(scoreDelta, budgetDelta);
-  const addBudget = (amount: number) => applyDelta(0, amount);
+  const addScore = (amount: number) => applyDelta(0, amount, 0);
+  const applyOutcome = (careerXpDelta: number, reputationDelta: number, budgetDelta: number) => (
+    applyDelta(careerXpDelta, reputationDelta, budgetDelta)
+  );
+  const addBudget = (amount: number) => applyDelta(0, 0, amount);
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));
+  const consumeCodeReview = useCallback(() => {
+    setCodeReview((count) => Math.max(0, count - 1));
+  }, []);
+  const consumeGitRevert = useCallback(() => {
+    setGitRevert((count) => Math.max(0, count - 1));
+  }, []);
+  const consumeServerScaleUp = useCallback(() => {
+    setServerScaleUp((count) => Math.max(0, count - 1));
+  }, []);
+  const consumeSnapshotBackup = useCallback(() => {
+    setSnapshotBackup((count) => Math.max(0, count - 1));
+  }, []);
 
   const resetProgress = async () => {
     // 1. Ref'leri sıfırla
     scoreRef.current = DEFAULT_SCORE;
+    careerXpRef.current = DEFAULT_CAREER_XP;
     budgetRef.current = DEFAULT_BUDGET;
-    techTokensRef.current = DEFAULT_TECH_TOKENS;
     inventoryRef.current = [];
     seenIdsRef.current = [];
     correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
@@ -438,8 +464,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
     // 2. State'leri sıfırla
     setScore(DEFAULT_SCORE);
+    setCareerXp(DEFAULT_CAREER_XP);
     setBudget(DEFAULT_BUDGET);
-    setTechTokens(DEFAULT_TECH_TOKENS);
+    setCodeReview(DEFAULT_LIFELINE_COUNT);
+    setGitRevert(DEFAULT_LIFELINE_COUNT);
+    setServerScaleUp(DEFAULT_LIFELINE_COUNT);
+    setSnapshotBackup(DEFAULT_LIFELINE_COUNT);
+    setUptimeStreak(DEFAULT_UPTIME_STREAK);
     setInventory([]);
     setPendingBadges([]);
 
@@ -452,8 +483,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       // 3. AsyncStorage'dan tüm ilerlemeyi temizle
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.score,
+        STORAGE_KEYS.careerXp,
         STORAGE_KEYS.budget,
-        STORAGE_KEYS.techTokens,
         STORAGE_KEYS.inventory,
         STORAGE_KEYS.streakDays,
         STORAGE_KEYS.streakLastDate,
@@ -510,30 +541,17 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
   const purchaseItem = async (
     itemId: string,
-    currency: 'budget' | 'tt',
     price: number,
   ): Promise<'ok' | 'insufficient_funds' | 'already_owned'> => {
     if (inventoryRef.current.includes(itemId)) return 'already_owned';
-    if (currency === 'budget') {
-      if (budgetRef.current < price) return 'insufficient_funds';
-      const newBudget = budgetRef.current - price;
-      budgetRef.current = newBudget;
-      setBudget(newBudget);
-      try {
-        await AsyncStorage.setItem(STORAGE_KEYS.budget, String(newBudget));
-      } catch (e) {
-        console.error('Bütçe kaydedilemedi:', e);
-      }
-    } else {
-      if (techTokensRef.current < price) return 'insufficient_funds';
-      const newTt = techTokensRef.current - price;
-      techTokensRef.current = newTt;
-      setTechTokens(newTt);
-      try {
-        await AsyncStorage.setItem(STORAGE_KEYS.techTokens, String(newTt));
-      } catch (e) {
-        console.error('TechToken kaydedilemedi:', e);
-      }
+    if (budgetRef.current < price) return 'insufficient_funds';
+    const newBudget = budgetRef.current - price;
+    budgetRef.current = newBudget;
+    setBudget(newBudget);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.budget, String(newBudget));
+    } catch (e) {
+      console.error('Bütçe kaydedilemedi:', e);
     }
     const newInventory = [...inventoryRef.current, itemId];
     inventoryRef.current = newInventory;
@@ -547,9 +565,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   };
 
   const value = useMemo<ReputationContextValue>(() => {
-    const { current, next } = getRankForScore(score);
-    const badges = BADGES.map((b) => ({ ...b, earned: score >= b.requiredScore }));
-    const rankProgress = getRankProgress(score, current, next);
+    const { current, next } = getRankForCareerXp(careerXp);
+    const badges = BADGES.map((badge) => ({ ...badge, earned: isBadgeEarned(badge, score, careerXp) }));
+    const rankProgress = getRankProgress(careerXp, current, next);
     const dayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
     let sc = 0;
     for (let i = dayIdx; i >= 0; i--) {
@@ -558,6 +576,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     }
     return {
       score,
+      reputation: score,
+      careerXp,
       budget,
       companyName,
       isLoaded,
@@ -565,7 +585,20 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       nextRank: next,
       rankProgress,
       badges,
-      techTokens,
+      codeReview,
+      gitRevert,
+      serverScaleUp,
+      snapshotBackup,
+      uptimeStreak,
+      consumeCodeReview,
+      consumeGitRevert,
+      consumeServerScaleUp,
+      consumeSnapshotBackup,
+      setUptimeStreak,
+      setCodeReview,
+      setGitRevert,
+      setServerScaleUp,
+      setSnapshotBackup,
       inventory,
       addScore,
       applyOutcome,
@@ -590,11 +623,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     score,
+    careerXp,
     budget,
     companyName,
     isLoaded,
     pendingBadges,
-    techTokens,
+    codeReview,
+    gitRevert,
+    serverScaleUp,
+    snapshotBackup,
+    uptimeStreak,
     inventory,
     streakDays,
     correctAnswers,

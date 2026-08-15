@@ -1,0 +1,120 @@
+import React, { useMemo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import type { Badge } from '../../state/ReputationContext';
+import { useTheme } from '../../state/ThemeContext';
+import { fonts } from '../../theme/typography';
+import { dashboardType, getDashboardTokens } from './dashboardTokens';
+
+interface AchievementCardProps {
+  badge: Badge | null;
+}
+
+export default function AchievementCard({ badge }: AchievementCardProps) {
+  const { theme } = useTheme();
+  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.eyebrow}>SON BAŞARI</Text>
+      {badge ? (
+        <>
+          <View style={styles.badgeRow}>
+            <View style={styles.badgeMark} accessibilityLabel={`${badge.title} rozeti`}>
+              <View style={styles.badgeShine} />
+              <Text style={styles.badgeIcon}>{badge.icon}</Text>
+            </View>
+            <View style={styles.badgeCopy}>
+              <Text style={styles.title}>{badge.title}</Text>
+              <Text style={styles.description}>{badge.description}</Text>
+            </View>
+          </View>
+          <View style={styles.rewardRow}>
+            <View style={styles.earnedPill}>
+              <Text style={styles.earnedText}>KAZANILDI</Text>
+            </View>
+            <Text style={styles.rewardValue}>+${badge.rewardBudget.toLocaleString('tr-TR')} bütçe</Text>
+          </View>
+        </>
+      ) : (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyMark}>
+            <Text style={styles.emptyMarkText}>01</Text>
+          </View>
+          <Text style={styles.title}>İlk rozetin hazır</Text>
+          <Text style={styles.description}>Kriz senaryolarını çöz, Kariyer XP ve İtibar kazanarak koleksiyonu başlat.</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
+  const { colors, radius, shadow } = tokens;
+  return StyleSheet.create({
+    card: {
+      padding: 18,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadow.card,
+    },
+    eyebrow: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.primary, marginBottom: 14 },
+    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 13 },
+    badgeMark: {
+      width: 64,
+      height: 64,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 21,
+      overflow: 'hidden',
+      backgroundColor: colors.warningSoft,
+      borderWidth: 1,
+      borderColor: colors.warning,
+    },
+    badgeShine: {
+      position: 'absolute',
+      top: 7,
+      left: 9,
+      right: 9,
+      height: 12,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceHighlight,
+    },
+    badgeIcon: { fontSize: 30 },
+    badgeCopy: { flex: 1, minWidth: 0 },
+    title: { ...dashboardType.title, fontFamily: fonts.headingBold, color: colors.text },
+    description: { ...dashboardType.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 4 },
+    rewardRow: {
+      minHeight: tokens.control.height,
+      marginTop: 14,
+      paddingHorizontal: 11,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.secondarySoft,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+    },
+    earnedPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.secondary },
+    earnedText: { fontFamily: fonts.bodySemiBold, fontSize: 10, letterSpacing: 0.5, color: colors.onAccent },
+    rewardValue: { flexShrink: 1, fontFamily: fonts.monoSemiBold, fontSize: 12, color: colors.secondary },
+    emptyState: { alignItems: 'flex-start' },
+    emptyMark: {
+      width: 56,
+      height: 56,
+      marginBottom: 13,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 19,
+      backgroundColor: colors.primarySoft,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+    },
+    emptyMarkText: { fontFamily: fonts.monoBold, fontSize: 16, color: colors.primary },
+  });
+}

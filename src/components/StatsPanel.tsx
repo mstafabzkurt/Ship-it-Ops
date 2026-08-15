@@ -59,7 +59,7 @@ interface StatsPanelProps {
 }
 
 export default function StatsPanel({ budgetDeltaLabel = 'son olay', scoreDeltaLabel = 'güncel' }: StatsPanelProps) {
-  const { score, budget, techTokens, currentRank, nextRank, rankProgress } = useReputation();
+  const { careerXp, score, budget, currentRank, nextRank, rankProgress } = useReputation();
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const { colors } = theme;
@@ -76,7 +76,7 @@ export default function StatsPanel({ budgetDeltaLabel = 'son olay', scoreDeltaLa
           accentDanger={colors.accentDanger}
         />
         <StatItem
-          label="Bugünkü Skor"
+          label="İtibar"
           value={formatScore(score)}
           delta={scoreDeltaLabel}
           direction="up"
@@ -85,15 +85,8 @@ export default function StatsPanel({ budgetDeltaLabel = 'son olay', scoreDeltaLa
         />
       </View>
 
-      {/* TechToken balance chip */}
-      <View style={styles.ttRow}>
-        <Text style={styles.ttIcon}>🪙</Text>
-        <Text style={styles.ttLabel}>TechToken</Text>
-        <Text style={styles.ttValue}>{techTokens} tt</Text>
-      </View>
-
       <View style={styles.repTrack}>
-        <ReputationBar score={score} currentRank={currentRank} nextRank={nextRank} progress={rankProgress} />
+        <ReputationBar careerXp={careerXp} currentRank={currentRank} nextRank={nextRank} progress={rankProgress} />
       </View>
     </View>
   );
@@ -118,31 +111,6 @@ function makeStyles(theme: Theme) {
     },
     repTrack: {
       marginTop: 2,
-    },
-    ttRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      backgroundColor: colors.alertBg,
-      borderWidth: geometry.borderWidth,
-      borderColor: colors.alertBorder,
-      borderRadius: geometry.borderRadiusSm,
-      paddingVertical: 7,
-      paddingHorizontal: 12,
-    },
-    ttIcon: {
-      fontSize: 16,
-    },
-    ttLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: fontSizes.sm,
-      color: colors.textMuted,
-      flex: 1,
-    },
-    ttValue: {
-      fontFamily: fonts.monoSemiBold,
-      fontSize: fontSizes.lg,
-      color: colors.accentAlert,
     },
   });
 }
