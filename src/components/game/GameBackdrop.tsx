@@ -11,14 +11,14 @@ export default function GameBackdrop({ children }: { children: React.ReactNode }
 
   return (
     <LinearGradient
-      colors={[tokens.colors.canvasGlow, tokens.colors.canvas, tokens.colors.canvas]}
-      locations={[0, 0.34, 1]}
+      colors={[tokens.colors.secondarySurface, tokens.colors.canvas, tokens.colors.canvas]}
+      locations={[0, 0.28, 1]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.background}
     >
-      <View pointerEvents="none" style={styles.orbPrimary} />
-      <View pointerEvents="none" style={styles.orbSecondary} />
+      <View pointerEvents="none" style={styles.gridLineVertical} />
+      <View pointerEvents="none" style={styles.gridLineHorizontal} />
       {children}
     </LinearGradient>
   );
@@ -27,25 +27,23 @@ export default function GameBackdrop({ children }: { children: React.ReactNode }
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   return StyleSheet.create({
     background: { flex: 1, backgroundColor: tokens.colors.canvas },
-    orbPrimary: {
+    gridLineVertical: {
       position: 'absolute',
-      width: 260,
-      height: 260,
-      top: -130,
-      right: -90,
-      borderRadius: 130,
-      backgroundColor: tokens.colors.primarySoft,
-      opacity: 0.62,
+      width: 1,
+      top: 0,
+      bottom: 0,
+      right: '12%',
+      backgroundColor: tokens.colors.dividerSubtle,
+      opacity: 0.34,
     },
-    orbSecondary: {
+    gridLineHorizontal: {
       position: 'absolute',
-      width: 220,
-      height: 220,
-      bottom: 80,
-      left: -150,
-      borderRadius: 110,
-      backgroundColor: tokens.colors.secondarySoft,
-      opacity: 0.42,
+      height: 1,
+      top: 116,
+      left: 0,
+      right: 0,
+      backgroundColor: tokens.colors.dividerSubtle,
+      opacity: 0.28,
     },
   });
 }

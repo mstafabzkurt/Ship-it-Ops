@@ -1,19 +1,19 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { getCompanyInitial, type Rank } from '../../state/ReputationContext';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { getCompanyInitial } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
-import { dashboardType, getDashboardTokens } from './dashboardTokens';
+import { getDashboardTokens } from './dashboardTokens';
 
 interface DashboardHeaderProps {
   companyName: string;
-  currentRank: Rank;
   level: number;
 }
 
-export default function DashboardHeader({ companyName, currentRank, level }: DashboardHeaderProps) {
+export default function DashboardHeader({ companyName, level }: DashboardHeaderProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   return (
@@ -29,18 +29,20 @@ export default function DashboardHeader({ companyName, currentRank, level }: Das
         </View>
       </View>
 
-      <View style={styles.statusCluster}>
-        <View style={styles.levelChip}>
-          <Text style={styles.levelLabel}>SEVİYE</Text>
-          <Text style={styles.levelValue}>{level}</Text>
-        </View>
-        <View style={styles.crisisChip} accessibilityLabel="Kriz modu aktif">
-          <View style={styles.crisisDot} />
-          <View>
-            <Text style={styles.crisisLabel}>KRİZ MODU</Text>
-            <Text style={styles.rankName} numberOfLines={1}>{currentRank.name}</Text>
-          </View>
-        </View>
+      <View style={styles.levelChip}>
+        <Text style={styles.levelLabel}>SEVİYE</Text>
+        <Text style={styles.levelValue}>{level}</Text>
+      </View>
+
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={styles.headerRail}
+      >
+        <View style={styles.railNode} />
+        <View style={styles.railLine} />
+        <View style={styles.railNode} />
       </View>
     </View>
   );
@@ -50,25 +52,31 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
     header: {
+      position: 'relative',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: 16,
+      gap: tokens.layout.isCompact ? 10 : 16,
       flexWrap: 'wrap',
+      paddingBottom: tokens.layout.isCompact ? 11 : 14,
     },
-    identity: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
+    identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 9 : 12 },
     identityCopy: { flexShrink: 1 },
     mark: {
-      width: 52,
-      height: 52,
-      borderRadius: 18,
+      width: tokens.layout.isCompact ? 46 : 52,
+      height: tokens.layout.isCompact ? 46 : 52,
+      borderRadius: radius.sm,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primary,
+      backgroundColor: colors.secondarySurfaceRaised,
       borderWidth: 1,
-      borderColor: colors.surfaceHighlightStrong,
+      borderColor: colors.borderSubtle,
+      borderLeftWidth: 3,
+      borderLeftColor: colors.primary,
       overflow: 'hidden',
       ...shadow.card,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.18,
     },
     markHighlight: {
       position: 'absolute',
@@ -79,50 +87,42 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderRadius: radius.pill,
       backgroundColor: colors.surfaceHighlight,
     },
-    markText: { fontFamily: fonts.headingBold, fontSize: 24, color: colors.onAccent },
+    markText: { fontFamily: fonts.headingBold, fontSize: 24, color: colors.text },
     eyebrow: {
-      ...dashboardType.eyebrow,
+      ...tokens.type.eyebrow,
       fontFamily: fonts.monoSemiBold,
       color: colors.secondary,
       marginBottom: 2,
     },
     companyName: {
       fontFamily: fonts.headingBold,
-      fontSize: 22,
-      lineHeight: 28,
+      fontSize: tokens.layout.isCompact ? 19 : 22,
+      lineHeight: tokens.layout.isCompact ? 24 : 28,
       color: colors.text,
       maxWidth: 260,
     },
-    statusCluster: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
     levelChip: {
-      minWidth: 66,
+      minWidth: tokens.layout.isCompact ? 60 : 66,
       minHeight: tokens.control.heightLarge,
       paddingHorizontal: 12,
       paddingVertical: 8,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.md,
-      backgroundColor: colors.primarySoft,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
+      borderLeftWidth: 1,
+      borderLeftColor: colors.dividerSubtle,
     },
     levelLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, letterSpacing: 0.55, color: colors.textMuted },
     levelValue: { fontFamily: fonts.monoBold, fontSize: 18, lineHeight: 22, color: colors.primary },
-    crisisChip: {
-      minHeight: tokens.control.heightLarge,
-      maxWidth: 180,
+    headerRail: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 9,
-      paddingHorizontal: 13,
-      paddingVertical: 8,
-      borderRadius: radius.md,
-      backgroundColor: colors.dangerSoft,
-      borderWidth: 1,
-      borderColor: colors.danger,
     },
-    crisisDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger },
-    crisisLabel: { fontFamily: fonts.bodySemiBold, fontSize: 12, letterSpacing: 0.45, color: colors.danger },
-    rankName: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 16, color: colors.text },
+    railNode: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.secondary },
+    railLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
   });
 }

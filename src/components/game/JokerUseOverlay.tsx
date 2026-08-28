@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
@@ -7,7 +8,7 @@ import { dashboardType, getDashboardTokens } from '../dashboard/dashboardTokens'
 
 export interface JokerUseActivation {
   activationId: number;
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   name: string;
   countBefore: number;
 }
@@ -20,7 +21,8 @@ interface JokerUseOverlayProps {
 
 export default function JokerUseOverlay({ activation, reduceMotion, onFinished }: JokerUseOverlayProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const accent = useMemo(() => getJokerAccent(activation.name, tokens), [activation.name, tokens]);
   const styles = useMemo(() => makeStyles(tokens, accent), [accent, tokens]);
   const opacity = useRef(new Animated.Value(0)).current;
@@ -202,15 +204,34 @@ export default function JokerUseOverlay({ activation, reduceMotion, onFinished }
         accessibilityLabel={`${activation.name} kullanıldı. ${activation.countBefore} adetten ${countAfter} adede düştü.`}
         style={[styles.card, { opacity, transform: [{ translateY }, { scale: cardScale }] }]}
       >
-        <View style={styles.iconSlot}>
-          <Text style={styles.icon} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            {activation.icon}
-          </Text>
-        </View>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={styles.innerEdge}
+        />
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={styles.accentRail}
+        />
 
-        <View style={styles.copy}>
-          <Text style={styles.eyebrow}>JOKER KULLANILDI</Text>
-          <Text style={styles.name}>{activation.name}</Text>
+        <View style={styles.activationHeader}>
+          <View style={styles.iconSlot}>
+            <Ionicons
+              name={activation.icon}
+              size={38}
+              color={accent.solid}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
+          </View>
+
+          <View style={styles.copy}>
+            <Text style={styles.eyebrow}>JOKER KULLANILDI</Text>
+            <Text style={styles.name}>{activation.name}</Text>
+          </View>
         </View>
 
         <View style={styles.quantityBlock}>
@@ -263,64 +284,81 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, accent: Retur
     },
     backdrop: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: colors.canvas,
+      backgroundColor: colors.shadowNeutral,
     },
     card: {
       width: '100%',
-      maxWidth: 460,
-      minHeight: 300,
-      alignItems: 'center',
+      maxWidth: 430,
+      overflow: 'hidden',
+      alignItems: 'stretch',
       justifyContent: 'center',
-      gap: 14,
-      paddingHorizontal: 24,
-      paddingVertical: 28,
-      borderRadius: radius.xl,
-      backgroundColor: colors.surfaceRaised,
-      borderWidth: 2,
-      borderColor: accent.solid,
-      shadowColor: accent.solid,
+      gap: tokens.layout.isCompact ? 13 : 16,
+      paddingHorizontal: tokens.layout.isCompact ? 16 : 20,
+      paddingVertical: tokens.layout.isCompact ? 16 : 20,
+      borderRadius: radius.md,
+      backgroundColor: colors.floatingSurface,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      shadowColor: colors.shadowNeutral,
       shadowOffset: { width: 0, height: 14 },
-      shadowOpacity: 0.38,
+      shadowOpacity: 0.5,
       shadowRadius: 28,
       elevation: Math.max(Number(shadow.raised.elevation ?? 10), 12),
     },
+    innerEdge: {
+      position: 'absolute',
+      top: 0,
+      left: tokens.layout.isCompact ? 16 : 20,
+      right: tokens.layout.isCompact ? 16 : 20,
+      height: 1,
+      backgroundColor: colors.surfaceHighlight,
+    },
+    accentRail: {
+      position: 'absolute',
+      top: tokens.layout.isCompact ? 16 : 20,
+      bottom: tokens.layout.isCompact ? 16 : 20,
+      left: 0,
+      width: 2,
+      backgroundColor: accent.solid,
+    },
+    activationHeader: {
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: tokens.layout.isCompact ? 11 : 14,
+    },
     iconSlot: {
-      width: 104,
-      height: 104,
+      width: tokens.layout.isCompact ? 58 : 68,
+      height: tokens.layout.isCompact ? 58 : 68,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.xl,
+      borderRadius: radius.sm,
       backgroundColor: accent.soft,
-      borderWidth: 2,
-      borderColor: accent.solid,
-      shadowColor: accent.solid,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.32,
-      shadowRadius: 18,
-      elevation: 8,
+      borderLeftWidth: 2,
+      borderLeftColor: accent.solid,
     },
-    icon: { fontSize: 52, lineHeight: 64 },
-    copy: { width: '100%', alignItems: 'center', gap: 2 },
+    copy: { flex: 1, minWidth: 0, alignItems: 'flex-start', gap: 2 },
     eyebrow: {
       ...dashboardType.eyebrow,
       fontFamily: fonts.monoBold,
       color: accent.solid,
-      textAlign: 'center',
+      textAlign: 'left',
     },
     name: {
       ...dashboardType.display,
       fontFamily: fonts.headingBold,
       color: colors.text,
-      textAlign: 'center',
+      textAlign: 'left',
     },
     quantityBlock: {
       width: '100%',
+      flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      marginTop: 2,
-      paddingTop: 14,
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingTop: 12,
       borderTopWidth: 1,
-      borderTopColor: colors.borderStrong,
+      borderTopColor: colors.dividerSubtle,
     },
     quantityLabel: {
       ...dashboardType.eyebrow,
@@ -328,47 +366,47 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, accent: Retur
       color: colors.textMuted,
     },
     quantityRow: {
-      width: '100%',
-      minHeight: 60,
+      flexShrink: 1,
+      minHeight: 50,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 12,
+      justifyContent: 'flex-end',
+      gap: 8,
     },
     countBadge: {
-      minWidth: 96,
-      height: 58,
+      minWidth: tokens.layout.isCompact ? 66 : 76,
+      height: tokens.layout.isCompact ? 46 : 50,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 16,
-      borderRadius: radius.lg,
-      borderWidth: 2,
+      paddingHorizontal: 12,
+      borderRadius: radius.sm,
+      borderWidth: 1,
     },
     countBadgeBefore: {
-      backgroundColor: colors.surfaceSoft,
-      borderColor: colors.borderStrong,
+      backgroundColor: colors.floatingSurfaceRaised,
+      borderColor: colors.borderSubtle,
     },
     countBadgeAfter: {
       backgroundColor: accent.solid,
       borderColor: colors.surfaceHighlightStrong,
       shadowColor: accent.solid,
       shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.3,
-      shadowRadius: 12,
-      elevation: 6,
+      shadowOpacity: 0.22,
+      shadowRadius: 10,
+      elevation: 5,
     },
     arrow: {
-      width: 28,
+      width: 22,
       fontFamily: fonts.headingBold,
-      fontSize: 28,
-      lineHeight: 32,
+      fontSize: 22,
+      lineHeight: 26,
       color: accent.solid,
       textAlign: 'center',
     },
     count: {
       fontFamily: fonts.monoBold,
-      fontSize: 27,
-      lineHeight: 32,
+      fontSize: 23,
+      lineHeight: 28,
       color: colors.text,
     },
     countAfter: { color: colors.onAccent },

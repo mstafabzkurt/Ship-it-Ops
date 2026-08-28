@@ -1,15 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useMemo } from 'react';
+import { useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts, fontSizes } from '../../src/theme/typography';
 
-// Alt navigasyon: Ana Sayfa / Oyun / Kariyer / Mağaza / Profil
+// Alt navigasyon: Ana Sayfa / Kariyer / Sıralama / Mağaza / Profil
 export default function TabsLayout() {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
+  const bottomInset = Math.max(insets.bottom, tokens.spacing.sm);
 
   return (
     <Tabs
@@ -22,9 +27,9 @@ export default function TabsLayout() {
           backgroundColor: tokens.colors.surface,
           borderTopColor: tokens.colors.border,
           borderTopWidth: 1,
-          height: tokens.layout.tabBarHeight,
+          height: tokens.layout.tabBarHeight + bottomInset,
           paddingTop: tokens.spacing.sm,
-          paddingBottom: tokens.spacing.md,
+          paddingBottom: bottomInset,
         },
         tabBarLabelStyle: {
           fontFamily: fonts.bodySemiBold,
@@ -40,17 +45,17 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="game"
-        options={{
-          title: 'Oyun',
-          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} color={color} size={22} />,
-        }}
-      />
-      <Tabs.Screen
         name="reputation"
         options={{
           title: 'Kariyer',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'trophy' : 'trophy-outline'} color={color} size={22} />,
+        }}
+      />
+      <Tabs.Screen
+        name="ranking"
+        options={{
+          title: 'Sıralama',
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'podium' : 'podium-outline'} color={color} size={22} />,
         }}
       />
       <Tabs.Screen
@@ -65,6 +70,13 @@ export default function TabsLayout() {
         options={{
           title: 'Profil',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'person' : 'person-outline'} color={color} size={22} />,
+        }}
+      />
+      <Tabs.Screen
+        name="game"
+        options={{
+          href: null,
+          title: 'Oyun',
         }}
       />
     </Tabs>

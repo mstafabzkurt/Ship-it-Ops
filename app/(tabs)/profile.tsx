@@ -12,17 +12,18 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ProfileButton from '../../src/components/profile/ProfileButton';
 import ProfileStatCard from '../../src/components/profile/ProfileStatCard';
 import ProfileSummaryCard from '../../src/components/profile/ProfileSummaryCard';
-import { dashboardType, getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
-import { getCompanyInitial, useReputation } from '../../src/state/ReputationContext';
+import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
+import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
 import { formatCurrency } from '../../src/utils/format';
+import { calculateSuccessRate } from '../../src/utils/ranking';
 
 export default function ProfileScreen() {
   const { width } = useWindowDimensions();
@@ -37,17 +38,19 @@ export default function ProfileScreen() {
     resetProgress,
     correctAnswers,
     wrongAnswers,
+    equippedAvatar,
+    equippedAvatarFrame,
   } = useReputation();
   const { theme, resetTheme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const isWide = width >= 900;
 
   const totalQuestions = correctAnswers + wrongAnswers;
-  const winRate = useMemo(() => {
-    if (totalQuestions <= 0) return '0.00';
-    return ((correctAnswers / totalQuestions) * 100).toFixed(2);
-  }, [correctAnswers, totalQuestions]);
+  const winRate = useMemo(
+    () => calculateSuccessRate(correctAnswers, wrongAnswers).toFixed(2),
+    [correctAnswers, wrongAnswers],
+  );
 
   const [companyInput, setCompanyInput] = useState(companyName);
   const [companyError, setCompanyError] = useState('');
@@ -118,15 +121,8 @@ export default function ProfileScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={[tokens.colors.canvasGlow, tokens.colors.canvas, tokens.colors.canvas]}
-      locations={[0, 0.34, 1]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.background}
-    >
-      <View pointerEvents="none" style={styles.orbPrimary} />
-      <View pointerEvents="none" style={styles.orbSecondary} />
+    <View style={styles.background}>
+      <View pointerEvents="none" style={styles.topRule} />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
           style={styles.scroll}
@@ -141,11 +137,12 @@ export default function ProfileScreen() {
             </View>
 
             <ProfileSummaryCard
-              initial={getCompanyInitial(companyName)}
               companyName={companyName}
               currentRank={currentRank}
               careerXp={careerXp}
               score={score}
+              equippedAvatar={equippedAvatar}
+              equippedAvatarFrame={equippedAvatarFrame}
             />
 
             <SectionHeading eyebrow="PERFORMANS" title="Kullanıcı İstatistikleri" styles={styles} />
@@ -204,7 +201,7 @@ export default function ProfileScreen() {
                 <SectionHeading eyebrow="AYARLAR" title="Genel Tercihler" styles={styles} compact />
                 <View style={styles.settingsCard}>
                   <View style={styles.preferenceRow}>
-                    <View style={styles.preferenceMark}><Text style={styles.preferenceMarkText}>♪</Text></View>
+                    <View style={styles.preferenceMark}><Ionicons name="volume-medium-outline" size={21} color={tokens.colors.secondary} /></View>
                     <View style={styles.preferenceCopy}>
                       <Text style={styles.preferenceTitle}>Ses Efektleri</Text>
                       <Text style={styles.preferenceDescription}>Uygulama içi ses ve bildirim tonları</Text>
@@ -224,7 +221,7 @@ export default function ProfileScreen() {
                 <SectionHeading eyebrow="GELECEK" title="Hesap" styles={styles} compact />
                 <View style={styles.settingsCard}>
                   <View style={styles.accountRow}>
-                    <View style={styles.accountMark}><Text style={styles.accountMarkText}>→</Text></View>
+                    <View style={styles.accountMark}><Ionicons name="log-out-outline" size={20} color={tokens.colors.textMuted} /></View>
                     <View style={styles.accountCopy}>
                       <Text style={styles.preferenceTitle}>Çıkış Yap</Text>
                       <Text style={styles.preferenceDescription}>Kimlik doğrulama henüz kullanılmıyor.</Text>
@@ -279,7 +276,7 @@ export default function ProfileScreen() {
           </Animated.View>
         ) : null}
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -296,8 +293,11 @@ function SectionHeading({
 }) {
   return (
     <View style={[styles.sectionHeading, compact && styles.sectionHeadingCompact]}>
-      <Text style={styles.sectionEyebrow}>{eyebrow}</Text>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <View>
+        <Text style={styles.sectionEyebrow}>{eyebrow}</Text>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      <View style={styles.sectionRule} />
     </View>
   );
 }
@@ -306,21 +306,21 @@ function makeStyles(tokens: DashboardTokens) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
     background: { flex: 1, backgroundColor: colors.canvas },
-    orbPrimary: { position: 'absolute', width: 300, height: 300, top: -175, right: -105, borderRadius: 150, backgroundColor: colors.primarySoft, opacity: 0.7 },
-    orbSecondary: { position: 'absolute', width: 250, height: 250, top: 640, left: -180, borderRadius: 125, backgroundColor: colors.secondarySoft, opacity: 0.4 },
+    topRule: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, backgroundColor: colors.primary, opacity: 0.5 },
     safeArea: { flex: 1, backgroundColor: 'transparent' },
     scroll: { flex: 1 },
     scrollContent: { paddingBottom: tokens.layout.pageBottom },
     container: { width: '100%', maxWidth: tokens.layout.contentMaxWidth, alignSelf: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingTop: tokens.layout.pageTop },
     containerWide: { paddingHorizontal: tokens.layout.pageGutterWide },
-    pageHeader: { marginBottom: 18 },
-    eyebrow: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 5 },
-    headerTitle: { ...dashboardType.display, fontFamily: fonts.headingBold, color: colors.text },
-    sectionHeading: { marginTop: 32, marginBottom: 13 },
-    sectionHeadingCompact: { marginTop: 24 },
-    sectionEyebrow: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted, marginBottom: 3 },
-    sectionTitle: { ...dashboardType.title, fontFamily: fonts.headingBold, color: colors.text },
-    statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+    pageHeader: { marginBottom: tokens.layout.isCompact ? 10 : 18 },
+    eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 4 },
+    headerTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
+    sectionHeading: { flexDirection: 'row', alignItems: 'flex-end', gap: 14, marginTop: tokens.layout.isCompact ? 20 : 32, marginBottom: tokens.layout.isCompact ? 9 : 13 },
+    sectionHeadingCompact: { marginTop: tokens.layout.isCompact ? 16 : 24 },
+    sectionEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted, marginBottom: 2 },
+    sectionTitle: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
+    sectionRule: { flex: 1, height: 1, marginBottom: 5, backgroundColor: colors.dividerSubtle },
+    statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 8 : 12 },
     statGridItem: { width: '47%', flexGrow: 1 },
     statGridItemWide: { width: '23%' },
     settingsGrid: { gap: 0 },
@@ -329,36 +329,34 @@ function makeStyles(tokens: DashboardTokens) {
     primaryColumnWide: { flex: 1 },
     secondaryColumn: { minWidth: 0 },
     secondaryColumnWide: { width: 370, flexShrink: 0 },
-    settingsCard: { padding: 18, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.card },
-    inputLabel: { ...dashboardType.body, fontFamily: fonts.bodySemiBold, color: colors.text },
-    inputHint: { ...dashboardType.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 2, marginBottom: 13 },
+    settingsCard: { padding: tokens.layout.isCompact ? 13 : 17, borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
+    inputLabel: { ...tokens.type.body, fontFamily: fonts.bodySemiBold, color: colors.text },
+    inputHint: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 2, marginBottom: tokens.layout.isCompact ? 9 : 13 },
     companyInputRow: { flexDirection: 'row', alignItems: 'stretch', flexWrap: 'wrap', gap: 10 },
-    textInput: { flex: 1, minWidth: 210, minHeight: tokens.control.height, paddingHorizontal: 14, paddingVertical: 11, borderRadius: radius.md, backgroundColor: colors.surfaceRaised, borderWidth: 2, borderColor: colors.border, fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.text },
+    textInput: { flex: 1, minWidth: 210, minHeight: tokens.control.height, paddingHorizontal: 14, paddingVertical: 11, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderStrong, fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.text },
     textInputFocused: { borderColor: colors.primary },
     textInputError: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
     saveButton: { minWidth: 116 },
     validationSlot: { minHeight: 21, justifyContent: 'flex-end', marginTop: 7 },
     validationError: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.danger },
     validationHint: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
-    preferenceRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 12 },
-    preferenceMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: colors.secondarySoft, borderWidth: 1, borderColor: colors.secondary },
-    preferenceMarkText: { fontFamily: fonts.headingBold, fontSize: 20, lineHeight: 24, color: colors.secondary },
+    preferenceRow: { minHeight: tokens.layout.isCompact ? 54 : 62, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    preferenceMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     preferenceCopy: { flex: 1, minWidth: 0 },
-    preferenceTitle: { ...dashboardType.body, fontFamily: fonts.bodySemiBold, color: colors.text },
-    preferenceDescription: { ...dashboardType.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 2 },
-    accountRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 15 },
-    accountMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.borderStrong },
-    accountMarkText: { fontFamily: fonts.headingBold, fontSize: 19, lineHeight: 23, color: colors.textMuted },
+    preferenceTitle: { ...tokens.type.body, fontFamily: fonts.bodySemiBold, color: colors.text },
+    preferenceDescription: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 1 },
+    accountRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: tokens.layout.isCompact ? 11 : 15 },
+    accountMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     accountCopy: { flex: 1, minWidth: 0 },
     fullWidthButton: { width: '100%' },
-    developerCard: { padding: 18, borderRadius: radius.lg, backgroundColor: colors.warningSoft, borderWidth: 1, borderColor: colors.warning, ...shadow.card },
+    developerCard: { padding: tokens.layout.isCompact ? 14 : 18, borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle, borderLeftWidth: 3, borderLeftColor: colors.warning },
     developerHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
     developerLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.65, color: colors.warning },
     developerBudget: { fontFamily: fonts.monoBold, fontSize: 23, lineHeight: 29, color: colors.text, marginTop: 2 },
-    testPill: { minHeight: 29, justifyContent: 'center', paddingHorizontal: 9, borderRadius: radius.pill, backgroundColor: colors.canvas, borderWidth: 1, borderColor: colors.warning },
+    testPill: { minHeight: 29, justifyContent: 'center', paddingHorizontal: 9, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.warning },
     testPillText: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.6, color: colors.warning },
-    developerDescription: { ...dashboardType.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 9, marginBottom: 15 },
-    dangerDivider: { height: 1, backgroundColor: colors.borderStrong, marginVertical: 12 },
+    developerDescription: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 7, marginBottom: 11 },
+    dangerDivider: { height: 1, backgroundColor: colors.dividerSubtle, marginVertical: 12 },
     toast: { position: 'absolute', left: tokens.layout.pageGutter, right: tokens.layout.pageGutter, bottom: tokens.layout.floatingInset, maxWidth: 620, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 13, borderRadius: radius.lg, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.secondary, ...shadow.raised },
     toastIcon: { fontFamily: fonts.bodySemiBold, fontSize: 16, lineHeight: 20, color: colors.secondary },
     toastText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 19, color: colors.text },

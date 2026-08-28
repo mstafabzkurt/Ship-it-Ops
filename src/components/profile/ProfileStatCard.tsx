@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
@@ -16,7 +16,8 @@ interface ProfileStatCardProps {
 
 export default function ProfileStatCard({ mark, label, value, tone }: ProfileStatCardProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   return (
@@ -31,20 +32,20 @@ export default function ProfileStatCard({ mark, label, value, tone }: ProfileSta
 }
 
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
-  const { colors, radius, shadow } = tokens;
+  const { colors, radius } = tokens;
   return StyleSheet.create({
-    card: { flex: 1, minHeight: 142, justifyContent: 'space-between', padding: 15, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.card },
-    neutralCard: { backgroundColor: colors.surface },
-    positiveCard: { backgroundColor: colors.secondarySoft, borderColor: colors.secondary },
-    negativeCard: { backgroundColor: colors.dangerSoft, borderColor: colors.danger },
-    warningCard: { backgroundColor: colors.warningSoft, borderColor: colors.warning },
-    mark: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.borderStrong },
-    neutralMark: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-    positiveMark: { backgroundColor: colors.surface, borderColor: colors.secondary },
-    negativeMark: { backgroundColor: colors.surface, borderColor: colors.danger },
-    warningMark: { backgroundColor: colors.surface, borderColor: colors.warning },
+    card: { flex: 1, minHeight: tokens.layout.isCompact ? 94 : 106, justifyContent: 'space-between', padding: tokens.layout.isCompact ? 11 : 13, borderRadius: radius.sm, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle, borderTopWidth: 2 },
+    neutralCard: { borderTopColor: colors.primary },
+    positiveCard: { borderTopColor: colors.secondary },
+    negativeCard: { borderTopColor: colors.danger },
+    warningCard: { borderTopColor: colors.warning },
+    mark: { width: 28, height: 24, alignItems: 'flex-start', justifyContent: 'center' },
+    neutralMark: {},
+    positiveMark: {},
+    negativeMark: {},
+    warningMark: {},
     markText: { fontFamily: fonts.headingBold, fontSize: 17, lineHeight: 21 },
-    value: { fontFamily: fonts.monoBold, fontSize: 24, lineHeight: 30, marginTop: 10 },
+    value: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 20 : 24, lineHeight: tokens.layout.isCompact ? 25 : 30, marginTop: tokens.layout.isCompact ? 6 : 10 },
     neutralValue: { color: colors.primary },
     positiveValue: { color: colors.secondary },
     negativeValue: { color: colors.danger },

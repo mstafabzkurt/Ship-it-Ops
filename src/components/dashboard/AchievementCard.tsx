@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { Badge } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
-import { dashboardType, getDashboardTokens } from './dashboardTokens';
+import { getDashboardTokens } from './dashboardTokens';
 
 interface AchievementCardProps {
   badge: Badge | null;
@@ -11,7 +11,8 @@ interface AchievementCardProps {
 
 export default function AchievementCard({ badge }: AchievementCardProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   return (
@@ -21,7 +22,6 @@ export default function AchievementCard({ badge }: AchievementCardProps) {
         <>
           <View style={styles.badgeRow}>
             <View style={styles.badgeMark} accessibilityLabel={`${badge.title} rozeti`}>
-              <View style={styles.badgeShine} />
               <Text style={styles.badgeIcon}>{badge.icon}</Text>
             </View>
             <View style={styles.badgeCopy}>
@@ -53,55 +53,46 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
     card: {
-      padding: 18,
-      borderRadius: radius.xl,
-      backgroundColor: colors.surface,
+      padding: tokens.layout.isCompact ? 14 : 18,
+      borderRadius: radius.md,
+      backgroundColor: colors.secondarySurface,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.borderSubtle,
       ...shadow.card,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.18,
     },
-    eyebrow: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.primary, marginBottom: 14 },
+    eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.primary, marginBottom: tokens.layout.isCompact ? 10 : 14 },
     badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 13 },
     badgeMark: {
-      width: 64,
-      height: 64,
+      width: 52,
+      height: 52,
       flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 21,
+      borderRadius: radius.sm,
       overflow: 'hidden',
       backgroundColor: colors.warningSoft,
       borderWidth: 1,
       borderColor: colors.warning,
     },
-    badgeShine: {
-      position: 'absolute',
-      top: 7,
-      left: 9,
-      right: 9,
-      height: 12,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceHighlight,
-    },
-    badgeIcon: { fontSize: 30 },
+    badgeIcon: { fontSize: 25 },
     badgeCopy: { flex: 1, minWidth: 0 },
-    title: { ...dashboardType.title, fontFamily: fonts.headingBold, color: colors.text },
-    description: { ...dashboardType.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 4 },
+    title: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
+    description: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 3 },
     rewardRow: {
       minHeight: tokens.control.height,
       marginTop: 14,
-      paddingHorizontal: 11,
+      paddingTop: 10,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 10,
-      borderRadius: radius.md,
-      backgroundColor: colors.secondarySoft,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
+      borderTopWidth: 1,
+      borderTopColor: colors.dividerSubtle,
     },
-    earnedPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.secondary },
-    earnedText: { fontFamily: fonts.bodySemiBold, fontSize: 10, letterSpacing: 0.5, color: colors.onAccent },
+    earnedPill: { paddingVertical: 4 },
+    earnedText: { fontFamily: fonts.bodySemiBold, fontSize: 10, letterSpacing: 0.5, color: colors.secondary },
     rewardValue: { flexShrink: 1, fontFamily: fonts.monoSemiBold, fontSize: 12, color: colors.secondary },
     emptyState: { alignItems: 'flex-start' },
     emptyMark: {

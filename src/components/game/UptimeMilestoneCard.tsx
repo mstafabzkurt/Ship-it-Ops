@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
@@ -18,7 +18,8 @@ export default function UptimeMilestoneCard({
   milestoneReached,
 }: UptimeMilestoneCardProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   const progress = nextMilestone === null
@@ -61,7 +62,9 @@ export default function UptimeMilestoneCard({
           </View>
         </View>
 
-        <View style={[styles.targetBox, milestoneReached && styles.targetBoxReached]}>
+        <View style={styles.instrumentDivider} />
+
+        <View style={styles.targetGroup}>
           <Text style={styles.targetLabel}>SONRAKİ HEDEF</Text>
           <Text style={[styles.targetValue, milestoneReached && styles.targetValueReached]}>{nextTargetLabel}</Text>
         </View>
@@ -105,42 +108,35 @@ export default function UptimeMilestoneCard({
 }
 
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
-  const { colors, radius, shadow } = tokens;
+  const { colors, radius } = tokens;
 
   return StyleSheet.create({
     card: {
       overflow: 'hidden',
-      padding: 14,
-      borderRadius: radius.lg,
-      backgroundColor: colors.warningSoft,
-      borderWidth: 1,
-      borderColor: colors.warning,
+      paddingLeft: tokens.layout.isCompact ? 9 : 12,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.warning,
+      backgroundColor: 'transparent',
     },
     cardReached: {
-      backgroundColor: colors.secondarySoft,
-      borderColor: colors.secondary,
-      ...shadow.card,
+      borderLeftColor: colors.secondary,
     },
     topRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      flexWrap: 'wrap',
-      gap: 12,
+      gap: tokens.layout.isCompact ? 8 : 12,
     },
-    currentGroup: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+    currentGroup: { flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 8 : 11 },
     iconSlot: {
-      width: 52,
-      height: 52,
+      width: tokens.layout.isCompact ? 36 : 42,
+      height: tokens.layout.isCompact ? 36 : 42,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.warning,
-      ...shadow.card,
+      borderRadius: radius.sm,
+      backgroundColor: colors.warningSoft,
     },
-    iconSlotReached: { borderColor: colors.secondary },
+    iconSlotReached: { backgroundColor: colors.secondarySoft },
     reachedMark: {
       position: 'absolute',
       top: -5,
@@ -152,7 +148,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderRadius: radius.pill,
       backgroundColor: colors.secondary,
       borderWidth: 2,
-      borderColor: colors.surfaceRaised,
+      borderColor: colors.secondarySurface,
     },
     currentCopy: { minWidth: 62 },
     metricLabel: {
@@ -164,22 +160,21 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     currentValue: {
       fontFamily: fonts.monoBold,
-      fontSize: 27,
-      lineHeight: 31,
+      fontSize: tokens.layout.isCompact ? 23 : 29,
+      lineHeight: tokens.layout.isCompact ? 27 : 33,
       color: colors.warning,
     },
     currentValueReached: { color: colors.secondary },
-    targetBox: {
-      minWidth: 112,
-      minHeight: 52,
-      justifyContent: 'center',
-      paddingHorizontal: 12,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
+    instrumentDivider: {
+      width: 1,
+      alignSelf: 'stretch',
+      backgroundColor: colors.dividerSubtle,
     },
-    targetBoxReached: { borderColor: colors.secondary },
+    targetGroup: {
+      minWidth: tokens.layout.isCompact ? 72 : 88,
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+    },
     targetLabel: {
       fontFamily: fonts.bodySemiBold,
       fontSize: 10,
@@ -187,7 +182,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       letterSpacing: 0.55,
       color: colors.textMuted,
     },
-    targetValue: { fontFamily: fonts.monoBold, fontSize: 18, lineHeight: 23, color: colors.warning },
+    targetValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 16 : 18, lineHeight: tokens.layout.isCompact ? 20 : 23, color: colors.warning },
     targetValueReached: { color: colors.secondary },
     reachedPill: {
       alignSelf: 'flex-start',
@@ -195,12 +190,9 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      marginTop: 12,
-      paddingHorizontal: 9,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.secondary,
+      marginTop: 8,
+      paddingHorizontal: 7,
+      backgroundColor: 'transparent',
     },
     reachedText: {
       fontFamily: fonts.bodySemiBold,
@@ -215,19 +207,16 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       justifyContent: 'space-between',
       flexWrap: 'wrap',
       gap: 8,
-      marginTop: 13,
-      marginBottom: 7,
+      marginTop: tokens.layout.isCompact ? 7 : 10,
+      marginBottom: 5,
     },
     progressLabel: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted },
     progressValue: { fontFamily: fonts.monoSemiBold, fontSize: 11, lineHeight: 16, color: colors.text },
     progressTrack: {
-      height: 12,
+      height: tokens.layout.isCompact ? 5 : 6,
       overflow: 'hidden',
-      padding: 2,
       borderRadius: radius.pill,
-      backgroundColor: colors.canvas,
-      borderWidth: 1,
-      borderColor: colors.border,
+      backgroundColor: colors.dividerSubtle,
     },
     progressFill: {
       minWidth: 0,

@@ -1,15 +1,14 @@
-import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
-import { dashboardType, getDashboardTokens } from './dashboardTokens';
+import { getDashboardTokens } from './dashboardTokens';
 
 interface ResourceDockProps {
   codeReview: number;
   gitRevert: number;
   serverScaleUp: number;
   snapshotBackup: number;
-  onOpenGame: () => void;
 }
 
 const TOOL_COPY = [
@@ -24,16 +23,25 @@ export default function ResourceDock({
   gitRevert,
   serverScaleUp,
   snapshotBackup,
-  onOpenGame,
 }: ResourceDockProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
-  const [buttonFocused, setButtonFocused] = useState(false);
   const counts = { codeReview, gitRevert, serverScaleUp, snapshotBackup };
 
   return (
     <View style={styles.card}>
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={styles.consoleRail}
+      >
+        <View style={styles.consoleNode} />
+        <View style={styles.consoleLine} />
+        <View style={styles.consoleNode} />
+      </View>
       <View style={styles.headingRow}>
         <View style={styles.headingCopy}>
           <Text style={styles.eyebrow}>MÜDAHALE ARAÇLARI</Text>
@@ -47,7 +55,7 @@ export default function ResourceDock({
 
       <View style={styles.tools}>
         {TOOL_COPY.map((tool, index) => (
-          <View key={tool.key} style={styles.toolRow}>
+          <View key={tool.key} style={[styles.toolRow, index > 0 && styles.toolRowSeparated]}>
             <View style={[styles.toolMark, index % 2 === 1 && styles.toolMarkAlt]}>
               <Text style={[styles.toolInitials, index % 2 === 1 && styles.toolInitialsAlt]}>{tool.initials}</Text>
             </View>
@@ -63,17 +71,6 @@ export default function ResourceDock({
         ))}
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Lifeline araçlarını kullanmak için kriz ekranına git"
-        onPress={onOpenGame}
-        onFocus={() => setButtonFocused(true)}
-        onBlur={() => setButtonFocused(false)}
-        style={({ pressed }) => [styles.openButton, buttonFocused && styles.openButtonFocused, pressed && tokens.motion.pressed]}
-      >
-        <Text style={styles.openButtonText}>Kriz Ekranını Aç</Text>
-        <Text style={styles.openButtonArrow} accessibilityElementsHidden>→</Text>
-      </Pressable>
     </View>
   );
 }
@@ -82,87 +79,85 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
     card: {
-      padding: 18,
-      borderRadius: radius.xl,
-      backgroundColor: colors.surface,
+      overflow: 'hidden',
+      padding: tokens.layout.isCompact ? 14 : 18,
+      paddingTop: tokens.layout.isCompact ? 24 : 28,
+      borderRadius: radius.md,
+      backgroundColor: colors.secondarySurface,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.borderSubtle,
       ...shadow.card,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.2,
     },
-    headingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-    headingCopy: { flex: 1 },
-    eyebrow: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.primary, marginBottom: 4 },
-    title: { ...dashboardType.title, fontFamily: fonts.headingBold, color: colors.text },
-    readyBadge: {
-      minHeight: 30,
-      paddingHorizontal: 10,
+    consoleRail: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 10,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      borderRadius: radius.pill,
-      backgroundColor: colors.secondarySoft,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
+      paddingHorizontal: 10,
+      backgroundColor: colors.floatingSurfaceRaised,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dividerSubtle,
+    },
+    consoleNode: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.secondary },
+    consoleLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
+    headingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+    headingCopy: { flex: 1 },
+    eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.primary, marginBottom: 3 },
+    title: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
+    readyBadge: {
+      minHeight: 30,
+      paddingHorizontal: 4,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
     readyDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.secondary },
     readyText: { fontFamily: fonts.bodySemiBold, fontSize: 11, letterSpacing: 0.5, color: colors.secondary },
-    tools: { gap: 9, marginTop: 18 },
+    tools: { marginTop: tokens.layout.isCompact ? 10 : 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.dividerSubtle },
     toolRow: {
-      minHeight: 66,
+      minHeight: tokens.layout.isCompact ? 54 : 60,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 11,
-      padding: 9,
-      paddingRight: 12,
-      borderRadius: radius.lg,
-      backgroundColor: colors.surfaceRaised,
-      borderWidth: 1,
-      borderColor: colors.border,
+      paddingVertical: 7,
+      paddingHorizontal: 4,
     },
+    toolRowSeparated: { borderTopWidth: 1, borderTopColor: colors.dividerSubtle },
     toolMark: {
-      width: 46,
-      height: 46,
-      borderRadius: 15,
+      width: 38,
+      height: 38,
+      borderRadius: radius.sm,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.primarySoft,
       borderWidth: 1,
-      borderColor: colors.borderStrong,
+      borderColor: colors.borderSubtle,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.primary,
     },
-    toolMarkAlt: { backgroundColor: colors.secondarySoft },
+    toolMarkAlt: { backgroundColor: colors.secondarySoft, borderLeftColor: colors.secondary },
     toolInitials: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.primary },
     toolInitialsAlt: { color: colors.secondary },
     toolCopy: { flex: 1, minWidth: 0 },
     toolTitle: { fontFamily: fonts.headingSemiBold, fontSize: 15, lineHeight: 20, color: colors.text },
     toolDetail: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
     countBadge: {
-      minWidth: 42,
-      minHeight: 34,
-      paddingHorizontal: 9,
+      minWidth: 38,
+      minHeight: 32,
+      paddingHorizontal: 6,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.md,
-      backgroundColor: colors.canvas,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderLeftWidth: 1,
+      borderLeftColor: colors.dividerSubtle,
     },
     countPrefix: { fontFamily: fonts.monoMedium, fontSize: 12, color: colors.textMuted },
     countValue: { fontFamily: fonts.monoBold, fontSize: 16, color: colors.text },
-    openButton: {
-      minHeight: tokens.control.heightLarge,
-      marginTop: 14,
-      paddingHorizontal: 16,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      borderRadius: radius.md,
-      backgroundColor: colors.primary,
-      borderWidth: 1,
-      borderColor: colors.surfaceHighlightStrong,
-    },
-    openButtonFocused: { borderColor: colors.text },
-    openButtonText: { fontFamily: fonts.headingSemiBold, fontSize: 15, color: colors.onAccent },
-    openButtonArrow: { fontFamily: fonts.headingBold, fontSize: 20, color: colors.onAccent },
   });
 }

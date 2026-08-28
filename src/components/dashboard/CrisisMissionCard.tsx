@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
-import { dashboardType, getDashboardTokens } from './dashboardTokens';
+import { getDashboardTokens } from './dashboardTokens';
 
 interface CrisisMissionCardProps {
   tag: string;
@@ -21,7 +21,8 @@ function formatTime(totalSeconds: number) {
 
 export default function CrisisMissionCard({ tag, title, description, durationSeconds, onRespond }: CrisisMissionCardProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const [seconds, setSeconds] = useState(durationSeconds);
   const [buttonFocused, setButtonFocused] = useState(false);
@@ -91,7 +92,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       backgroundColor: colors.surface,
       ...shadow.raised,
     },
-    gradient: { padding: 20 },
+    gradient: { padding: tokens.layout.cardPadding },
     topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
     liveBadge: {
       flexDirection: 'row',
@@ -118,16 +119,16 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     timerValue: { fontFamily: fonts.monoBold, fontSize: 18, lineHeight: 22, color: colors.warning },
     timerLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, letterSpacing: 0.6, color: colors.textMuted },
-    tag: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.warning, marginTop: 18, marginBottom: 8 },
-    title: { ...dashboardType.display, fontFamily: fonts.headingBold, color: colors.text, maxWidth: 680 },
-    description: { ...dashboardType.body, fontFamily: fonts.body, color: colors.textMuted, marginTop: 10, maxWidth: 720 },
-    footer: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginTop: 22 },
+    tag: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.warning, marginTop: tokens.layout.isCompact ? 12 : 18, marginBottom: tokens.layout.isCompact ? 5 : 8 },
+    title: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, maxWidth: 680 },
+    description: { ...tokens.type.body, fontFamily: fonts.body, color: colors.textMuted, marginTop: tokens.layout.isCompact ? 7 : 10, maxWidth: 720 },
+    footer: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: tokens.layout.isCompact ? 10 : 16, flexWrap: 'wrap', marginTop: tokens.layout.isCompact ? 14 : 22 },
     impact: { gap: 2 },
     impactLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, letterSpacing: 0.6, color: colors.textMuted },
     impactValue: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 20, color: colors.danger },
     button: {
       minHeight: tokens.control.heightLarge,
-      minWidth: 176,
+      minWidth: tokens.layout.isCompact ? 164 : 176,
       paddingLeft: 18,
       paddingRight: 8,
       flexDirection: 'row',

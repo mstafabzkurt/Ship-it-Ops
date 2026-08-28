@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
@@ -60,7 +60,8 @@ function StoreTabButton({
 
 export default function StoreTabs({ activeTab, onChange }: StoreTabsProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   return (
@@ -84,33 +85,35 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   return StyleSheet.create({
     tabs: {
       flexDirection: 'row',
-      gap: 8,
-      padding: 7,
-      borderRadius: radius.lg,
-      backgroundColor: colors.surface,
+      gap: 0,
+      padding: 3,
+      borderRadius: radius.md,
+      backgroundColor: colors.secondarySurface,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.borderSubtle,
       ...shadow.card,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.14,
     },
     tab: {
       flex: 1,
       minWidth: 0,
-      minHeight: tokens.control.heightLarge,
+      minHeight: 44,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 8,
-      borderRadius: radius.md,
-      borderWidth: 2,
+      paddingHorizontal: tokens.layout.isCompact ? 4 : 8,
+      borderRadius: radius.sm,
+      borderWidth: 1,
       borderColor: 'transparent',
       backgroundColor: 'transparent',
     },
-    tabSelected: { backgroundColor: colors.primarySoft, borderColor: colors.borderStrong },
-    tabHovered: { backgroundColor: colors.surfaceRaised },
+    tabSelected: { backgroundColor: colors.floatingSurfaceRaised },
+    tabHovered: { backgroundColor: colors.floatingSurfaceRaised },
     tabFocused: { borderColor: colors.text },
-    tabPressed: { backgroundColor: colors.primarySoft, transform: [{ scale: 0.985 }] },
-    tabLabel: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 19, color: colors.textMuted, textAlign: 'center' },
+    tabPressed: { backgroundColor: colors.secondarySurfaceRaised, transform: [{ scale: 0.985 }] },
+    tabLabel: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 12 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.textMuted, textAlign: 'center' },
     tabLabelSelected: { color: colors.text },
-    indicator: { position: 'absolute', bottom: 6, width: 20, height: 3, borderRadius: 2, backgroundColor: 'transparent' },
+    indicator: { position: 'absolute', bottom: 1, width: tokens.layout.isCompact ? 28 : 32, height: 2, borderRadius: 1, backgroundColor: 'transparent' },
     indicatorSelected: { backgroundColor: colors.primary },
   });
 }

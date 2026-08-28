@@ -1,12 +1,13 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
 
 interface GameAbilityButtonProps {
   name: string;
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   count: number;
   enabled: boolean;
   onPress: () => void;
@@ -14,8 +15,10 @@ interface GameAbilityButtonProps {
 
 export default function GameAbilityButton({ name, icon, count, enabled, onPress }: GameAbilityButtonProps) {
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
-  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const { width } = useWindowDimensions();
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
+  const accent = useMemo(() => getAbilityAccent(name, tokens), [name, tokens]);
+  const styles = useMemo(() => makeStyles(tokens, accent), [accent, tokens]);
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
 
@@ -32,6 +35,7 @@ export default function GameAbilityButton({ name, icon, count, enabled, onPress 
       onHoverOut={() => setHovered(false)}
       style={({ pressed }) => [
         styles.ability,
+        enabled && styles.abilityEnabled,
         !enabled && styles.abilityDisabled,
         hovered && enabled && styles.abilityHovered,
         focused && styles.abilityFocused,
@@ -39,89 +43,99 @@ export default function GameAbilityButton({ name, icon, count, enabled, onPress 
       ]}
     >
       <View style={styles.iconSlot}>
-        <Text style={styles.icon} accessibilityElementsHidden>{icon}</Text>
-        <View style={styles.countBadge}>
-          <Text style={styles.count}>×{count}</Text>
-        </View>
+        <Ionicons
+          name={icon}
+          size={tokens.layout.isCompact ? 20 : 22}
+          color={accent.solid}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
       </View>
       <Text style={styles.name}>{name}</Text>
+      <View style={styles.countBadge}>
+        <Text style={styles.count}>×{count}</Text>
+      </View>
     </Pressable>
   );
 }
 
-function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
+function getAbilityAccent(name: string, tokens: ReturnType<typeof getDashboardTokens>) {
+  if (name === 'Git Revert' || name === 'Snapshot') {
+    return { solid: tokens.colors.secondary, soft: tokens.colors.secondarySoft };
+  }
+  if (name === 'Scale Up') {
+    return { solid: tokens.colors.warning, soft: tokens.colors.warningSoft };
+  }
+  return { solid: tokens.colors.primary, soft: tokens.colors.primarySoft };
+}
+
+function makeStyles(
+  tokens: ReturnType<typeof getDashboardTokens>,
+  accent: ReturnType<typeof getAbilityAccent>,
+) {
   const { colors, radius } = tokens;
   return StyleSheet.create({
     ability: {
       width: '100%',
-      minHeight: 124,
+      minHeight: tokens.layout.isCompact ? 74 : 80,
+      flexDirection: tokens.layout.isCompact ? 'column' : 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      paddingHorizontal: 10,
-      paddingVertical: 12,
-      borderRadius: radius.lg,
+      justifyContent: tokens.layout.isCompact ? 'center' : 'flex-start',
+      gap: tokens.layout.isCompact ? 4 : 10,
+      paddingHorizontal: tokens.layout.isCompact ? 4 : 10,
+      paddingVertical: 7,
+      borderRadius: radius.sm,
       borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceRaised,
-      shadowColor: colors.canvas,
-      shadowOffset: { width: 0, height: 7 },
-      shadowOpacity: 0.28,
-      shadowRadius: 11,
-      elevation: 5,
+      borderColor: 'transparent',
+      backgroundColor: 'transparent',
     },
-    abilityDisabled: { opacity: 0.4, shadowOpacity: 0, elevation: 0 },
+    abilityEnabled: { borderBottomWidth: 2, borderBottomColor: accent.solid },
+    abilityDisabled: { opacity: 0.34 },
     abilityHovered: {
-      backgroundColor: colors.primarySoft,
-      borderColor: colors.primary,
-      transform: [{ translateY: -2 }],
+      backgroundColor: accent.soft,
+      borderColor: colors.borderSubtle,
     },
-    abilityFocused: { borderColor: colors.text, borderWidth: 2 },
+    abilityFocused: { borderColor: colors.text },
     abilityPressed: {
-      backgroundColor: colors.primarySoft,
-      borderColor: colors.primary,
-      transform: [{ translateY: 2 }, { scale: 0.985 }],
-      shadowOpacity: 0.12,
-      elevation: 2,
+      backgroundColor: accent.soft,
+      borderColor: colors.borderSubtle,
+      transform: [{ scale: 0.98 }],
     },
     iconSlot: {
-      width: 70,
-      height: 70,
+      width: tokens.layout.isCompact ? 38 : 42,
+      height: tokens.layout.isCompact ? 38 : 42,
+      flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 35,
-      backgroundColor: colors.primarySoft,
-      borderWidth: 2,
-      borderColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 7 },
-      shadowOpacity: 0.28,
-      shadowRadius: 12,
-      elevation: 6,
+      borderRadius: radius.sm,
+      backgroundColor: accent.soft,
+      borderWidth: 1,
+      borderLeftWidth: 2,
+      borderColor: colors.borderSubtle,
+      borderLeftColor: accent.solid,
     },
-    icon: { fontSize: 31, lineHeight: 38 },
     countBadge: {
       position: 'absolute',
-      top: -5,
-      right: -7,
-      minWidth: 31,
-      height: 28,
-      paddingHorizontal: 6,
+      top: 5,
+      right: 5,
+      minWidth: 24,
+      height: 20,
+      paddingHorizontal: 4,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.pill,
-      backgroundColor: colors.danger,
-      borderWidth: 2,
-      borderColor: colors.surface,
+      borderRadius: radius.sm,
+      backgroundColor: colors.floatingSurfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
     },
-    count: { fontFamily: fonts.monoBold, fontSize: 12, lineHeight: 16, color: colors.onAccent },
+    count: { fontFamily: fonts.monoBold, fontSize: 10, lineHeight: 13, color: accent.solid },
     name: {
       width: '100%',
       fontFamily: fonts.bodySemiBold,
-      fontSize: 14,
-      lineHeight: 18,
+      fontSize: tokens.layout.isCompact ? 11 : 14,
+      lineHeight: tokens.layout.isCompact ? 14 : 18,
       color: colors.text,
-      textAlign: 'center',
+      textAlign: tokens.layout.isCompact ? 'center' : 'left',
     },
   });
 }

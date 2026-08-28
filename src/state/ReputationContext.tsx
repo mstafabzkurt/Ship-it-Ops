@@ -9,7 +9,35 @@ import {
   resolveCareerXpMigration,
   type Rank,
 } from '../config/progression';
+import {
+  planJokerPurchase,
+  type JokerId,
+  type JokerInventory as LifelineInventory,
+} from '../config/jokerEconomy';
+import {
+  DEFAULT_AVATAR_FRAME_ID,
+  DEFAULT_AVATAR_ID,
+  DEFAULT_OWNED_COSMETIC_IDS,
+  getCosmeticById,
+  normalizeCosmeticPlayerState,
+  planCosmeticPurchase,
+  validateCosmeticEquip,
+  type AvatarCosmetic,
+  type AvatarCosmeticId,
+  type AvatarFrameCosmetic,
+  type AvatarFrameCosmeticId,
+  type CosmeticCatalogItem,
+  type CosmeticId,
+  type CosmeticType,
+} from '../config/cosmetics';
 import { appendRecentQuestionId } from '../utils/questionSelection';
+import {
+  calculateRankingScore,
+  normalizeRankingOutcomeStats,
+  recordRankingOutcome as advanceRankingOutcomeStats,
+  type RankingOutcome,
+  type RankingOutcomeStats,
+} from '../utils/ranking';
 
 export { RANKS } from '../config/progression';
 export type { Rank } from '../config/progression';
@@ -54,11 +82,16 @@ const STORAGE_KEYS = {
   budget: '@shipit_budget',
   companyName: '@shipit_company_name',
   inventory: '@shipit_inventory',
+  lifelineInventory: '@shipit_lifeline_inventory',
+  cosmeticInventory: '@shipit_cosmetic_inventory',
+  equippedAvatar: '@shipit_equipped_avatar',
+  equippedAvatarFrame: '@shipit_equipped_avatar_frame',
   streakDays: '@shipit_streak_days',
   streakLastDate: '@shipit_streak_last_date',
   seenIds: '@shipit_seen_ids',
   correctAnswers: '@shipit_correct_answers',
   wrongAnswers: '@shipit_wrong_answers',
+  rankingOutcomeStats: '@shipit_ranking_outcome_stats',
 } as const;
 
 // Streak day rewards (index = day number 0-6 = Mon-Sun)
@@ -73,6 +106,38 @@ const DEFAULT_UPTIME_STREAK = 0;
 const DEFAULT_CORRECT_ANSWERS = 0;
 const DEFAULT_WRONG_ANSWERS = 0;
 const DEFAULT_SEEN_IDS: number[] = [];
+
+export type JokerPurchaseResult = 'ok' | 'insufficient_funds' | 'busy' | 'persistence_error';
+export type CosmeticPurchaseResult = 'ok' | 'already_owned' | 'insufficient_funds' | 'busy' | 'persistence_error';
+export type CosmeticEquipResult = 'ok' | 'not_owned' | 'type_mismatch' | 'busy' | 'persistence_error';
+
+const createDefaultLifelineInventory = (): LifelineInventory => ({
+  codeReview: DEFAULT_LIFELINE_COUNT,
+  gitRevert: DEFAULT_LIFELINE_COUNT,
+  serverScaleUp: DEFAULT_LIFELINE_COUNT,
+  snapshotBackup: DEFAULT_LIFELINE_COUNT,
+});
+
+function normalizeLifelineInventory(value: unknown): LifelineInventory {
+  const defaults = createDefaultLifelineInventory();
+  if (!value || typeof value !== 'object') return defaults;
+
+  const stored = value as Partial<Record<JokerId, unknown>>;
+  return {
+    codeReview: Number.isInteger(stored.codeReview) && Number(stored.codeReview) >= 0
+      ? Number(stored.codeReview)
+      : defaults.codeReview,
+    gitRevert: Number.isInteger(stored.gitRevert) && Number(stored.gitRevert) >= 0
+      ? Number(stored.gitRevert)
+      : defaults.gitRevert,
+    serverScaleUp: Number.isInteger(stored.serverScaleUp) && Number(stored.serverScaleUp) >= 0
+      ? Number(stored.serverScaleUp)
+      : defaults.serverScaleUp,
+    snapshotBackup: Number.isInteger(stored.snapshotBackup) && Number(stored.snapshotBackup) >= 0
+      ? Number(stored.snapshotBackup)
+      : defaults.snapshotBackup,
+  };
+}
 
 export function getCompanyInitial(name: string): string {
   const trimmed = name.trim();
@@ -119,6 +184,16 @@ interface ReputationContextValue {
   setSnapshotBackup: React.Dispatch<React.SetStateAction<number>>;
   /** Satın alınan öğelerin ID listesi */
   inventory: string[];
+  ownedCosmeticIds: CosmeticId[];
+  equippedAvatarId: AvatarCosmeticId;
+  equippedAvatarFrameId: AvatarFrameCosmeticId;
+  equippedAvatar: AvatarCosmetic;
+  equippedAvatarFrame: AvatarFrameCosmetic;
+  purchaseCosmetic: (cosmeticId: CosmeticId) => Promise<CosmeticPurchaseResult>;
+  equipAvatar: (cosmeticId: CosmeticId) => Promise<CosmeticEquipResult>;
+  equipAvatarFrame: (cosmeticId: CosmeticId) => Promise<CosmeticEquipResult>;
+  isCosmeticOwned: (cosmeticId: CosmeticId) => boolean;
+  getEquippedCosmetic: (type: CosmeticType) => CosmeticCatalogItem;
   /** Sadece skoru değiştirir, o çağrıda yeni kazanılan rozetleri döner. */
   addScore: (amount: number) => Promise<Badge[]>;
   /** Bir kriz sonucunda Career XP, İtibar ve bütçeyi atomik olarak günceller. */
@@ -139,6 +214,8 @@ interface ReputationContextValue {
    * @returns 'ok' | 'insufficient_funds' | 'already_owned'
    */
   purchaseItem: (itemId: string, price: number) => Promise<'ok' | 'insufficient_funds' | 'already_owned'>;
+  /** Tek bir joker satın alır; fiyatı merkezî Joker ekonomi yapılandırmasından okur. */
+  purchaseJoker: (jokerId: JokerId) => Promise<JokerPurchaseResult>;
   /** 7-slot boolean array Mon–Sun. true = completed/claimed for current week */
   streakDays: boolean[];
   /** 0=Mon … 6=Sun, based on today */
@@ -151,6 +228,12 @@ interface ReputationContextValue {
   correctAnswers: number;
   /** Kullanıcının yanlış cevapladığı soru sayısı */
   wrongAnswers: number;
+  /** Global leaderboard'dan bağımsız, yerel kriz karar puanı. */
+  rankingScore: number;
+  /** Success/partial ayrımını ve güvenli legacy başlangıç kredisini tutar. */
+  rankingOutcomeStats: RankingOutcomeStats;
+  /** Sonucu leaderboard istatistiklerine kaydeder; ödül/progression değiştirmez. */
+  recordRankingOutcome: (outcome: RankingOutcome) => void;
   /** Kullanıcının gördüğü soru ID'leri */
   seenIds: number[];
   /** Doğru cevap sayısını günceller */
@@ -172,22 +255,35 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [companyName, setCompanyNameState] = useState(DEFAULT_COMPANY_NAME);
   const [isLoaded, setIsLoaded] = useState(false);
   const [pendingBadges, setPendingBadges] = useState<Badge[]>([]);
-  const [codeReview, setCodeReview] = useState(DEFAULT_LIFELINE_COUNT);
-  const [gitRevert, setGitRevert] = useState(DEFAULT_LIFELINE_COUNT);
-  const [serverScaleUp, setServerScaleUp] = useState(DEFAULT_LIFELINE_COUNT);
-  const [snapshotBackup, setSnapshotBackup] = useState(DEFAULT_LIFELINE_COUNT);
+  const [codeReview, setCodeReviewState] = useState(DEFAULT_LIFELINE_COUNT);
+  const [gitRevert, setGitRevertState] = useState(DEFAULT_LIFELINE_COUNT);
+  const [serverScaleUp, setServerScaleUpState] = useState(DEFAULT_LIFELINE_COUNT);
+  const [snapshotBackup, setSnapshotBackupState] = useState(DEFAULT_LIFELINE_COUNT);
   const [uptimeStreak, setUptimeStreak] = useState(DEFAULT_UPTIME_STREAK);
   const [inventory, setInventory] = useState<string[]>([]);
   const inventoryRef = useRef<string[]>([]);
+  const lifelineInventoryRef = useRef<LifelineInventory>(createDefaultLifelineInventory());
+  const economyTransactionLockRef = useRef(false);
+  const cosmeticEquipLockRef = useRef(false);
+  const [ownedCosmeticIds, setOwnedCosmeticIds] = useState<CosmeticId[]>(() => [...DEFAULT_OWNED_COSMETIC_IDS]);
+  const [equippedAvatarId, setEquippedAvatarId] = useState<AvatarCosmeticId>(DEFAULT_AVATAR_ID);
+  const [equippedAvatarFrameId, setEquippedAvatarFrameId] = useState<AvatarFrameCosmeticId>(DEFAULT_AVATAR_FRAME_ID);
+  const ownedCosmeticIdsRef = useRef<CosmeticId[]>([...DEFAULT_OWNED_COSMETIC_IDS]);
+  const equippedAvatarIdRef = useRef<AvatarCosmeticId>(DEFAULT_AVATAR_ID);
+  const equippedAvatarFrameIdRef = useRef<AvatarFrameCosmeticId>(DEFAULT_AVATAR_FRAME_ID);
 
   // User statistics & game incident state
   const [correctAnswers, setCorrectAnswers] = useState<number>(DEFAULT_CORRECT_ANSWERS);
   const [wrongAnswers, setWrongAnswers] = useState<number>(DEFAULT_WRONG_ANSWERS);
+  const [rankingOutcomeStats, setRankingOutcomeStats] = useState<RankingOutcomeStats>(() => (
+    normalizeRankingOutcomeStats(null)
+  ));
   const [seenIds, setSeenIds] = useState<number[]>(DEFAULT_SEEN_IDS);
 
   const seenIdsRef = useRef<number[]>(DEFAULT_SEEN_IDS);
   const correctAnswersRef = useRef<number>(DEFAULT_CORRECT_ANSWERS);
   const wrongAnswersRef = useRef<number>(DEFAULT_WRONG_ANSWERS);
+  const rankingOutcomeStatsRef = useRef<RankingOutcomeStats>(normalizeRankingOutcomeStats(null));
 
 
   // Streak: 7-slot bool array (Mon-Sun) + last claimed date string (YYYY-MM-DD)
@@ -227,11 +323,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           STORAGE_KEYS.budget,
           STORAGE_KEYS.companyName,
           STORAGE_KEYS.inventory,
+          STORAGE_KEYS.lifelineInventory,
+          STORAGE_KEYS.cosmeticInventory,
+          STORAGE_KEYS.equippedAvatar,
+          STORAGE_KEYS.equippedAvatarFrame,
           STORAGE_KEYS.streakDays,
           STORAGE_KEYS.streakLastDate,
           STORAGE_KEYS.seenIds,
           STORAGE_KEYS.correctAnswers,
           STORAGE_KEYS.wrongAnswers,
+          STORAGE_KEYS.rankingOutcomeStats,
         ]);
         const storedMap = Object.fromEntries(results.map(([k, v]) => [k, v]));
 
@@ -272,6 +373,52 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
           inventoryRef.current = parsed;
           setInventory(parsed);
         }
+        const storedLifelineInventory = storedMap[STORAGE_KEYS.lifelineInventory];
+        if (storedLifelineInventory !== null && storedLifelineInventory !== undefined) {
+          try {
+            const parsed = normalizeLifelineInventory(JSON.parse(storedLifelineInventory));
+            lifelineInventoryRef.current = parsed;
+            setCodeReviewState(parsed.codeReview);
+            setGitRevertState(parsed.gitRevert);
+            setServerScaleUpState(parsed.serverScaleUp);
+            setSnapshotBackupState(parsed.snapshotBackup);
+          } catch (_) {
+            // Invalid legacy/local data falls back to the existing default counts.
+          }
+        }
+        const storedCosmeticInventory = storedMap[STORAGE_KEYS.cosmeticInventory];
+        let parsedCosmeticInventory: unknown = null;
+        if (storedCosmeticInventory !== null && storedCosmeticInventory !== undefined) {
+          try {
+            parsedCosmeticInventory = JSON.parse(storedCosmeticInventory);
+          } catch (_) {
+            // Malformed cosmetic data is repaired using the safe default ownership below.
+          }
+        }
+        const cosmeticState = normalizeCosmeticPlayerState(
+          parsedCosmeticInventory,
+          storedMap[STORAGE_KEYS.equippedAvatar],
+          storedMap[STORAGE_KEYS.equippedAvatarFrame],
+        );
+        ownedCosmeticIdsRef.current = cosmeticState.ownedCosmeticIds;
+        equippedAvatarIdRef.current = cosmeticState.equippedAvatarId;
+        equippedAvatarFrameIdRef.current = cosmeticState.equippedAvatarFrameId;
+        setOwnedCosmeticIds(cosmeticState.ownedCosmeticIds);
+        setEquippedAvatarId(cosmeticState.equippedAvatarId);
+        setEquippedAvatarFrameId(cosmeticState.equippedAvatarFrameId);
+
+        const normalizedCosmeticInventory = JSON.stringify(cosmeticState.ownedCosmeticIds);
+        if (
+          storedCosmeticInventory !== normalizedCosmeticInventory
+          || storedMap[STORAGE_KEYS.equippedAvatar] !== cosmeticState.equippedAvatarId
+          || storedMap[STORAGE_KEYS.equippedAvatarFrame] !== cosmeticState.equippedAvatarFrameId
+        ) {
+          await AsyncStorage.multiSet([
+            [STORAGE_KEYS.cosmeticInventory, normalizedCosmeticInventory],
+            [STORAGE_KEYS.equippedAvatar, cosmeticState.equippedAvatarId],
+            [STORAGE_KEYS.equippedAvatarFrame, cosmeticState.equippedAvatarFrameId],
+          ]);
+        }
         const storedSeenIds = storedMap[STORAGE_KEYS.seenIds];
         if (storedSeenIds !== null && storedSeenIds !== undefined) {
           try {
@@ -284,10 +431,12 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
             }
           } catch (_) { }
         }
+        let loadedCorrectAnswers = DEFAULT_CORRECT_ANSWERS;
         const storedCorrect = storedMap[STORAGE_KEYS.correctAnswers];
         if (storedCorrect !== null && storedCorrect !== undefined) {
           const parsed = parseInt(storedCorrect, 10);
           if (!isNaN(parsed)) {
+            loadedCorrectAnswers = parsed;
             correctAnswersRef.current = parsed;
             setCorrectAnswers(parsed);
           }
@@ -299,6 +448,25 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
             wrongAnswersRef.current = parsed;
             setWrongAnswers(parsed);
           }
+        }
+        let parsedRankingStats: unknown = null;
+        const storedRankingStats = storedMap[STORAGE_KEYS.rankingOutcomeStats];
+        if (storedRankingStats !== null && storedRankingStats !== undefined) {
+          try {
+            parsedRankingStats = JSON.parse(storedRankingStats);
+          } catch (_) {
+            // Malformed local ranking stats are repaired with the safe legacy baseline below.
+          }
+        }
+        const normalizedRankingStats = normalizeRankingOutcomeStats(
+          parsedRankingStats,
+          loadedCorrectAnswers,
+        );
+        rankingOutcomeStatsRef.current = normalizedRankingStats;
+        setRankingOutcomeStats(normalizedRankingStats);
+        const serializedRankingStats = JSON.stringify(normalizedRankingStats);
+        if (storedRankingStats !== serializedRankingStats) {
+          await AsyncStorage.setItem(STORAGE_KEYS.rankingOutcomeStats, serializedRankingStats);
         }
         const storedStreakDays = storedMap[STORAGE_KEYS.streakDays];
         if (storedStreakDays !== null && storedStreakDays !== undefined) {
@@ -366,6 +534,18 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       return nextVal;
     });
   };
+
+  const recordRankingOutcomeHandler = useCallback((outcome: RankingOutcome) => {
+    const current = rankingOutcomeStatsRef.current;
+    const next = advanceRankingOutcomeStats(current, outcome);
+    if (next === current) return;
+
+    rankingOutcomeStatsRef.current = next;
+    setRankingOutcomeStats(next);
+    AsyncStorage.setItem(STORAGE_KEYS.rankingOutcomeStats, JSON.stringify(next)).catch((error) =>
+      console.error('Sıralama sonuç istatistikleri kaydedilemedi:', error)
+    );
+  }, []);
 
   const setSeenIdsHandler: React.Dispatch<React.SetStateAction<number[]>> = (action) => {
     setSeenIds((prev) => {
@@ -439,18 +619,53 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   );
   const addBudget = (amount: number) => applyDelta(0, 0, amount);
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));
+
+  const updateLifelineCount = useCallback((jokerId: JokerId, action: React.SetStateAction<number>) => {
+    const current = lifelineInventoryRef.current[jokerId];
+    const requested = typeof action === 'function' ? action(current) : action;
+    const nextCount = Math.max(0, Math.floor(requested));
+    const nextInventory = { ...lifelineInventoryRef.current, [jokerId]: nextCount };
+    lifelineInventoryRef.current = nextInventory;
+
+    if (jokerId === 'codeReview') setCodeReviewState(nextCount);
+    if (jokerId === 'gitRevert') setGitRevertState(nextCount);
+    if (jokerId === 'serverScaleUp') setServerScaleUpState(nextCount);
+    if (jokerId === 'snapshotBackup') setSnapshotBackupState(nextCount);
+
+    AsyncStorage.setItem(STORAGE_KEYS.lifelineInventory, JSON.stringify(nextInventory)).catch((error) =>
+      console.error('Joker envanteri kaydedilemedi:', error)
+    );
+  }, []);
+
+  const setCodeReview = useCallback<React.Dispatch<React.SetStateAction<number>>>(
+    (action) => updateLifelineCount('codeReview', action),
+    [updateLifelineCount],
+  );
+  const setGitRevert = useCallback<React.Dispatch<React.SetStateAction<number>>>(
+    (action) => updateLifelineCount('gitRevert', action),
+    [updateLifelineCount],
+  );
+  const setServerScaleUp = useCallback<React.Dispatch<React.SetStateAction<number>>>(
+    (action) => updateLifelineCount('serverScaleUp', action),
+    [updateLifelineCount],
+  );
+  const setSnapshotBackup = useCallback<React.Dispatch<React.SetStateAction<number>>>(
+    (action) => updateLifelineCount('snapshotBackup', action),
+    [updateLifelineCount],
+  );
+
   const consumeCodeReview = useCallback(() => {
     setCodeReview((count) => Math.max(0, count - 1));
-  }, []);
+  }, [setCodeReview]);
   const consumeGitRevert = useCallback(() => {
     setGitRevert((count) => Math.max(0, count - 1));
-  }, []);
+  }, [setGitRevert]);
   const consumeServerScaleUp = useCallback(() => {
     setServerScaleUp((count) => Math.max(0, count - 1));
-  }, []);
+  }, [setServerScaleUp]);
   const consumeSnapshotBackup = useCallback(() => {
     setSnapshotBackup((count) => Math.max(0, count - 1));
-  }, []);
+  }, [setSnapshotBackup]);
 
   const resetProgress = async () => {
     // 1. Ref'leri sıfırla
@@ -458,18 +673,20 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     careerXpRef.current = DEFAULT_CAREER_XP;
     budgetRef.current = DEFAULT_BUDGET;
     inventoryRef.current = [];
+    lifelineInventoryRef.current = createDefaultLifelineInventory();
     seenIdsRef.current = [];
     correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
     wrongAnswersRef.current = DEFAULT_WRONG_ANSWERS;
+    rankingOutcomeStatsRef.current = normalizeRankingOutcomeStats(null);
 
     // 2. State'leri sıfırla
     setScore(DEFAULT_SCORE);
     setCareerXp(DEFAULT_CAREER_XP);
     setBudget(DEFAULT_BUDGET);
-    setCodeReview(DEFAULT_LIFELINE_COUNT);
-    setGitRevert(DEFAULT_LIFELINE_COUNT);
-    setServerScaleUp(DEFAULT_LIFELINE_COUNT);
-    setSnapshotBackup(DEFAULT_LIFELINE_COUNT);
+    setCodeReviewState(DEFAULT_LIFELINE_COUNT);
+    setGitRevertState(DEFAULT_LIFELINE_COUNT);
+    setServerScaleUpState(DEFAULT_LIFELINE_COUNT);
+    setSnapshotBackupState(DEFAULT_LIFELINE_COUNT);
     setUptimeStreak(DEFAULT_UPTIME_STREAK);
     setInventory([]);
     setPendingBadges([]);
@@ -477,6 +694,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     // 3. EKSİK OLANLARI BURAYA EKLE (Kendi değişken isimlerine göre düzelt)
     setCorrectAnswers(DEFAULT_CORRECT_ANSWERS);
     setWrongAnswers(DEFAULT_WRONG_ANSWERS);
+    setRankingOutcomeStats(normalizeRankingOutcomeStats(null));
     setSeenIds([]);
 
     try {
@@ -486,11 +704,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         STORAGE_KEYS.careerXp,
         STORAGE_KEYS.budget,
         STORAGE_KEYS.inventory,
+        STORAGE_KEYS.lifelineInventory,
         STORAGE_KEYS.streakDays,
         STORAGE_KEYS.streakLastDate,
         STORAGE_KEYS.seenIds,
         STORAGE_KEYS.correctAnswers,
         STORAGE_KEYS.wrongAnswers,
+        STORAGE_KEYS.rankingOutcomeStats,
         '@shipit_theme_id', // Reset active theme back to default
       ]);
       // Persist an explicit empty list so no stale seen IDs can be restored.
@@ -564,10 +784,125 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     return 'ok';
   };
 
+  const purchaseJoker = async (jokerId: JokerId): Promise<JokerPurchaseResult> => {
+    if (economyTransactionLockRef.current) return 'busy';
+    economyTransactionLockRef.current = true;
+
+    try {
+      const purchase = planJokerPurchase(budgetRef.current, lifelineInventoryRef.current, jokerId);
+      if (purchase.status === 'insufficient_funds') return purchase.status;
+
+      try {
+        await AsyncStorage.multiSet([
+          [STORAGE_KEYS.budget, String(purchase.budget)],
+          [STORAGE_KEYS.lifelineInventory, JSON.stringify(purchase.inventory)],
+        ]);
+      } catch (error) {
+        console.error('Joker satın alımı kaydedilemedi:', error);
+        return 'persistence_error';
+      }
+
+      budgetRef.current = purchase.budget;
+      lifelineInventoryRef.current = purchase.inventory;
+      setBudget(purchase.budget);
+      setCodeReviewState(purchase.inventory.codeReview);
+      setGitRevertState(purchase.inventory.gitRevert);
+      setServerScaleUpState(purchase.inventory.serverScaleUp);
+      setSnapshotBackupState(purchase.inventory.snapshotBackup);
+      return 'ok';
+    } finally {
+      economyTransactionLockRef.current = false;
+    }
+  };
+
+  const purchaseCosmetic = async (cosmeticId: CosmeticId): Promise<CosmeticPurchaseResult> => {
+    if (economyTransactionLockRef.current) return 'busy';
+    economyTransactionLockRef.current = true;
+
+    try {
+      const purchase = planCosmeticPurchase(budgetRef.current, ownedCosmeticIdsRef.current, cosmeticId);
+      if (purchase.status !== 'ok') return purchase.status;
+
+      try {
+        await AsyncStorage.multiSet([
+          [STORAGE_KEYS.budget, String(purchase.budget)],
+          [STORAGE_KEYS.cosmeticInventory, JSON.stringify(purchase.ownedCosmeticIds)],
+        ]);
+      } catch (error) {
+        console.error('Kozmetik satın alımı kaydedilemedi:', error);
+        return 'persistence_error';
+      }
+
+      budgetRef.current = purchase.budget;
+      ownedCosmeticIdsRef.current = purchase.ownedCosmeticIds;
+      setBudget(purchase.budget);
+      setOwnedCosmeticIds(purchase.ownedCosmeticIds);
+      return 'ok';
+    } finally {
+      economyTransactionLockRef.current = false;
+    }
+  };
+
+  const equipAvatar = async (cosmeticId: CosmeticId): Promise<CosmeticEquipResult> => {
+    if (cosmeticEquipLockRef.current) return 'busy';
+    cosmeticEquipLockRef.current = true;
+
+    try {
+      const validation = validateCosmeticEquip(ownedCosmeticIdsRef.current, cosmeticId, 'avatar');
+      if (validation.status !== 'ok') return validation.status;
+
+      try {
+        await AsyncStorage.setItem(STORAGE_KEYS.equippedAvatar, validation.cosmetic.id);
+      } catch (error) {
+        console.error('Avatar seçimi kaydedilemedi:', error);
+        return 'persistence_error';
+      }
+
+      equippedAvatarIdRef.current = validation.cosmetic.id;
+      setEquippedAvatarId(validation.cosmetic.id);
+      return 'ok';
+    } finally {
+      cosmeticEquipLockRef.current = false;
+    }
+  };
+
+  const equipAvatarFrame = async (cosmeticId: CosmeticId): Promise<CosmeticEquipResult> => {
+    if (cosmeticEquipLockRef.current) return 'busy';
+    cosmeticEquipLockRef.current = true;
+
+    try {
+      const validation = validateCosmeticEquip(ownedCosmeticIdsRef.current, cosmeticId, 'avatar_frame');
+      if (validation.status !== 'ok') return validation.status;
+
+      try {
+        await AsyncStorage.setItem(STORAGE_KEYS.equippedAvatarFrame, validation.cosmetic.id);
+      } catch (error) {
+        console.error('Avatar çerçevesi seçimi kaydedilemedi:', error);
+        return 'persistence_error';
+      }
+
+      equippedAvatarFrameIdRef.current = validation.cosmetic.id;
+      setEquippedAvatarFrameId(validation.cosmetic.id);
+      return 'ok';
+    } finally {
+      cosmeticEquipLockRef.current = false;
+    }
+  };
+
+  const isCosmeticOwned = useCallback(
+    (cosmeticId: CosmeticId) => ownedCosmeticIdsRef.current.includes(cosmeticId),
+    [],
+  );
+
+  const getEquippedCosmetic = useCallback((type: CosmeticType): CosmeticCatalogItem => (
+    getCosmeticById(type === 'avatar' ? equippedAvatarIdRef.current : equippedAvatarFrameIdRef.current)
+  ), []);
+
   const value = useMemo<ReputationContextValue>(() => {
     const { current, next } = getRankForCareerXp(careerXp);
     const badges = BADGES.map((badge) => ({ ...badge, earned: isBadgeEarned(badge, score, careerXp) }));
     const rankProgress = getRankProgress(careerXp, current, next);
+    const rankingScore = calculateRankingScore(rankingOutcomeStats);
     const dayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
     let sc = 0;
     for (let i = dayIdx; i >= 0; i--) {
@@ -600,6 +935,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       setServerScaleUp,
       setSnapshotBackup,
       inventory,
+      ownedCosmeticIds,
+      equippedAvatarId,
+      equippedAvatarFrameId,
+      equippedAvatar: getCosmeticById(equippedAvatarId) as AvatarCosmetic,
+      equippedAvatarFrame: getCosmeticById(equippedAvatarFrameId) as AvatarFrameCosmetic,
+      purchaseCosmetic,
+      equipAvatar,
+      equipAvatarFrame,
+      isCosmeticOwned,
+      getEquippedCosmetic,
       addScore,
       applyOutcome,
       addBudget,
@@ -608,12 +953,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       resetProgress,
       setCompanyName,
       purchaseItem,
+      purchaseJoker,
       streakDays,
       todayIndex: dayIdx,
       streakCount: sc,
       claimStreakDay,
       correctAnswers,
       wrongAnswers,
+      rankingScore,
+      rankingOutcomeStats,
+      recordRankingOutcome: recordRankingOutcomeHandler,
       seenIds,
       setCorrectAnswers: setCorrectAnswersHandler,
       setWrongAnswers: setWrongAnswersHandler,
@@ -634,9 +983,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     snapshotBackup,
     uptimeStreak,
     inventory,
+    ownedCosmeticIds,
+    equippedAvatarId,
+    equippedAvatarFrameId,
     streakDays,
     correctAnswers,
     wrongAnswers,
+    rankingOutcomeStats,
     seenIds,
   ]);
 

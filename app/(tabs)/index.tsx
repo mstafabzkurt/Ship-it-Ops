@@ -6,12 +6,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AchievementCard from '../../src/components/dashboard/AchievementCard';
 import CareerSummaryCard from '../../src/components/dashboard/CareerSummaryCard';
-import CrisisMissionCard from '../../src/components/dashboard/CrisisMissionCard';
+import CompanyGrowthCTA from '../../src/components/dashboard/CompanyGrowthCTA';
 import DashboardHeader from '../../src/components/dashboard/DashboardHeader';
 import ResourceDock from '../../src/components/dashboard/ResourceDock';
 import StreakCard from '../../src/components/dashboard/StreakCard';
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
-import { CURRENT_INCIDENT } from '../../src/data/incidents';
 import { RANKS, useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
@@ -25,23 +24,20 @@ export default function DashboardScreen() {
     careerXp,
     codeReview,
     companyName,
-    correctAnswers,
     currentRank,
     gitRevert,
     nextRank,
     rankProgress,
-    score,
     serverScaleUp,
     snapshotBackup,
     streakCount,
     streakDays,
     todayIndex,
     uptimeStreak,
-    wrongAnswers,
     claimStreakDay,
   } = useReputation();
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const isWide = width >= 900;
 
@@ -101,14 +97,14 @@ export default function DashboardScreen() {
 
   return (
     <LinearGradient
-      colors={[tokens.colors.canvasGlow, tokens.colors.canvas, tokens.colors.canvas]}
-      locations={[0, 0.36, 1]}
+      colors={[tokens.colors.secondarySurface, tokens.colors.canvas, tokens.colors.canvas]}
+      locations={[0, 0.28, 1]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.background}
     >
-      <View style={styles.orbOne} pointerEvents="none" />
-      <View style={styles.orbTwo} pointerEvents="none" />
+      <View style={styles.gridLineVertical} pointerEvents="none" />
+      <View style={styles.gridLineHorizontal} pointerEvents="none" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
           style={styles.scroll}
@@ -116,15 +112,12 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.container}>
-            <DashboardHeader companyName={companyName} currentRank={currentRank} level={currentLevel} />
+            <DashboardHeader companyName={companyName} level={currentLevel} />
 
             <CareerSummaryCard
               budget={budget}
               careerXp={careerXp}
-              reputation={score}
               uptimeStreak={uptimeStreak}
-              correctAnswers={correctAnswers}
-              wrongAnswers={wrongAnswers}
               currentRank={currentRank}
               nextRank={nextRank}
               progress={rankProgress}
@@ -132,19 +125,14 @@ export default function DashboardScreen() {
 
             <View style={[styles.dashboardGrid, isWide && styles.dashboardGridWide]}>
               <View style={[styles.primaryColumn, isWide && styles.primaryColumnWide]}>
-                <CrisisMissionCard
-                  tag={CURRENT_INCIDENT.tag}
-                  title={CURRENT_INCIDENT.title}
-                  description={CURRENT_INCIDENT.description}
-                  durationSeconds={CURRENT_INCIDENT.durationSeconds}
-                  onRespond={() => router.push('/(tabs)/game')}
-                />
+                <CompanyGrowthCTA onPress={() => router.push('/(tabs)/game')} />
                 <StreakCard
                   days={streakDays}
                   todayIndex={todayIndex}
                   streakCount={streakCount}
                   onClaim={handleClaimStreak}
                 />
+                {isWide ? <AchievementCard badge={lastBadge} /> : null}
               </View>
 
               <View style={[styles.secondaryColumn, isWide && styles.secondaryColumnWide]}>
@@ -153,9 +141,8 @@ export default function DashboardScreen() {
                   gitRevert={gitRevert}
                   serverScaleUp={serverScaleUp}
                   snapshotBackup={snapshotBackup}
-                  onOpenGame={() => router.push('/(tabs)/game')}
                 />
-                <AchievementCard badge={lastBadge} />
+                {!isWide ? <AchievementCard badge={lastBadge} /> : null}
               </View>
             </View>
 
@@ -204,25 +191,23 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       paddingTop: tokens.layout.pageTop,
       gap: tokens.layout.sectionGap,
     },
-    orbOne: {
+    gridLineVertical: {
       position: 'absolute',
-      width: 240,
-      height: 240,
-      top: -110,
-      right: -90,
-      borderRadius: 120,
-      backgroundColor: colors.primarySoft,
-      opacity: 0.6,
+      width: 1,
+      top: 0,
+      bottom: 0,
+      right: '14%',
+      backgroundColor: colors.dividerSubtle,
+      opacity: 0.34,
     },
-    orbTwo: {
+    gridLineHorizontal: {
       position: 'absolute',
-      width: 180,
-      height: 180,
-      top: 420,
-      left: -120,
-      borderRadius: 90,
-      backgroundColor: colors.secondarySoft,
-      opacity: 0.45,
+      height: 1,
+      left: 0,
+      right: 0,
+      top: 132,
+      backgroundColor: colors.dividerSubtle,
+      opacity: 0.28,
     },
     dashboardGrid: { gap: tokens.layout.sectionGap },
     dashboardGridWide: { flexDirection: 'row', alignItems: 'flex-start' },

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -13,7 +12,7 @@ import GameBackdrop from '../../src/components/game/GameBackdrop';
 import GameResultPanel, { type GameResultTone } from '../../src/components/game/GameResultPanel';
 import JokerUseOverlay, { type JokerUseActivation } from '../../src/components/game/JokerUseOverlay';
 import UptimeMilestoneCard from '../../src/components/game/UptimeMilestoneCard';
-import { dashboardType, getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
+import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { supabase } from '../../src/supabase';
@@ -55,6 +54,7 @@ interface IncidentChoice {
 
 interface AnimatedChoiceItemProps {
   choice: IncidentChoice;
+  index: number;
   codeReviewEmphasis: Animated.Value;
   isCodeReviewActive: boolean;
   isRevertedChoice: boolean;
@@ -66,6 +66,7 @@ interface AnimatedChoiceItemProps {
 
 function AnimatedChoiceItem({
   choice,
+  index,
   codeReviewEmphasis,
   isCodeReviewActive,
   isRevertedChoice,
@@ -136,6 +137,11 @@ function AnimatedChoiceItem({
       >
         {({ pressed }) => (
           <>
+            <View style={[styles.choiceIndex, (pressed || isSelected) && styles.choiceIndexActive]}>
+              <Text style={[styles.choiceIndexText, (pressed || isSelected) && styles.choiceIndexTextActive]}>
+                {String.fromCharCode(65 + index)}
+              </Text>
+            </View>
             <View style={styles.choiceTextContainer}>
               <Text style={styles.choiceLabel}>{choice.label}</Text>
               <Animated.View pointerEvents="none" style={[styles.eliminationLine, { width: lineWidth }]} />
@@ -186,6 +192,7 @@ export default function GameScreen() {
     setSeenIds,
     setCorrectAnswers,
     setWrongAnswers,
+    recordRankingOutcome,
     currentRank,
     codeReview,
     consumeCodeReview,
@@ -199,13 +206,14 @@ export default function GameScreen() {
     setUptimeStreak,
   } = useReputation();
   const { theme } = useTheme();
-  const tokens = useMemo(() => getDashboardTokens(theme), [theme]);
+  const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const { colors } = tokens;
   const isWide = width >= 900;
 
   const [incident, setIncident] = useState<GameIncident | null>(null);
   const [choices, setChoices] = useState<IncidentChoice[]>([]);
+  const [selectedChoice, setSelectedChoice] = useState<IncidentChoice | null>(null);
   const [activeChoice, setActiveChoice] = useState<IncidentChoice | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -223,6 +231,7 @@ export default function GameScreen() {
   const [jokerOverlayQueue, setJokerOverlayQueue] = useState<JokerUseActivation[]>([]);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeLeftRef = useRef(TIMER_DURATION);
   const timerScale = useRef(new Animated.Value(1)).current;
   const timerColorProgress = useRef(new Animated.Value(0)).current;
   const gitRevertPulse = useRef(new Animated.Value(1)).current;
@@ -232,9 +241,11 @@ export default function GameScreen() {
   const codeReviewEmphasis = useRef(new Animated.Value(0)).current;
   const questionTransition = useRef(new Animated.Value(1)).current;
   const resultTransition = useRef(new Animated.Value(0)).current;
+  const confirmationTransition = useRef(new Animated.Value(0)).current;
   const incidentRef = useRef<GameIncident | null>(null);
   const incidentsRef = useRef<GameIncident[]>([]);
   const resolvingRef = useRef(false);
+  const selectedChoiceRef = useRef<IncidentChoice | null>(null);
   const seenIdsRef = useRef(seenIds);
   const sessionQuestionIdsRef = useRef<number[]>([]);
   const uptimeStreakRef = useRef(uptimeStreak);
@@ -245,7 +256,7 @@ export default function GameScreen() {
   const jokerActivationSequenceRef = useRef(0);
   const lifelineUseLocksRef = useRef(new Set<string>());
   const careerTierRef = useRef<RankTier>(currentRank.tier);
-  const contextActionsRef = useRef({ applyOutcome, addBudget, setSeenIds, setCorrectAnswers, setWrongAnswers, setUptimeStreak });
+  const contextActionsRef = useRef({ applyOutcome, addBudget, setSeenIds, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, setUptimeStreak });
 
   useEffect(() => {
     seenIdsRef.current = seenIds;
@@ -256,8 +267,8 @@ export default function GameScreen() {
   }, [uptimeStreak]);
 
   useEffect(() => {
-    contextActionsRef.current = { applyOutcome, addBudget, setSeenIds, setCorrectAnswers, setWrongAnswers, setUptimeStreak };
-  }, [addBudget, applyOutcome, setCorrectAnswers, setSeenIds, setUptimeStreak, setWrongAnswers]);
+    contextActionsRef.current = { applyOutcome, addBudget, setSeenIds, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, setUptimeStreak };
+  }, [addBudget, applyOutcome, recordRankingOutcome, setCorrectAnswers, setSeenIds, setUptimeStreak, setWrongAnswers]);
 
   useEffect(() => {
     careerTierRef.current = currentRank.tier;
@@ -294,6 +305,29 @@ export default function GameScreen() {
     return () => animation.stop();
   }, [isAnswered, reduceMotion, resultTransition]);
 
+  const hasSelectedChoice = selectedChoice !== null;
+
+  useEffect(() => {
+    confirmationTransition.stopAnimation();
+    if (!hasSelectedChoice || isAnswered) {
+      confirmationTransition.setValue(0);
+      return;
+    }
+    if (reduceMotion) {
+      confirmationTransition.setValue(1);
+      return;
+    }
+    confirmationTransition.setValue(0);
+    const animation = Animated.timing(confirmationTransition, {
+      toValue: 1,
+      duration: 140,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [confirmationTransition, hasSelectedChoice, isAnswered, reduceMotion]);
+
   const stopTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
@@ -303,6 +337,8 @@ export default function GameScreen() {
     const currentIncident = incidentRef.current;
     if (resolvingRef.current || !currentIncident) return;
     resolvingRef.current = true;
+    selectedChoiceRef.current = null;
+    setSelectedChoice(null);
     outcomePendingRef.current = true;
     setIsOutcomePending(true);
     setIsAnswered(true);
@@ -311,6 +347,7 @@ export default function GameScreen() {
     seenIdsRef.current = appendRecentQuestionId(seenIdsRef.current, currentIncident.id, RECENT_QUESTION_HISTORY_LIMIT);
     contextActionsRef.current.setSeenIds(seenIdsRef.current);
     contextActionsRef.current.setWrongAnswers((value) => value + 1);
+    contextActionsRef.current.recordRankingOutcome('timeout');
     const reward = TIMEOUT_REWARD;
     try {
       await contextActionsRef.current.applyOutcome(reward.careerXpDelta, reward.reputationDelta, reward.budgetDelta);
@@ -322,16 +359,16 @@ export default function GameScreen() {
 
   const startTimer = useCallback(() => {
     stopTimer();
+    timeLeftRef.current = TIMER_DURATION;
     setTimeLeft(TIMER_DURATION);
     timerRef.current = setInterval(() => {
-      setTimeLeft((value) => {
-        if (value <= 1) {
-          stopTimer();
-          void resolveTimeout();
-          return 0;
-        }
-        return value - 1;
-      });
+      const nextTime = Math.max(0, timeLeftRef.current - 1);
+      timeLeftRef.current = nextTime;
+      setTimeLeft(nextTime);
+      if (nextTime === 0) {
+        stopTimer();
+        void resolveTimeout();
+      }
     }, 1000);
   }, [resolveTimeout, stopTimer]);
 
@@ -361,8 +398,10 @@ export default function GameScreen() {
     sessionQuestionIdsRef.current = [...sessionQuestionIds, next.id];
     incidentRef.current = next;
     resolvingRef.current = false;
+    selectedChoiceRef.current = null;
     setIncident(next);
     setChoices(shuffleChoices(next));
+    setSelectedChoice(null);
     setActiveChoice(null);
     setIsAnswered(false);
     setTimedOut(false);
@@ -410,6 +449,8 @@ export default function GameScreen() {
     if (resolvingRef.current || outcomePendingRef.current || !currentIncident) return;
     stopTimer();
     resolvingRef.current = true;
+    selectedChoiceRef.current = null;
+    setSelectedChoice(null);
     outcomePendingRef.current = true;
     setIsOutcomePending(true);
     setIsAnswered(true);
@@ -418,6 +459,13 @@ export default function GameScreen() {
     contextActionsRef.current.setSeenIds(seenIdsRef.current);
 
     const reward = EVALUATION_REWARDS[choice.tier];
+    contextActionsRef.current.recordRankingOutcome(
+      choice.tier === 'optimal'
+        ? 'success'
+        : choice.tier === 'acceptable'
+          ? 'partial'
+          : 'fail',
+    );
     setFeedbackPhrase(pickFeedback(reward.isPositive ? POSITIVE_FEEDBACK : ENCOURAGING_FEEDBACK));
     let milestoneBonus = 0;
     if (reward.isPositive) {
@@ -450,6 +498,18 @@ export default function GameScreen() {
       setIsOutcomePending(false);
     }
   }, [stopTimer]);
+
+  const handleSelectChoice = useCallback((choice: IncidentChoice) => {
+    if (isAnswered || resolvingRef.current || outcomePendingRef.current) return;
+    selectedChoiceRef.current = choice;
+    setSelectedChoice(choice);
+  }, [isAnswered]);
+
+  const handleConfirmChoice = useCallback(() => {
+    const choice = selectedChoiceRef.current;
+    if (!choice || isAnswered || timeLeft <= 0 || resolvingRef.current || outcomePendingRef.current) return;
+    void handleChoice(choice);
+  }, [handleChoice, isAnswered, timeLeft]);
 
   const handleNextScenario = useCallback(() => {
     if (outcomePendingRef.current || advancingRef.current) return;
@@ -489,7 +549,7 @@ export default function GameScreen() {
     router.replace('/(tabs)/');
   }, [router, stopTimer]);
 
-  const queueJokerOverlay = useCallback((icon: string, name: string, countBefore: number) => {
+  const queueJokerOverlay = useCallback((icon: JokerUseActivation['icon'], name: string, countBefore: number) => {
     jokerActivationSequenceRef.current += 1;
     const activation: JokerUseActivation = {
       activationId: jokerActivationSequenceRef.current,
@@ -511,7 +571,12 @@ export default function GameScreen() {
   const handleCodeReview = useCallback(() => {
     if (isAnswered || isCodeReviewActive || codeReview <= 0 || lifelineUseLocksRef.current.has('codeReview')) return;
     lifelineUseLocksRef.current.add('codeReview');
-    queueJokerOverlay('🔍', 'Code Review', codeReview);
+    const currentSelection = selectedChoiceRef.current;
+    if (currentSelection?.tier === 'fatal' || currentSelection?.tier === 'wrong') {
+      selectedChoiceRef.current = null;
+      setSelectedChoice(null);
+    }
+    queueJokerOverlay('scan-outline', 'Code Review', codeReview);
     setIsCodeReviewActive(true);
     consumeCodeReview();
     if (!reduceMotion) {
@@ -527,10 +592,12 @@ export default function GameScreen() {
   const handleServerScaleUp = useCallback(() => {
     if (isAnswered || isScaleUpUsed || serverScaleUp <= 0 || lifelineUseLocksRef.current.has('serverScaleUp')) return;
     lifelineUseLocksRef.current.add('serverScaleUp');
-    queueJokerOverlay('⚡', 'Scale Up', serverScaleUp);
+    queueJokerOverlay('flash', 'Scale Up', serverScaleUp);
     setIsScaleUpUsed(true);
     consumeServerScaleUp();
-    setTimeLeft((value) => value + 15);
+    const extendedTime = timeLeftRef.current + 15;
+    timeLeftRef.current = extendedTime;
+    setTimeLeft(extendedTime);
   }, [consumeServerScaleUp, isAnswered, isScaleUpUsed, queueJokerOverlay, serverScaleUp]);
 
   const failedChoiceSelected = activeChoice?.tier === 'fatal' || activeChoice?.tier === 'wrong';
@@ -540,7 +607,7 @@ export default function GameScreen() {
   const handleGitRevert = useCallback(() => {
     if (!canUseGitRevert || !activeChoice || !resolvingRef.current || lifelineUseLocksRef.current.has('gitRevert')) return;
     lifelineUseLocksRef.current.add('gitRevert');
-    queueJokerOverlay('↩️', 'Git Revert', gitRevert);
+    queueJokerOverlay('arrow-undo', 'Git Revert', gitRevert);
     consumeGitRevert();
     if (lostStreakRef.current > 0) {
       uptimeStreakRef.current = lostStreakRef.current;
@@ -568,7 +635,7 @@ export default function GameScreen() {
   const handleSnapshotBackup = useCallback(() => {
     if (!canUseSnapshotBackup || lostStreakRef.current <= 0 || lifelineUseLocksRef.current.has('snapshotBackup')) return;
     lifelineUseLocksRef.current.add('snapshotBackup');
-    queueJokerOverlay('📸', 'Snapshot', snapshotBackup);
+    queueJokerOverlay('camera-outline', 'Snapshot', snapshotBackup);
     const restoredStreak = lostStreakRef.current;
     lostStreakRef.current = 0;
     uptimeStreakRef.current = restoredStreak;
@@ -612,10 +679,12 @@ export default function GameScreen() {
     snapshotBackupPulse.setValue(1);
     if (!canUseSnapshotBackup) return;
 
+    // This scale shares an Animated.View with the JS-driven restore color.
+    // Keep both on the JS driver so Expo Go never promotes half of the style graph to native.
     const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(snapshotBackupPulse, { toValue: 1.14, duration: 450, useNativeDriver: true }),
-        Animated.timing(snapshotBackupPulse, { toValue: 1, duration: 450, useNativeDriver: true }),
+        Animated.timing(snapshotBackupPulse, { toValue: 1.14, duration: 450, useNativeDriver: false }),
+        Animated.timing(snapshotBackupPulse, { toValue: 1, duration: 450, useNativeDriver: false }),
       ]),
     );
 
@@ -642,13 +711,15 @@ export default function GameScreen() {
       return () => reducedAnimation.stop();
     }
 
+    // Scale and color are rendered by the same Animated.Text. A single driver avoids
+    // React Native's "moved to native" error while preserving the combined feedback.
     const animation = Animated.sequence([
       Animated.parallel([
-        Animated.timing(timerScale, { toValue: 1.5, duration: 120, useNativeDriver: true }),
+        Animated.timing(timerScale, { toValue: 1.5, duration: 120, useNativeDriver: false }),
         Animated.timing(timerColorProgress, { toValue: 1, duration: 120, useNativeDriver: false }),
       ]),
       Animated.parallel([
-        Animated.timing(timerScale, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(timerScale, { toValue: 1, duration: 500, useNativeDriver: false }),
         Animated.timing(timerColorProgress, { toValue: 0, duration: 500, useNativeDriver: false }),
       ]),
     ]);
@@ -687,11 +758,12 @@ export default function GameScreen() {
           : null;
   const questionTranslateY = questionTransition.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
   const resultTranslateY = resultTransition.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
+  const confirmationTranslateY = confirmationTransition.interpolate({ inputRange: [0, 1], outputRange: [5, 0] });
   const lifelines = [
-    { id: 'codeReview', name: 'Code Review', icon: '🔍', count: codeReview, enabled: !isAnswered && !isCodeReviewActive && codeReview > 0, onPress: handleCodeReview },
-    { id: 'gitRevert', name: 'Git Revert', icon: '↩️', count: gitRevert, enabled: canUseGitRevert, onPress: handleGitRevert },
-    { id: 'serverScaleUp', name: 'Scale Up', icon: '⚡', count: serverScaleUp, enabled: !isAnswered && !isScaleUpUsed && serverScaleUp > 0, onPress: handleServerScaleUp },
-    { id: 'snapshotBackup', name: 'Snapshot', icon: '📸', count: snapshotBackup, enabled: canUseSnapshotBackup, onPress: handleSnapshotBackup },
+    { id: 'codeReview', name: 'Code Review', icon: 'scan-outline' as const, count: codeReview, enabled: !isAnswered && !isCodeReviewActive && codeReview > 0, onPress: handleCodeReview },
+    { id: 'gitRevert', name: 'Git Revert', icon: 'arrow-undo' as const, count: gitRevert, enabled: canUseGitRevert, onPress: handleGitRevert },
+    { id: 'serverScaleUp', name: 'Scale Up', icon: 'flash' as const, count: serverScaleUp, enabled: !isAnswered && !isScaleUpUsed && serverScaleUp > 0, onPress: handleServerScaleUp },
+    { id: 'snapshotBackup', name: 'Snapshot', icon: 'camera-outline' as const, count: snapshotBackup, enabled: canUseSnapshotBackup, onPress: handleSnapshotBackup },
   ] as const;
 
   return (
@@ -713,12 +785,30 @@ export default function GameScreen() {
                 <Text style={styles.header}>Kriz Müdahalesi</Text>
                 <Text style={styles.subheader}>Her karar Kariyer XP, bütçe ve itibarını etkiler.</Text>
               </View>
+              <View
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={styles.headerSignal}
+              >
+                <View style={styles.headerSignalDot} />
+                <View style={styles.headerSignalLine} />
+              </View>
             </View>
 
             <View style={[styles.playArea, isWide && styles.playAreaWide]}>
               <View style={[styles.sideColumn, isWide && styles.sideColumnWide]}>
+                <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={styles.consoleRail}
+                >
+                  <View style={styles.consoleNode} />
+                  <View style={styles.consoleLine} />
+                  <View style={styles.consoleNode} />
+                </View>
                 <View style={styles.statusCard}>
-                  <Animated.View style={{ transform: [{ scale: snapshotStatusPulse }] }}>
+                  <Animated.View style={[styles.uptimeWrap, { transform: [{ scale: snapshotStatusPulse }] }]}>
                     <UptimeMilestoneCard
                       currentUptime={uptimeStreak}
                       nextMilestone={nextUptimeMilestone}
@@ -728,12 +818,21 @@ export default function GameScreen() {
 
                   {!isAnswered ? (
                     <View style={styles.timer}>
-                      <Animated.Text
-                        accessibilityLabel={`${timeLeft} saniye kaldı`}
-                        style={[styles.timerText, { color: timerColor, transform: [{ scale: timerScale }] }]}
-                      >
-                        ⏱ {timeLeft}s
-                      </Animated.Text>
+                      <View style={styles.timerReadout}>
+                        <Ionicons
+                          name="timer-outline"
+                          size={tokens.layout.isCompact ? 17 : 20}
+                          color={timeLeft <= 5 ? colors.danger : colors.warning}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
+                        />
+                        <Animated.Text
+                          accessibilityLabel={`${timeLeft} saniye kaldı`}
+                          style={[styles.timerText, { color: timerColor, transform: [{ scale: timerScale }] }]}
+                        >
+                          {timeLeft}s
+                        </Animated.Text>
+                      </View>
                       <View
                         style={styles.timerTrack}
                         accessibilityRole="progressbar"
@@ -778,18 +877,21 @@ export default function GameScreen() {
                 ]}
               >
                 <View style={styles.incidentCard}>
-                  <LinearGradient
-                    colors={[colors.warningSoft, colors.surface]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0.9, y: 1 }}
-                    style={styles.incidentGradient}
-                  >
+                  <View style={styles.incidentRail} pointerEvents="none">
+                    <View style={styles.incidentNode} />
+                    <View style={styles.incidentLine} />
+                    <View style={styles.incidentNode} />
+                  </View>
+                  <View style={styles.incidentGradient}>
                     <Text style={styles.tag}>{incident.tag}</Text>
                     <Text style={styles.title}>{incident.title}</Text>
-                  </LinearGradient>
+                  </View>
                 </View>
 
-                <Text style={styles.sectionLabel}>{isAnswered ? 'Sonuç' : 'Müdahale Seçenekleri'}</Text>
+                <View style={styles.sectionHeading}>
+                  <Text style={styles.sectionLabel}>{isAnswered ? 'Sonuç' : 'Müdahale Seçenekleri'}</Text>
+                  <View style={styles.sectionLine} />
+                </View>
                 <View style={styles.choices}>
                   {isAnswered && feedbackReward && resultTone ? (
                     <Animated.View style={{ opacity: resultTransition, transform: [{ translateY: resultTranslateY }] }}>
@@ -806,19 +908,40 @@ export default function GameScreen() {
                         nextLabel={sessionQuestionIdsRef.current.length >= SESSION_CRISIS_COUNT ? 'Vardiyayı Tamamla' : 'Sonraki Soru'}
                       />
                     </Animated.View>
-                  ) : choices.map((choice) => (
-                    <AnimatedChoiceItem
-                      key={choice.id}
-                      choice={choice}
-                      codeReviewEmphasis={codeReviewEmphasis}
-                      isCodeReviewActive={isCodeReviewActive}
-                      isRevertedChoice={choice.id === revertedChoiceId}
-                      isSelected={activeChoice?.id === choice.id}
-                      isLocked={isOutcomePending}
-                      styles={styles}
-                      onPress={() => void handleChoice(choice)}
-                    />
-                  ))}
+                  ) : (
+                    <>
+                      {choices.map((choice, index) => (
+                        <AnimatedChoiceItem
+                          key={choice.id}
+                          choice={choice}
+                          index={index}
+                          codeReviewEmphasis={codeReviewEmphasis}
+                          isCodeReviewActive={isCodeReviewActive}
+                          isRevertedChoice={choice.id === revertedChoiceId}
+                          isSelected={selectedChoice?.id === choice.id}
+                          isLocked={isOutcomePending}
+                          styles={styles}
+                          onPress={() => handleSelectChoice(choice)}
+                        />
+                      ))}
+                      {hasSelectedChoice ? (
+                        <Animated.View
+                          style={[
+                            styles.confirmationArea,
+                            { opacity: confirmationTransition, transform: [{ translateY: confirmationTranslateY }] },
+                          ]}
+                        >
+                          <GameActionButton
+                            label="Müdahaleyi Uygula"
+                            onPress={handleConfirmChoice}
+                            disabled={isOutcomePending}
+                            busy={isOutcomePending}
+                            style={styles.confirmationAction}
+                          />
+                        </Animated.View>
+                      ) : null}
+                    </>
+                  )}
                 </View>
               </Animated.View>
             </View>
@@ -898,16 +1021,16 @@ function makeStyles(tokens: DashboardTokens) {
     content: { paddingBottom: tokens.layout.pageBottom },
     gameContainer: { width: '100%', maxWidth: tokens.layout.gameMaxWidth, alignSelf: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingTop: 12 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 18 },
-    loadingText: { ...dashboardType.body, fontFamily: fonts.body, color: colors.textMuted },
-    errorText: { ...dashboardType.body, maxWidth: 520, fontFamily: fonts.bodySemiBold, color: colors.danger, textAlign: 'center' },
+    loadingText: { ...tokens.type.body, fontFamily: fonts.body, color: colors.textMuted },
+    errorText: { ...tokens.type.body, maxWidth: 520, fontFamily: fonts.bodySemiBold, color: colors.danger, textAlign: 'center' },
     stateAction: { minWidth: 180 },
     completeContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
     completeCard: {
       width: '100%',
       maxWidth: 480,
       alignItems: 'center',
-      padding: 28,
-      gap: 12,
+      padding: tokens.layout.isCompact ? 18 : 28,
+      gap: tokens.layout.isCompact ? 10 : 12,
       borderRadius: radius.xl,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -926,132 +1049,217 @@ function makeStyles(tokens: DashboardTokens) {
       ...shadow.card,
     },
     completeIcon: { color: colors.secondary },
-    completeTitle: { ...dashboardType.display, fontFamily: fonts.headingBold, color: colors.text, textAlign: 'center' },
-    completeMessage: { ...dashboardType.body, fontFamily: fonts.bodyMedium, color: colors.textMuted, textAlign: 'center', marginBottom: 8 },
+    completeTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, textAlign: 'center' },
+    completeMessage: { ...tokens.type.body, fontFamily: fonts.bodyMedium, color: colors.textMuted, textAlign: 'center', marginBottom: tokens.layout.isCompact ? 4 : 8 },
     completeActions: { width: '100%', gap: 10, marginTop: 4 },
     completeAction: { width: '100%' },
-    headerRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20 },
+    headerRow: {
+      position: 'relative',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: tokens.layout.isCompact ? 10 : 14,
+      marginBottom: tokens.layout.isCompact ? 10 : 20,
+      paddingBottom: tokens.layout.isCompact ? 9 : 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dividerSubtle,
+    },
     exitBtn: {
       width: tokens.control.height,
       height: tokens.control.height,
       flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 17,
-      backgroundColor: colors.surface,
+      borderRadius: radius.sm,
+      backgroundColor: colors.secondarySurfaceRaised,
       borderWidth: 1,
-      borderColor: colors.borderStrong,
+      borderColor: colors.borderSubtle,
       ...shadow.card,
+      shadowColor: colors.shadowNeutral,
     },
     controlPressed: tokens.motion.pressed,
     exitText: { fontFamily: fonts.headingMedium, color: colors.textMuted, fontSize: 28, lineHeight: 30 },
     headerCopy: { flex: 1, minWidth: 0 },
-    header: { ...dashboardType.display, fontFamily: fonts.headingBold, color: colors.text },
-    subheader: { ...dashboardType.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 2 },
-    playArea: { gap: 18 },
+    header: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
+    subheader: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 1 },
+    headerSignal: { width: tokens.layout.isCompact ? 34 : 70, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    headerSignalDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.secondary },
+    headerSignalLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
+    playArea: { gap: tokens.layout.isCompact ? 10 : 18 },
     playAreaWide: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 26 },
     sideColumn: {
-      gap: 12,
-      padding: 12,
-      borderRadius: radius.xl,
-      backgroundColor: colors.surface,
+      overflow: 'hidden',
+      borderRadius: radius.md,
+      backgroundColor: colors.secondarySurface,
       borderWidth: 1,
-      borderColor: colors.borderStrong,
+      borderColor: colors.borderSubtle,
       ...shadow.raised,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.32,
     },
     sideColumnWide: { width: 390, flexShrink: 0 },
+    consoleRail: {
+      height: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dividerSubtle,
+      backgroundColor: colors.floatingSurfaceRaised,
+    },
+    consoleNode: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.secondary,
+      opacity: 0.72,
+    },
+    consoleLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
     mainColumn: { minWidth: 0 },
     mainColumnWide: { flex: 1 },
     statusCard: {
-      padding: 18,
-      gap: 17,
-      borderRadius: radius.lg,
-      backgroundColor: colors.surfaceRaised,
-      borderWidth: 1,
-      borderColor: colors.border,
+      flexDirection: tokens.layout.isCompact ? 'row' : 'column',
+      alignItems: tokens.layout.isCompact ? 'center' : 'stretch',
+      padding: tokens.layout.isCompact ? 12 : 16,
+      gap: tokens.layout.isCompact ? 12 : 14,
+      backgroundColor: 'transparent',
     },
-    timer: { gap: 11 },
-    timerText: { alignSelf: 'flex-start', fontFamily: fonts.headingBold, fontSize: 29, lineHeight: 35 },
-    timerTrack: { height: 13, padding: 2, borderRadius: radius.pill, backgroundColor: colors.canvas, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+    uptimeWrap: { flex: tokens.layout.isCompact ? 1 : undefined, minWidth: 0 },
+    timer: {
+      minWidth: tokens.layout.isCompact ? 66 : undefined,
+      gap: 6,
+      paddingLeft: tokens.layout.isCompact ? 12 : 0,
+      paddingTop: tokens.layout.isCompact ? 0 : 12,
+      borderLeftWidth: tokens.layout.isCompact ? 1 : 0,
+      borderTopWidth: tokens.layout.isCompact ? 0 : 1,
+      borderColor: colors.dividerSubtle,
+    },
+    timerReadout: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    timerText: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 19 : 27, lineHeight: tokens.layout.isCompact ? 24 : 32 },
+    timerTrack: { height: tokens.layout.isCompact ? 4 : 5, borderRadius: radius.pill, backgroundColor: colors.dividerSubtle, overflow: 'hidden' },
     timerFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.warning },
     lifelineBar: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       alignItems: 'stretch',
-      gap: 10,
-      padding: 2,
+      padding: 4,
+      backgroundColor: colors.secondarySurfaceRaised,
+      borderTopWidth: 1,
+      borderTopColor: colors.dividerSubtle,
     },
     abilityAnimationWrap: {
       flexGrow: 1,
       flexShrink: 0,
-      flexBasis: '46%',
-      minWidth: 120,
-      borderRadius: radius.lg,
+      flexBasis: tokens.layout.isCompact ? '25%' : '50%',
+      minWidth: 0,
+      borderRadius: radius.sm,
     },
     incidentCard: {
       overflow: 'hidden',
-      borderRadius: radius.xl,
+      borderRadius: radius.md,
       backgroundColor: colors.surface,
       borderWidth: 1,
-      borderColor: colors.warning,
-      ...shadow.raised,
+      borderColor: colors.borderSubtle,
+      borderLeftWidth: 3,
+      borderLeftColor: colors.warning,
+      ...shadow.card,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.22,
     },
-    incidentGradient: { minHeight: 178, justifyContent: 'center', padding: 27 },
-    tag: { ...dashboardType.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.warning, marginBottom: 12 },
-    title: { fontFamily: fonts.headingBold, fontSize: 28, lineHeight: 37, color: colors.text, maxWidth: 800 },
+    incidentRail: {
+      height: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 10,
+      backgroundColor: colors.secondarySurfaceRaised,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dividerSubtle,
+    },
+    incidentNode: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.warning },
+    incidentLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
+    incidentGradient: { minHeight: tokens.layout.isCompact ? 116 : 164, justifyContent: 'center', padding: tokens.layout.isCompact ? 16 : 24 },
+    tag: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.warning, marginBottom: tokens.layout.isCompact ? 7 : 12 },
+    title: { ...tokens.type.question, fontFamily: fonts.headingBold, color: colors.text, maxWidth: 800 },
+    sectionHeading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginTop: tokens.layout.isCompact ? 13 : 20,
+      marginBottom: tokens.layout.isCompact ? 7 : 10,
+    },
     sectionLabel: {
-      ...dashboardType.eyebrow,
+      ...tokens.type.eyebrow,
       fontFamily: fonts.bodySemiBold,
       color: colors.textMuted,
       textTransform: 'uppercase',
-      marginTop: 22,
-      marginBottom: 12,
     },
-    choices: { gap: 12 },
+    sectionLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
+    choices: { gap: tokens.layout.isCompact ? 9 : 12 },
     choiceBtn: {
-      minHeight: 72,
+      minHeight: tokens.layout.isCompact ? 60 : 72,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: 14,
-      paddingVertical: 18,
-      paddingHorizontal: 20,
-      borderRadius: radius.lg,
+      gap: tokens.layout.isCompact ? 10 : 14,
+      paddingVertical: tokens.layout.isCompact ? 12 : 18,
+      paddingHorizontal: tokens.layout.isCompact ? 14 : 20,
+      borderRadius: radius.sm,
       backgroundColor: colors.surface,
       borderWidth: 1,
-      borderColor: colors.borderStrong,
-      ...shadow.raised,
+      borderColor: colors.borderSubtle,
+      ...shadow.card,
+      shadowColor: colors.shadowNeutral,
+      shadowOpacity: 0.16,
     },
     choiceBtnHovered: {
       backgroundColor: colors.surfaceRaised,
-      borderColor: colors.primary,
-      transform: [{ translateY: -2 }],
+      borderColor: colors.borderStrong,
     },
     choiceBtnFocused: { borderColor: colors.text, borderWidth: 2 },
-    choiceBtnSelected: { backgroundColor: colors.primarySoft, borderColor: colors.primary, borderWidth: 2 },
+    choiceBtnSelected: { backgroundColor: colors.surfaceRaised, borderColor: colors.primary, borderLeftWidth: 3 },
     choiceBtnLocked: { opacity: 0.52 },
     choiceBtnPressed: {
       opacity: 1,
-      backgroundColor: colors.primarySoft,
+      backgroundColor: colors.surfaceRaised,
       borderColor: colors.primary,
-      transform: [{ translateY: 2 }, { scale: 0.99 }],
+      transform: [{ scale: 0.99 }],
     },
-    choiceTextContainer: { position: 'relative', flex: 1, minWidth: 0 },
-    choiceLabel: { fontFamily: fonts.monoMedium, fontSize: 16, lineHeight: 24, color: colors.text },
-    eliminationLine: { position: 'absolute', left: 0, top: '50%', height: 2, backgroundColor: colors.danger, transform: [{ translateY: -1 }] },
-    choiceStateMark: {
-      width: 36,
-      height: 36,
+    choiceIndex: {
+      width: tokens.layout.isCompact ? 30 : 34,
+      height: tokens.layout.isCompact ? 30 : 34,
       flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: radius.sm,
-      backgroundColor: colors.surfaceRaised,
+      backgroundColor: colors.secondarySurfaceRaised,
       borderWidth: 1,
-      borderColor: colors.borderStrong,
+      borderColor: colors.dividerSubtle,
     },
-    choiceStateMarkActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    choiceIndexActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    choiceIndexText: { fontFamily: fonts.monoBold, fontSize: 12, lineHeight: 16, color: colors.textMuted },
+    choiceIndexTextActive: { color: colors.onAccent },
+    choiceTextContainer: { position: 'relative', flex: 1, minWidth: 0 },
+    choiceLabel: { fontFamily: fonts.monoMedium, fontSize: tokens.layout.isCompact ? 15 : 16, lineHeight: tokens.layout.isCompact ? 22 : 24, color: colors.text },
+    eliminationLine: { position: 'absolute', left: 0, top: '50%', height: 2, backgroundColor: colors.danger, transform: [{ translateY: -1 }] },
+    choiceStateMark: {
+      width: tokens.layout.isCompact ? 32 : 36,
+      height: tokens.layout.isCompact ? 32 : 36,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.sm,
+      backgroundColor: 'transparent',
+    },
+    choiceStateMarkActive: { backgroundColor: colors.primary },
     choiceStateIcon: { color: colors.textMuted },
     choiceStateIconActive: { color: colors.onAccent },
+    confirmationArea: {
+      marginTop: tokens.layout.isCompact ? 3 : 6,
+      paddingTop: tokens.layout.isCompact ? 8 : 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.dividerSubtle,
+    },
+    confirmationAction: { width: '100%' },
   });
 }
