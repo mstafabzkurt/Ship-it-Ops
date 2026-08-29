@@ -13,6 +13,8 @@ export const RANKING_SCORE_BY_OUTCOME: Readonly<Record<RankingOutcome, number>> 
 export interface RankingOutcomeStats {
   successCount: number;
   partialCount: number;
+  failCount: number;
+  timeoutCount: number;
   /**
    * Positive outcomes recorded before success/partial were stored separately.
    * Each receives the guaranteed minimum positive-outcome value of 50 points.
@@ -42,6 +44,8 @@ export function normalizeRankingOutcomeStats(
     return {
       successCount: 0,
       partialCount: 0,
+      failCount: 0,
+      timeoutCount: 0,
       legacyPositiveCount: normalizeCount(legacyPositiveFallback),
     };
   }
@@ -50,6 +54,8 @@ export function normalizeRankingOutcomeStats(
   return {
     successCount: normalizeCount(stored.successCount),
     partialCount: normalizeCount(stored.partialCount),
+    failCount: normalizeCount(stored.failCount),
+    timeoutCount: normalizeCount(stored.timeoutCount),
     legacyPositiveCount: normalizeCount(stored.legacyPositiveCount),
   };
 }
@@ -63,6 +69,12 @@ export function recordRankingOutcome(
   }
   if (outcome === 'partial') {
     return { ...stats, partialCount: stats.partialCount + 1 };
+  }
+  if (outcome === 'fail') {
+    return { ...stats, failCount: stats.failCount + 1 };
+  }
+  if (outcome === 'timeout') {
+    return { ...stats, timeoutCount: stats.timeoutCount + 1 };
   }
   return stats;
 }

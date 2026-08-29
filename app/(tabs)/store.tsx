@@ -9,7 +9,7 @@ import StoreTabs, { type StoreTabId } from '../../src/components/store/StoreTabs
 import ThemeStoreCard from '../../src/components/store/ThemeStoreCard';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { THEME_ITEMS, type StoreItem } from '../../src/data/storeItems';
-import { JOKER_PRICES, JOKER_STORE_ORDER, type JokerId } from '../../src/config/jokerEconomy';
+import { getJokerPrice, JOKER_STORE_ORDER, type JokerId } from '../../src/config/jokerEconomy';
 import {
   COSMETIC_CATALOG,
   type AvatarCosmetic,
@@ -90,6 +90,7 @@ export default function StoreScreen() {
     gitRevert,
     serverScaleUp,
     snapshotBackup,
+    currentRank,
     ownedCosmeticIds,
     equippedAvatarId,
     equippedAvatarFrameId,
@@ -110,6 +111,9 @@ export default function StoreScreen() {
   const cosmeticActionGuard = useRef(false);
   const isTablet = width >= 700;
   const isDesktop = width >= 1040;
+  const jokerPrices = useMemo(() => Object.fromEntries(
+    JOKER_STORE_ORDER.map((id) => [id, getJokerPrice(id, currentRank.tier)]),
+  ) as Record<JokerId, number>, [currentRank.tier]);
 
   useEffect(() => () => {
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
@@ -169,7 +173,7 @@ export default function StoreScreen() {
       if (result === 'ok') {
         showToast(`${joker.name} satın alındı. Envanter +1.`, 'success');
       } else if (result === 'insufficient_funds') {
-        showToast(`Yetersiz bütçe. Gerekli: ${formatCurrency(JOKER_PRICES[joker.id])}`, 'error');
+        showToast(`Yetersiz bütçe. Gerekli: ${formatCurrency(jokerPrices[joker.id])}`, 'error');
       } else if (result === 'persistence_error') {
         showToast('Satın alma kaydedilemedi. Lütfen tekrar dene.', 'error');
       }
@@ -328,7 +332,7 @@ export default function StoreScreen() {
                 </View>
                 <View style={styles.jokerGrid}>
                   {JOKERS.map((joker) => {
-                    const price = JOKER_PRICES[joker.id];
+                    const price = jokerPrices[joker.id];
                     return (
                       <View
                         key={joker.id}

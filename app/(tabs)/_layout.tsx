@@ -8,7 +8,7 @@ import { getDashboardTokens } from '../../src/components/dashboard/dashboardToke
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts, fontSizes } from '../../src/theme/typography';
 
-// Alt navigasyon: Ana Sayfa / Kariyer / Sıralama / Mağaza / Profil
+// Alt navigasyon: Ana Sayfa / Oyun / Kariyer / Sıralama / Mağaza / Profil
 export default function TabsLayout() {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -33,8 +33,9 @@ export default function TabsLayout() {
         },
         tabBarLabelStyle: {
           fontFamily: fonts.bodySemiBold,
-          fontSize: fontSizes.sm,
+          fontSize: width <= 430 ? 10 : fontSizes.sm,
         },
+        tabBarItemStyle: { minWidth: 0 },
       }}
     >
       <Tabs.Screen
@@ -49,6 +50,13 @@ export default function TabsLayout() {
         options={{
           title: 'Kariyer',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'trophy' : 'trophy-outline'} color={color} size={22} />,
+        }}
+      />
+      <Tabs.Screen
+        name="play"
+        options={{
+          title: 'Oyun',
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} color={color} size={width <= 430 ? 20 : 22} />,
         }}
       />
       <Tabs.Screen

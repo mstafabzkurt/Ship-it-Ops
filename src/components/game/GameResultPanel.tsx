@@ -20,6 +20,7 @@ interface GameResultPanelProps {
   isProcessing: boolean;
   onNext: () => void;
   nextLabel?: string;
+  rewardLabel?: string;
 }
 
 const RESULT_COPY: Record<GameResultTone, { label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = {
@@ -48,6 +49,7 @@ export default function GameResultPanel({
   isProcessing,
   onNext,
   nextLabel = 'Sonraki Soru',
+  rewardLabel,
 }: GameResultPanelProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -90,6 +92,7 @@ export default function GameResultPanel({
 
       <Text style={styles.explanation}>{explanation}</Text>
 
+      {rewardLabel ? <Text style={styles.rewardLabel}>{rewardLabel}</Text> : null}
       <View style={styles.impactGrid}>
         <ImpactCard
           label="KARİYER XP"
@@ -210,6 +213,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     outcomeLabel: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, marginBottom: 2 },
     feedback: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
     explanation: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted },
+    rewardLabel: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted },
     impactGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',

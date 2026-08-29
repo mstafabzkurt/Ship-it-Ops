@@ -1,12 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   RECENT_QUESTION_HISTORY_LIMIT,
   RANKS,
   calculateProgressionOutcome,
   getRankForCareerXp,
   getRankProgress,
-  resolveCareerXpMigration,
   type Rank,
 } from '../config/progression';
 import {
@@ -30,6 +28,16 @@ import {
   type CosmeticId,
   type CosmeticType,
 } from '../config/cosmetics';
+import { DEFAULT_COMPANY_NAME, normalizeCompanyName } from '../config/company';
+import {
+  claimAndLoadLegacySave,
+  createMyPlayerSave,
+  fetchMyPlayerSave,
+  getPlayerSaveErrorMessage,
+  loadAccountSaveCache,
+  upsertMyPlayerSave,
+  writeAccountSaveCache,
+} from '../services/playerSave';
 import { appendRecentQuestionId } from '../utils/questionSelection';
 import {
   calculateRankingScore,
@@ -38,6 +46,22 @@ import {
   type RankingOutcome,
   type RankingOutcomeStats,
 } from '../utils/ranking';
+import {
+  buildPlayerSaveSnapshot,
+  createDefaultJokerInventory,
+  createDefaultPlayerSave,
+  normalizePlayerSaveForCurrentWeek,
+  PLAYER_SAVE_VERSION,
+  type PlayerSaveSnapshot,
+} from '../utils/playerSave';
+import {
+  createDefaultCategoryProgress,
+  recordCategoryAttempt,
+  type CategoryProgress,
+} from '../utils/categoryProgress';
+import type { DifficultyStar, GameCategoryId } from '../config/gameCategories';
+import type { CategoryQuestionId } from '../utils/categoryQuestions';
+import { useAuth } from './AuthContext';
 
 export { RANKS } from '../config/progression';
 export type { Rank } from '../config/progression';
@@ -76,31 +100,12 @@ export const BADGES: Badge[] = [
   { id: 'cto-badge', icon: '👑', title: 'CTO', description: 'Teknoloji vizyonunu tüm şirkete mal ettin. Efsane.', requiredScore: 16000, requirementType: 'careerXp', rewardBudget: 100000 },
 ];
 
-const STORAGE_KEYS = {
-  score: '@shipit_score',
-  careerXp: '@shipit_career_xp',
-  budget: '@shipit_budget',
-  companyName: '@shipit_company_name',
-  inventory: '@shipit_inventory',
-  lifelineInventory: '@shipit_lifeline_inventory',
-  cosmeticInventory: '@shipit_cosmetic_inventory',
-  equippedAvatar: '@shipit_equipped_avatar',
-  equippedAvatarFrame: '@shipit_equipped_avatar_frame',
-  streakDays: '@shipit_streak_days',
-  streakLastDate: '@shipit_streak_last_date',
-  seenIds: '@shipit_seen_ids',
-  correctAnswers: '@shipit_correct_answers',
-  wrongAnswers: '@shipit_wrong_answers',
-  rankingOutcomeStats: '@shipit_ranking_outcome_stats',
-} as const;
-
 // Streak day rewards (index = day number 0-6 = Mon-Sun)
 export const STREAK_REWARDS = [200, 400, 600, 800, 1000, 1200, 1500] as const;
 
 const DEFAULT_SCORE = 0;
 const DEFAULT_CAREER_XP = 0;
 const DEFAULT_BUDGET = 1000;
-const DEFAULT_COMPANY_NAME = 'ShipIt Inc.';
 const DEFAULT_LIFELINE_COUNT = 3;
 const DEFAULT_UPTIME_STREAK = 0;
 const DEFAULT_CORRECT_ANSWERS = 0;
@@ -111,33 +116,7 @@ export type JokerPurchaseResult = 'ok' | 'insufficient_funds' | 'busy' | 'persis
 export type CosmeticPurchaseResult = 'ok' | 'already_owned' | 'insufficient_funds' | 'busy' | 'persistence_error';
 export type CosmeticEquipResult = 'ok' | 'not_owned' | 'type_mismatch' | 'busy' | 'persistence_error';
 
-const createDefaultLifelineInventory = (): LifelineInventory => ({
-  codeReview: DEFAULT_LIFELINE_COUNT,
-  gitRevert: DEFAULT_LIFELINE_COUNT,
-  serverScaleUp: DEFAULT_LIFELINE_COUNT,
-  snapshotBackup: DEFAULT_LIFELINE_COUNT,
-});
-
-function normalizeLifelineInventory(value: unknown): LifelineInventory {
-  const defaults = createDefaultLifelineInventory();
-  if (!value || typeof value !== 'object') return defaults;
-
-  const stored = value as Partial<Record<JokerId, unknown>>;
-  return {
-    codeReview: Number.isInteger(stored.codeReview) && Number(stored.codeReview) >= 0
-      ? Number(stored.codeReview)
-      : defaults.codeReview,
-    gitRevert: Number.isInteger(stored.gitRevert) && Number(stored.gitRevert) >= 0
-      ? Number(stored.gitRevert)
-      : defaults.gitRevert,
-    serverScaleUp: Number.isInteger(stored.serverScaleUp) && Number(stored.serverScaleUp) >= 0
-      ? Number(stored.serverScaleUp)
-      : defaults.serverScaleUp,
-    snapshotBackup: Number.isInteger(stored.snapshotBackup) && Number(stored.snapshotBackup) >= 0
-      ? Number(stored.snapshotBackup)
-      : defaults.snapshotBackup,
-  };
-}
+export type PlayerSaveStatus = 'idle' | 'loading' | 'migrating' | 'ready' | 'saving' | 'error';
 
 export function getCompanyInitial(name: string): string {
   const trimmed = name.trim();
@@ -164,6 +143,11 @@ interface ReputationContextValue {
   budget: number;
   companyName: string;
   isLoaded: boolean;
+  saveStatus: PlayerSaveStatus;
+  saveError: string | null;
+  retrySaveInitialization: () => void;
+  retryPlayerSave: () => void;
+  flushPlayerSave: () => Promise<void>;
   currentRank: Rank;
   nextRank: Rank | null;
   rankProgress: number; // 0-1 arası, ekranın kendi hesap yapmasına gerek yok
@@ -244,16 +228,27 @@ interface ReputationContextValue {
   setSeenIds: React.Dispatch<React.SetStateAction<number[]>>;
   /** Görülen soru ID'lerini hem state/ref hem de kalıcı depolamada temizler. */
   clearSeenIds: () => Promise<void>;
+  categoryProgress: CategoryProgress;
+  recordCategoryQuestionAnswer: (
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    questionId: CategoryQuestionId,
+    correct: boolean,
+  ) => void;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
 
 export function ReputationProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [score, setScore] = useState(DEFAULT_SCORE);
   const [careerXp, setCareerXp] = useState(DEFAULT_CAREER_XP);
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [companyName, setCompanyNameState] = useState(DEFAULT_COMPANY_NAME);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<PlayerSaveStatus>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
+  const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [pendingBadges, setPendingBadges] = useState<Badge[]>([]);
   const [codeReview, setCodeReviewState] = useState(DEFAULT_LIFELINE_COUNT);
   const [gitRevert, setGitRevertState] = useState(DEFAULT_LIFELINE_COUNT);
@@ -262,7 +257,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [uptimeStreak, setUptimeStreak] = useState(DEFAULT_UPTIME_STREAK);
   const [inventory, setInventory] = useState<string[]>([]);
   const inventoryRef = useRef<string[]>([]);
-  const lifelineInventoryRef = useRef<LifelineInventory>(createDefaultLifelineInventory());
+  const lifelineInventoryRef = useRef<LifelineInventory>(createDefaultJokerInventory());
   const economyTransactionLockRef = useRef(false);
   const cosmeticEquipLockRef = useRef(false);
   const [ownedCosmeticIds, setOwnedCosmeticIds] = useState<CosmeticId[]>(() => [...DEFAULT_OWNED_COSMETIC_IDS]);
@@ -279,11 +274,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     normalizeRankingOutcomeStats(null)
   ));
   const [seenIds, setSeenIds] = useState<number[]>(DEFAULT_SEEN_IDS);
+  const [categoryProgress, setCategoryProgress] = useState<CategoryProgress>(() => createDefaultCategoryProgress());
 
   const seenIdsRef = useRef<number[]>(DEFAULT_SEEN_IDS);
-  const correctAnswersRef = useRef<number>(DEFAULT_CORRECT_ANSWERS);
-  const wrongAnswersRef = useRef<number>(DEFAULT_WRONG_ANSWERS);
   const rankingOutcomeStatsRef = useRef<RankingOutcomeStats>(normalizeRankingOutcomeStats(null));
+  const categoryProgressRef = useRef<CategoryProgress>(createDefaultCategoryProgress());
 
 
   // Streak: 7-slot bool array (Mon-Sun) + last claimed date string (YYYY-MM-DD)
@@ -312,214 +307,267 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const scoreRef = useRef(score);
   const careerXpRef = useRef(careerXp);
   const budgetRef = useRef(budget);
+  const hydratedUserIdRef = useRef<string | null>(null);
+  const initializationIdRef = useRef(0);
+  const lastPersistedSignatureRef = useRef('');
+  const lastAttemptedSignatureRef = useRef('');
+  const cloudBaselineReadyRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const latestSaveRef = useRef<PlayerSaveSnapshot>(createDefaultPlayerSave());
 
-  // Uygulama açıldığında tüm kalıcı verileri hafızadan çek
+  const hydrateRuntime = useCallback((input: PlayerSaveSnapshot) => {
+    const save = buildPlayerSaveSnapshot(input);
+    scoreRef.current = save.reputation;
+    careerXpRef.current = save.careerXp;
+    budgetRef.current = save.companyBudget;
+    inventoryRef.current = save.ownedItemIds;
+    lifelineInventoryRef.current = save.jokerInventory;
+    ownedCosmeticIdsRef.current = save.ownedCosmeticIds;
+    equippedAvatarIdRef.current = save.equippedAvatarId;
+    equippedAvatarFrameIdRef.current = save.equippedAvatarFrameId;
+    rankingOutcomeStatsRef.current = save.rankingOutcomeStats;
+    seenIdsRef.current = save.recentQuestionIds;
+    streakDaysRef.current = save.streakDays;
+    categoryProgressRef.current = save.categoryProgress;
+
+    setScore(save.reputation);
+    setCareerXp(save.careerXp);
+    setBudget(save.companyBudget);
+    setCompanyNameState(save.companyName);
+    setInventory(save.ownedItemIds);
+    setCodeReviewState(save.jokerInventory.codeReview);
+    setGitRevertState(save.jokerInventory.gitRevert);
+    setServerScaleUpState(save.jokerInventory.serverScaleUp);
+    setSnapshotBackupState(save.jokerInventory.snapshotBackup);
+    setOwnedCosmeticIds(save.ownedCosmeticIds);
+    setEquippedAvatarId(save.equippedAvatarId);
+    setEquippedAvatarFrameId(save.equippedAvatarFrameId);
+    setCorrectAnswers(save.correctAnswers);
+    setWrongAnswers(save.wrongAnswers);
+    setRankingOutcomeStats(save.rankingOutcomeStats);
+    setSeenIds(save.recentQuestionIds);
+    setStreakDays(save.streakDays);
+    setStreakLastDate(save.streakLastDate ?? '');
+    setCategoryProgress(save.categoryProgress);
+    setPendingBadges([]);
+  }, []);
+
+  const clearRuntimeForAccountBoundary = useCallback(() => {
+    hydrateRuntime(createDefaultPlayerSave());
+    setUptimeStreak(DEFAULT_UPTIME_STREAK);
+  }, [hydrateRuntime]);
+
+  const retrySaveInitialization = useCallback(() => {
+    setInitializationAttempt((attempt) => attempt + 1);
+  }, []);
+
   useEffect(() => {
-    const load = async () => {
+    const userId = user?.id ?? null;
+    const initializationId = initializationIdRef.current + 1;
+    initializationIdRef.current = initializationId;
+    hydratedUserIdRef.current = null;
+    setHydratedUserId(null);
+    setSaveError(null);
+    lastPersistedSignatureRef.current = '';
+    lastAttemptedSignatureRef.current = '';
+    cloudBaselineReadyRef.current = false;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    clearRuntimeForAccountBoundary();
+
+    if (!userId) {
+      setSaveStatus('idle');
+      return undefined;
+    }
+
+    setSaveStatus('loading');
+
+    const initialize = async () => {
       try {
-        const results = await AsyncStorage.multiGet([
-          STORAGE_KEYS.score,
-          STORAGE_KEYS.careerXp,
-          STORAGE_KEYS.budget,
-          STORAGE_KEYS.companyName,
-          STORAGE_KEYS.inventory,
-          STORAGE_KEYS.lifelineInventory,
-          STORAGE_KEYS.cosmeticInventory,
-          STORAGE_KEYS.equippedAvatar,
-          STORAGE_KEYS.equippedAvatarFrame,
-          STORAGE_KEYS.streakDays,
-          STORAGE_KEYS.streakLastDate,
-          STORAGE_KEYS.seenIds,
-          STORAGE_KEYS.correctAnswers,
-          STORAGE_KEYS.wrongAnswers,
-          STORAGE_KEYS.rankingOutcomeStats,
-        ]);
-        const storedMap = Object.fromEntries(results.map(([k, v]) => [k, v]));
+        let save = await fetchMyPlayerSave(userId);
+        if (initializationIdRef.current !== initializationId) return;
 
-        const storedScore = storedMap[STORAGE_KEYS.score];
-        let loadedReputation = DEFAULT_SCORE;
-        if (storedScore !== null && storedScore !== undefined) {
-          const parsed = parseInt(storedScore, 10);
-          if (!isNaN(parsed)) {
-            loadedReputation = Math.max(0, parsed);
-            scoreRef.current = loadedReputation;
-            setScore(loadedReputation);
-          }
-        }
-        const careerXpMigration = resolveCareerXpMigration(
-          storedMap[STORAGE_KEYS.careerXp],
-          storedScore,
-        );
-        careerXpRef.current = careerXpMigration.careerXp;
-        setCareerXp(careerXpMigration.careerXp);
-        if (careerXpMigration.shouldPersist) {
-          // One-time backward-compatible migration preserves the rank implied
-          // by the legacy reputation value without changing that reputation.
-          await AsyncStorage.setItem(STORAGE_KEYS.careerXp, String(careerXpMigration.careerXp));
-        }
-        const storedBudget = storedMap[STORAGE_KEYS.budget];
-        if (storedBudget !== null && storedBudget !== undefined) {
-          const parsed = parseInt(storedBudget, 10);
-          budgetRef.current = parsed;
-          setBudget(parsed);
-        }
-        const storedCompanyName = storedMap[STORAGE_KEYS.companyName];
-        if (storedCompanyName !== null && storedCompanyName !== undefined && storedCompanyName.trim()) {
-          setCompanyNameState(storedCompanyName);
-        }
-        const storedInventory = storedMap[STORAGE_KEYS.inventory];
-        if (storedInventory !== null && storedInventory !== undefined) {
-          const parsed: string[] = JSON.parse(storedInventory);
-          inventoryRef.current = parsed;
-          setInventory(parsed);
-        }
-        const storedLifelineInventory = storedMap[STORAGE_KEYS.lifelineInventory];
-        if (storedLifelineInventory !== null && storedLifelineInventory !== undefined) {
+        if (!save) {
+          setSaveStatus('migrating');
+          const accountCache = await loadAccountSaveCache(userId).catch(() => null);
+          if (accountCache) await claimAndLoadLegacySave(userId);
+          const legacySave = accountCache ? null : await claimAndLoadLegacySave(userId);
+          save = normalizePlayerSaveForCurrentWeek(accountCache ?? legacySave ?? createDefaultPlayerSave());
           try {
-            const parsed = normalizeLifelineInventory(JSON.parse(storedLifelineInventory));
-            lifelineInventoryRef.current = parsed;
-            setCodeReviewState(parsed.codeReview);
-            setGitRevertState(parsed.gitRevert);
-            setServerScaleUpState(parsed.serverScaleUp);
-            setSnapshotBackupState(parsed.snapshotBackup);
-          } catch (_) {
-            // Invalid legacy/local data falls back to the existing default counts.
+            await createMyPlayerSave(userId, save);
+          } catch (createError) {
+            const concurrentSave = await fetchMyPlayerSave(userId).catch(() => null);
+            if (!concurrentSave) throw createError;
+            save = concurrentSave;
           }
         }
-        const storedCosmeticInventory = storedMap[STORAGE_KEYS.cosmeticInventory];
-        let parsedCosmeticInventory: unknown = null;
-        if (storedCosmeticInventory !== null && storedCosmeticInventory !== undefined) {
-          try {
-            parsedCosmeticInventory = JSON.parse(storedCosmeticInventory);
-          } catch (_) {
-            // Malformed cosmetic data is repaired using the safe default ownership below.
-          }
-        }
-        const cosmeticState = normalizeCosmeticPlayerState(
-          parsedCosmeticInventory,
-          storedMap[STORAGE_KEYS.equippedAvatar],
-          storedMap[STORAGE_KEYS.equippedAvatarFrame],
-        );
-        ownedCosmeticIdsRef.current = cosmeticState.ownedCosmeticIds;
-        equippedAvatarIdRef.current = cosmeticState.equippedAvatarId;
-        equippedAvatarFrameIdRef.current = cosmeticState.equippedAvatarFrameId;
-        setOwnedCosmeticIds(cosmeticState.ownedCosmeticIds);
-        setEquippedAvatarId(cosmeticState.equippedAvatarId);
-        setEquippedAvatarFrameId(cosmeticState.equippedAvatarFrameId);
 
-        const normalizedCosmeticInventory = JSON.stringify(cosmeticState.ownedCosmeticIds);
-        if (
-          storedCosmeticInventory !== normalizedCosmeticInventory
-          || storedMap[STORAGE_KEYS.equippedAvatar] !== cosmeticState.equippedAvatarId
-          || storedMap[STORAGE_KEYS.equippedAvatarFrame] !== cosmeticState.equippedAvatarFrameId
-        ) {
-          await AsyncStorage.multiSet([
-            [STORAGE_KEYS.cosmeticInventory, normalizedCosmeticInventory],
-            [STORAGE_KEYS.equippedAvatar, cosmeticState.equippedAvatarId],
-            [STORAGE_KEYS.equippedAvatarFrame, cosmeticState.equippedAvatarFrameId],
-          ]);
-        }
-        const storedSeenIds = storedMap[STORAGE_KEYS.seenIds];
-        if (storedSeenIds !== null && storedSeenIds !== undefined) {
-          try {
-            const parsed: number[] = JSON.parse(storedSeenIds);
-            const recent = parsed.filter((id) => Number.isInteger(id)).slice(-RECENT_QUESTION_HISTORY_LIMIT);
-            seenIdsRef.current = recent;
-            setSeenIds(recent);
-            if (recent.length !== parsed.length) {
-              await AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(recent));
-            }
-          } catch (_) { }
-        }
-        let loadedCorrectAnswers = DEFAULT_CORRECT_ANSWERS;
-        const storedCorrect = storedMap[STORAGE_KEYS.correctAnswers];
-        if (storedCorrect !== null && storedCorrect !== undefined) {
-          const parsed = parseInt(storedCorrect, 10);
-          if (!isNaN(parsed)) {
-            loadedCorrectAnswers = parsed;
-            correctAnswersRef.current = parsed;
-            setCorrectAnswers(parsed);
-          }
-        }
-        const storedWrong = storedMap[STORAGE_KEYS.wrongAnswers];
-        if (storedWrong !== null && storedWrong !== undefined) {
-          const parsed = parseInt(storedWrong, 10);
-          if (!isNaN(parsed)) {
-            wrongAnswersRef.current = parsed;
-            setWrongAnswers(parsed);
-          }
-        }
-        let parsedRankingStats: unknown = null;
-        const storedRankingStats = storedMap[STORAGE_KEYS.rankingOutcomeStats];
-        if (storedRankingStats !== null && storedRankingStats !== undefined) {
-          try {
-            parsedRankingStats = JSON.parse(storedRankingStats);
-          } catch (_) {
-            // Malformed local ranking stats are repaired with the safe legacy baseline below.
-          }
-        }
-        const normalizedRankingStats = normalizeRankingOutcomeStats(
-          parsedRankingStats,
-          loadedCorrectAnswers,
-        );
-        rankingOutcomeStatsRef.current = normalizedRankingStats;
-        setRankingOutcomeStats(normalizedRankingStats);
-        const serializedRankingStats = JSON.stringify(normalizedRankingStats);
-        if (storedRankingStats !== serializedRankingStats) {
-          await AsyncStorage.setItem(STORAGE_KEYS.rankingOutcomeStats, serializedRankingStats);
-        }
-        const storedStreakDays = storedMap[STORAGE_KEYS.streakDays];
-        if (storedStreakDays !== null && storedStreakDays !== undefined) {
-          const parsed: boolean[] = JSON.parse(storedStreakDays);
-          // If stored, check if we need to reset for a new week
-          const storedLastDate = storedMap[STORAGE_KEYS.streakLastDate] ?? '';
-          const today = new Date();
-          const todayStr = today.toISOString().split('T')[0];
-          const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
-          // Reset streak array if last date was from a different week (Monday)
-          const lastDate = storedLastDate ? new Date(storedLastDate) : null;
-          const isSameWeek = lastDate
-            ? (() => {
-              const startOfWeek = new Date(today);
-              startOfWeek.setDate(today.getDate() - dayOfWeek);
-              startOfWeek.setHours(0, 0, 0, 0);
-              return lastDate >= startOfWeek;
-            })()
-            : false;
-          if (isSameWeek) {
-            streakDaysRef.current = parsed;
-            setStreakDays(parsed);
-            setStreakLastDate(storedLastDate);
-          } else {
-            // New week — reset
-            const fresh = [false, false, false, false, false, false, false];
-            streakDaysRef.current = fresh;
-            setStreakDays(fresh);
-            setStreakLastDate('');
-            try {
-              await AsyncStorage.multiSet([
-                [STORAGE_KEYS.streakDays, JSON.stringify(fresh)],
-                [STORAGE_KEYS.streakLastDate, ''],
-              ]);
-            } catch (_) { }
-          }
-        }
+        if (initializationIdRef.current !== initializationId) return;
+        cloudBaselineReadyRef.current = true;
+        const sourceSignature = JSON.stringify(buildPlayerSaveSnapshot(save));
+        const normalized = normalizePlayerSaveForCurrentWeek(save);
+        hydrateRuntime(normalized);
+        latestSaveRef.current = normalized;
+        lastPersistedSignatureRef.current = sourceSignature;
+        hydratedUserIdRef.current = userId;
+        setHydratedUserId(userId);
+        setSaveStatus('ready');
+        void writeAccountSaveCache(userId, normalized).catch((error) => {
+          if (__DEV__) console.warn('[PlayerSave] Hesap yedeği yazılamadı.', error);
+        });
       } catch (error) {
-        console.error('İtibar verisi yüklenirken hata:', error);
-      } finally {
-        setIsLoaded(true);
+        if (initializationIdRef.current !== initializationId) return;
+        const cached = await loadAccountSaveCache(userId).catch(() => null);
+        if (initializationIdRef.current !== initializationId) return;
+        if (cached) {
+          const normalizedCache = normalizePlayerSaveForCurrentWeek(cached);
+          hydrateRuntime(normalizedCache);
+          latestSaveRef.current = normalizedCache;
+          lastPersistedSignatureRef.current = JSON.stringify(cached);
+          hydratedUserIdRef.current = userId;
+          setHydratedUserId(userId);
+        }
+        cloudBaselineReadyRef.current = false;
+        setSaveError(getPlayerSaveErrorMessage(error));
+        setSaveStatus('error');
       }
     };
-    load();
+
+    void initialize();
+    return () => {
+      initializationIdRef.current += 1;
+    };
+  }, [clearRuntimeForAccountBoundary, hydrateRuntime, initializationAttempt, user?.id]);
+
+  const saveSnapshot = useMemo(() => buildPlayerSaveSnapshot({
+    saveVersion: PLAYER_SAVE_VERSION,
+    careerXp,
+    reputation: score,
+    companyBudget: budget,
+    companyName,
+    correctAnswers,
+    wrongAnswers,
+    rankingOutcomeStats,
+    jokerInventory: { codeReview, gitRevert, serverScaleUp, snapshotBackup },
+    ownedItemIds: inventory,
+    ownedCosmeticIds,
+    equippedAvatarId,
+    equippedAvatarFrameId,
+    streakDays,
+    streakLastDate: streakLastDate || null,
+    recentQuestionIds: seenIds,
+    categoryProgress,
+  }), [
+    budget,
+    careerXp,
+    codeReview,
+    companyName,
+    equippedAvatarFrameId,
+    equippedAvatarId,
+    gitRevert,
+    inventory,
+    ownedCosmeticIds,
+    rankingOutcomeStats,
+    score,
+    seenIds,
+    serverScaleUp,
+    snapshotBackup,
+    streakDays,
+    streakLastDate,
+    correctAnswers,
+    wrongAnswers,
+    categoryProgress,
+  ]);
+  latestSaveRef.current = saveSnapshot;
+
+  const isLoaded = Boolean(
+    user?.id
+    && hydratedUserId === user.id
+    && (saveStatus === 'ready' || saveStatus === 'saving' || saveStatus === 'error'),
+  );
+
+  const queuePlayerSave = useCallback((userId: string, snapshot: PlayerSaveSnapshot) => {
+    const signature = JSON.stringify(snapshot);
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      if (hydratedUserIdRef.current !== userId) return;
+      lastAttemptedSignatureRef.current = signature;
+      setSaveStatus('saving');
+      setSaveError(null);
+
+      try {
+        await writeAccountSaveCache(userId, snapshot);
+      } catch (error) {
+        if (__DEV__) console.warn('[PlayerSave] Hesap yedeği yazılamadı.', error);
+      }
+
+      if (!cloudBaselineReadyRef.current) {
+        setSaveError('Bulut kayıt doğrulanamadı. Hesap yedeğin bu cihazda korunuyor; bağlantıyı yenileyip tekrar dene.');
+        setSaveStatus('error');
+        return;
+      }
+
+      try {
+        await upsertMyPlayerSave(userId, snapshot);
+        if (hydratedUserIdRef.current !== userId) return;
+        lastPersistedSignatureRef.current = signature;
+        setSaveStatus('ready');
+      } catch (error) {
+        if (hydratedUserIdRef.current !== userId) return;
+        setSaveError(getPlayerSaveErrorMessage(error));
+        setSaveStatus('error');
+      }
+    });
+    return saveQueueRef.current;
   }, []);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId || !isLoaded || hydratedUserId !== userId) return undefined;
+    const signature = JSON.stringify(saveSnapshot);
+    if (lastPersistedSignatureRef.current === signature) return undefined;
+    if (lastAttemptedSignatureRef.current === signature) return undefined;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void queuePlayerSave(userId, saveSnapshot);
+    }, 800);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [hydratedUserId, isLoaded, queuePlayerSave, saveSnapshot, user?.id]);
+
+  const flushPlayerSave = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId || hydratedUserIdRef.current !== userId) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const snapshot = latestSaveRef.current;
+    if (lastPersistedSignatureRef.current !== JSON.stringify(snapshot)) {
+      await queuePlayerSave(userId, snapshot);
+    } else {
+      await saveQueueRef.current;
+    }
+  }, [queuePlayerSave, user?.id]);
+
+  const retryPlayerSave = useCallback(() => {
+    if (cloudBaselineReadyRef.current) {
+      lastAttemptedSignatureRef.current = '';
+      void flushPlayerSave();
+      return;
+    }
+    const userId = user?.id;
+    if (!userId) return;
+    void writeAccountSaveCache(userId, latestSaveRef.current)
+      .catch(() => undefined)
+      .finally(retrySaveInitialization);
+  }, [flushPlayerSave, retrySaveInitialization, user?.id]);
 
   const setCorrectAnswersHandler: React.Dispatch<React.SetStateAction<number>> = (action) => {
     setCorrectAnswers((prev) => {
       const nextVal = typeof action === 'function' ? action(prev) : action;
-      correctAnswersRef.current = nextVal;
-      AsyncStorage.setItem(STORAGE_KEYS.correctAnswers, String(nextVal)).catch((e) =>
-        console.error('Doğru cevap sayısı kaydedilemedi:', e)
-      );
       return nextVal;
     });
   };
@@ -527,10 +575,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const setWrongAnswersHandler: React.Dispatch<React.SetStateAction<number>> = (action) => {
     setWrongAnswers((prev) => {
       const nextVal = typeof action === 'function' ? action(prev) : action;
-      wrongAnswersRef.current = nextVal;
-      AsyncStorage.setItem(STORAGE_KEYS.wrongAnswers, String(nextVal)).catch((e) =>
-        console.error('Yanlış cevap sayısı kaydedilemedi:', e)
-      );
       return nextVal;
     });
   };
@@ -542,9 +586,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
     rankingOutcomeStatsRef.current = next;
     setRankingOutcomeStats(next);
-    AsyncStorage.setItem(STORAGE_KEYS.rankingOutcomeStats, JSON.stringify(next)).catch((error) =>
-      console.error('Sıralama sonuç istatistikleri kaydedilemedi:', error)
-    );
   }, []);
 
   const setSeenIdsHandler: React.Dispatch<React.SetStateAction<number[]>> = (action) => {
@@ -555,9 +596,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         [],
       );
       seenIdsRef.current = nextVal;
-      AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(nextVal)).catch((e) =>
-        console.error('Görülen IDler kaydedilemedi:', e)
-      );
       return nextVal;
     });
   };
@@ -566,12 +604,18 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     const emptySeenIds: number[] = [];
     seenIdsRef.current = emptySeenIds;
     setSeenIds(emptySeenIds);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify(emptySeenIds));
-    } catch (error) {
-      console.error('Görülen soru IDleri temizlenemedi:', error);
-    }
   };
+
+  const recordCategoryQuestionAnswer = useCallback((
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    questionId: CategoryQuestionId,
+    correct: boolean,
+  ) => {
+    const next = recordCategoryAttempt(categoryProgressRef.current, categoryId, star, questionId, correct);
+    categoryProgressRef.current = next;
+    setCategoryProgress(next);
+  }, []);
 
   const applyDelta = async (careerXpDelta: number, reputationDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
@@ -600,16 +644,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setCareerXp(newCareerXp);
     setBudget(newBudget);
 
-    try {
-      await AsyncStorage.multiSet([
-        [STORAGE_KEYS.score, String(newScore)],
-        [STORAGE_KEYS.careerXp, String(newCareerXp)],
-        [STORAGE_KEYS.budget, String(newBudget)],
-      ]);
-    } catch (error) {
-      console.error('İtibar verisi kaydedilirken hata:', error);
-    }
-
     return earned;
   };
 
@@ -632,9 +666,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     if (jokerId === 'serverScaleUp') setServerScaleUpState(nextCount);
     if (jokerId === 'snapshotBackup') setSnapshotBackupState(nextCount);
 
-    AsyncStorage.setItem(STORAGE_KEYS.lifelineInventory, JSON.stringify(nextInventory)).catch((error) =>
-      console.error('Joker envanteri kaydedilemedi:', error)
-    );
   }, []);
 
   const setCodeReview = useCallback<React.Dispatch<React.SetStateAction<number>>>(
@@ -673,11 +704,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     careerXpRef.current = DEFAULT_CAREER_XP;
     budgetRef.current = DEFAULT_BUDGET;
     inventoryRef.current = [];
-    lifelineInventoryRef.current = createDefaultLifelineInventory();
+    lifelineInventoryRef.current = createDefaultJokerInventory();
     seenIdsRef.current = [];
-    correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
-    wrongAnswersRef.current = DEFAULT_WRONG_ANSWERS;
     rankingOutcomeStatsRef.current = normalizeRankingOutcomeStats(null);
+    streakDaysRef.current = [false, false, false, false, false, false, false];
+    categoryProgressRef.current = createDefaultCategoryProgress();
 
     // 2. State'leri sıfırla
     setScore(DEFAULT_SCORE);
@@ -696,30 +727,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setWrongAnswers(DEFAULT_WRONG_ANSWERS);
     setRankingOutcomeStats(normalizeRankingOutcomeStats(null));
     setSeenIds([]);
-
-    try {
-      // 3. AsyncStorage'dan tüm ilerlemeyi temizle
-      await AsyncStorage.multiRemove([
-        STORAGE_KEYS.score,
-        STORAGE_KEYS.careerXp,
-        STORAGE_KEYS.budget,
-        STORAGE_KEYS.inventory,
-        STORAGE_KEYS.lifelineInventory,
-        STORAGE_KEYS.streakDays,
-        STORAGE_KEYS.streakLastDate,
-        STORAGE_KEYS.seenIds,
-        STORAGE_KEYS.correctAnswers,
-        STORAGE_KEYS.wrongAnswers,
-        STORAGE_KEYS.rankingOutcomeStats,
-        '@shipit_theme_id', // Reset active theme back to default
-      ]);
-      // Persist an explicit empty list so no stale seen IDs can be restored.
-      await AsyncStorage.setItem(STORAGE_KEYS.seenIds, JSON.stringify([]));
-
-      console.log('Tertemiz sıfırlandı!');
-    } catch (error) {
-      console.error('İlerleme sıfırlanırken hata:', error);
-    }
+    setStreakDays([false, false, false, false, false, false, false]);
+    setStreakLastDate('');
+    setCategoryProgress(createDefaultCategoryProgress());
   };
 
   const claimStreakDay = async (): Promise<number> => {
@@ -737,26 +747,12 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     const newBudget = budgetRef.current + reward;
     budgetRef.current = newBudget;
     setBudget(newBudget);
-    try {
-      await AsyncStorage.multiSet([
-        [STORAGE_KEYS.streakDays, JSON.stringify(newDays)],
-        [STORAGE_KEYS.streakLastDate, todayStr],
-        [STORAGE_KEYS.budget, String(newBudget)],
-      ]);
-    } catch (e) {
-      console.error('Streak kaydedilemedi:', e);
-    }
     return reward;
   };
 
   const setCompanyName = async (name: string) => {
-    const trimmed = name.trim() || DEFAULT_COMPANY_NAME;
-    setCompanyNameState(trimmed);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.companyName, trimmed);
-    } catch (error) {
-      console.error('Şirket adı kaydedilirken hata:', error);
-    }
+    const normalized = normalizeCompanyName(name);
+    setCompanyNameState(normalized);
   };
 
   const purchaseItem = async (
@@ -768,19 +764,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     const newBudget = budgetRef.current - price;
     budgetRef.current = newBudget;
     setBudget(newBudget);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.budget, String(newBudget));
-    } catch (e) {
-      console.error('Bütçe kaydedilemedi:', e);
-    }
     const newInventory = [...inventoryRef.current, itemId];
     inventoryRef.current = newInventory;
     setInventory(newInventory);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(newInventory));
-    } catch (e) {
-      console.error('Envanter kaydedilemedi:', e);
-    }
     return 'ok';
   };
 
@@ -789,18 +775,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     economyTransactionLockRef.current = true;
 
     try {
-      const purchase = planJokerPurchase(budgetRef.current, lifelineInventoryRef.current, jokerId);
+      const rankTier = getRankForCareerXp(careerXpRef.current).current.tier;
+      const purchase = planJokerPurchase(budgetRef.current, lifelineInventoryRef.current, jokerId, rankTier);
       if (purchase.status === 'insufficient_funds') return purchase.status;
-
-      try {
-        await AsyncStorage.multiSet([
-          [STORAGE_KEYS.budget, String(purchase.budget)],
-          [STORAGE_KEYS.lifelineInventory, JSON.stringify(purchase.inventory)],
-        ]);
-      } catch (error) {
-        console.error('Joker satın alımı kaydedilemedi:', error);
-        return 'persistence_error';
-      }
 
       budgetRef.current = purchase.budget;
       lifelineInventoryRef.current = purchase.inventory;
@@ -823,16 +800,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       const purchase = planCosmeticPurchase(budgetRef.current, ownedCosmeticIdsRef.current, cosmeticId);
       if (purchase.status !== 'ok') return purchase.status;
 
-      try {
-        await AsyncStorage.multiSet([
-          [STORAGE_KEYS.budget, String(purchase.budget)],
-          [STORAGE_KEYS.cosmeticInventory, JSON.stringify(purchase.ownedCosmeticIds)],
-        ]);
-      } catch (error) {
-        console.error('Kozmetik satın alımı kaydedilemedi:', error);
-        return 'persistence_error';
-      }
-
       budgetRef.current = purchase.budget;
       ownedCosmeticIdsRef.current = purchase.ownedCosmeticIds;
       setBudget(purchase.budget);
@@ -851,13 +818,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       const validation = validateCosmeticEquip(ownedCosmeticIdsRef.current, cosmeticId, 'avatar');
       if (validation.status !== 'ok') return validation.status;
 
-      try {
-        await AsyncStorage.setItem(STORAGE_KEYS.equippedAvatar, validation.cosmetic.id);
-      } catch (error) {
-        console.error('Avatar seçimi kaydedilemedi:', error);
-        return 'persistence_error';
-      }
-
       equippedAvatarIdRef.current = validation.cosmetic.id;
       setEquippedAvatarId(validation.cosmetic.id);
       return 'ok';
@@ -873,13 +833,6 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     try {
       const validation = validateCosmeticEquip(ownedCosmeticIdsRef.current, cosmeticId, 'avatar_frame');
       if (validation.status !== 'ok') return validation.status;
-
-      try {
-        await AsyncStorage.setItem(STORAGE_KEYS.equippedAvatarFrame, validation.cosmetic.id);
-      } catch (error) {
-        console.error('Avatar çerçevesi seçimi kaydedilemedi:', error);
-        return 'persistence_error';
-      }
 
       equippedAvatarFrameIdRef.current = validation.cosmetic.id;
       setEquippedAvatarFrameId(validation.cosmetic.id);
@@ -916,6 +869,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       budget,
       companyName,
       isLoaded,
+      saveStatus,
+      saveError,
+      retrySaveInitialization,
+      retryPlayerSave,
+      flushPlayerSave,
       currentRank: current,
       nextRank: next,
       rankProgress,
@@ -968,6 +926,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       setWrongAnswers: setWrongAnswersHandler,
       setSeenIds: setSeenIdsHandler,
       clearSeenIds,
+      categoryProgress,
+      recordCategoryQuestionAnswer,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -976,6 +936,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     budget,
     companyName,
     isLoaded,
+    saveStatus,
+    saveError,
     pendingBadges,
     codeReview,
     gitRevert,
@@ -991,6 +953,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     wrongAnswers,
     rankingOutcomeStats,
     seenIds,
+    categoryProgress,
   ]);
 
   return <ReputationContext.Provider value={value}>{children}</ReputationContext.Provider>;

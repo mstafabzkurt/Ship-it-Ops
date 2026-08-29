@@ -1,11 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EVALUATION_REWARDS, TIMEOUT_REWARD, type EvaluationTier } from '../../src/config/gameRewards';
-import { RECENT_QUESTION_HISTORY_LIMIT, SESSION_CRISIS_COUNT, type RankTier } from '../../src/config/progression';
+import type { EvaluationTier } from '../../src/config/gameRewards';
+import { getCategoryChoiceOutcome, getCategoryReward } from '../../src/config/categoryRewards';
+import {
+  DIFFICULTY_LABELS,
+  QUESTIONS_PER_TIER,
+  SESSION_QUESTION_COUNT,
+  getGameCategory,
+  isGameCategoryId,
+  parseDifficultyStar,
+  type DifficultyStar,
+  type GameCategoryId,
+} from '../../src/config/gameCategories';
 import GameAbilityButton from '../../src/components/game/GameAbilityButton';
 import GameActionButton from '../../src/components/game/GameActionButton';
 import GameBackdrop from '../../src/components/game/GameBackdrop';
@@ -17,7 +27,8 @@ import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { supabase } from '../../src/supabase';
 import { fonts } from '../../src/theme/typography';
-import { appendRecentQuestionId, selectNextQuestion } from '../../src/utils/questionSelection';
+import { selectCategoryQuestion } from '../../src/utils/categoryProgress';
+import { isValidCategoryQuestion, type CategoryQuestionId, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
 
 const TIMER_DURATION = 20;
 const UPTIME_MILESTONE_REWARDS: Readonly<Record<number, number>> = {
@@ -35,8 +46,10 @@ function pickFeedback(phrases: string[]) {
 
 /** Shape returned by Supabase. Reward and penalty values never come from this row. */
 export interface GameIncident {
-  id: number;
-  rank_level: number;
+  id: CategoryQuestionId;
+  rank_level: number | null;
+  category_id: GameCategoryId;
+  difficulty_star: DifficultyStar;
   tag: string;
   /** The complete question text shown in the incident card. */
   title: string;
@@ -57,6 +70,7 @@ interface AnimatedChoiceItemProps {
   index: number;
   codeReviewEmphasis: Animated.Value;
   isCodeReviewActive: boolean;
+  isCodeReviewEliminated: boolean;
   isRevertedChoice: boolean;
   isSelected: boolean;
   isLocked: boolean;
@@ -69,6 +83,7 @@ function AnimatedChoiceItem({
   index,
   codeReviewEmphasis,
   isCodeReviewActive,
+  isCodeReviewEliminated,
   isRevertedChoice,
   isSelected,
   isLocked,
@@ -80,7 +95,6 @@ function AnimatedChoiceItem({
   const lineProgress = useRef(new Animated.Value(0)).current;
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const isCodeReviewEliminated = isCodeReviewActive && (choice.tier === 'fatal' || choice.tier === 'wrong');
   const isCodeReviewSurvivor = isCodeReviewActive && !isCodeReviewEliminated;
   const isEliminated = isCodeReviewEliminated || isRevertedChoice;
   const isDisabled = isEliminated || isLocked;
@@ -183,17 +197,20 @@ function getNextUptimeMilestone(streak: number) {
 
 export default function GameScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ category?: string; star?: string }>();
+  const categoryId = isGameCategoryId(params.category) ? params.category : null;
+  const difficultyStar = parseDifficultyStar(params.star);
+  const category = categoryId ? getGameCategory(categoryId) : null;
   const { width } = useWindowDimensions();
   const {
     applyOutcome,
     addBudget,
     isLoaded,
-    seenIds,
-    setSeenIds,
     setCorrectAnswers,
     setWrongAnswers,
     recordRankingOutcome,
-    currentRank,
+    categoryProgress,
+    recordCategoryQuestionAnswer,
     codeReview,
     consumeCodeReview,
     gitRevert,
@@ -222,6 +239,7 @@ export default function GameScreen() {
   const [feedbackPhrase, setFeedbackPhrase] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(TIMER_DURATION);
   const [isCodeReviewActive, setIsCodeReviewActive] = useState(false);
+  const [codeReviewEliminatedIds, setCodeReviewEliminatedIds] = useState<EvaluationTier[]>([]);
   const [isScaleUpUsed, setIsScaleUpUsed] = useState(false);
   const [isReverted, setIsReverted] = useState(false);
   const [revertedChoiceId, setRevertedChoiceId] = useState<EvaluationTier | null>(null);
@@ -246,8 +264,7 @@ export default function GameScreen() {
   const incidentsRef = useRef<GameIncident[]>([]);
   const resolvingRef = useRef(false);
   const selectedChoiceRef = useRef<IncidentChoice | null>(null);
-  const seenIdsRef = useRef(seenIds);
-  const sessionQuestionIdsRef = useRef<number[]>([]);
+  const sessionQuestionIdsRef = useRef<CategoryQuestionId[]>([]);
   const uptimeStreakRef = useRef(uptimeStreak);
   const lostStreakRef = useRef(0);
   const hasInitializedRef = useRef(false);
@@ -255,24 +272,23 @@ export default function GameScreen() {
   const advancingRef = useRef(false);
   const jokerActivationSequenceRef = useRef(0);
   const lifelineUseLocksRef = useRef(new Set<string>());
-  const careerTierRef = useRef<RankTier>(currentRank.tier);
-  const contextActionsRef = useRef({ applyOutcome, addBudget, setSeenIds, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, setUptimeStreak });
-
-  useEffect(() => {
-    seenIdsRef.current = seenIds;
-  }, [seenIds]);
+  const attemptedQuestionIdsRef = useRef<CategoryQuestionId[]>(
+    categoryId && difficultyStar ? categoryProgress[categoryId][difficultyStar].attemptedQuestionIds : [],
+  );
+  const contextActionsRef = useRef({ applyOutcome, addBudget, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, setUptimeStreak, recordCategoryQuestionAnswer });
 
   useEffect(() => {
     uptimeStreakRef.current = uptimeStreak;
   }, [uptimeStreak]);
 
   useEffect(() => {
-    contextActionsRef.current = { applyOutcome, addBudget, setSeenIds, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, setUptimeStreak };
-  }, [addBudget, applyOutcome, recordRankingOutcome, setCorrectAnswers, setSeenIds, setUptimeStreak, setWrongAnswers]);
+    if (!categoryId || !difficultyStar) return;
+    attemptedQuestionIdsRef.current = categoryProgress[categoryId][difficultyStar].attemptedQuestionIds;
+  }, [categoryId, categoryProgress, difficultyStar]);
 
   useEffect(() => {
-    careerTierRef.current = currentRank.tier;
-  }, [currentRank.tier]);
+    contextActionsRef.current = { applyOutcome, addBudget, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, setUptimeStreak, recordCategoryQuestionAnswer };
+  }, [addBudget, applyOutcome, recordCategoryQuestionAnswer, recordRankingOutcome, setCorrectAnswers, setUptimeStreak, setWrongAnswers]);
 
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -344,18 +360,19 @@ export default function GameScreen() {
     setIsAnswered(true);
     setTimedOut(true);
     setFeedbackPhrase(pickFeedback(ENCOURAGING_FEEDBACK));
-    seenIdsRef.current = appendRecentQuestionId(seenIdsRef.current, currentIncident.id, RECENT_QUESTION_HISTORY_LIMIT);
-    contextActionsRef.current.setSeenIds(seenIdsRef.current);
+    if (!categoryId || !difficultyStar) return;
+    if (!attemptedQuestionIdsRef.current.includes(currentIncident.id)) attemptedQuestionIdsRef.current = [...attemptedQuestionIdsRef.current, currentIncident.id];
+    contextActionsRef.current.recordCategoryQuestionAnswer(categoryId, difficultyStar, currentIncident.id, false);
     contextActionsRef.current.setWrongAnswers((value) => value + 1);
     contextActionsRef.current.recordRankingOutcome('timeout');
-    const reward = TIMEOUT_REWARD;
+    const reward = getCategoryReward(difficultyStar, 'timeout');
     try {
       await contextActionsRef.current.applyOutcome(reward.careerXpDelta, reward.reputationDelta, reward.budgetDelta);
     } finally {
       outcomePendingRef.current = false;
       setIsOutcomePending(false);
     }
-  }, []);
+  }, [categoryId, difficultyStar]);
 
   const startTimer = useCallback(() => {
     stopTimer();
@@ -372,23 +389,23 @@ export default function GameScreen() {
     }, 1000);
   }, [resolveTimeout, stopTimer]);
 
-  const chooseIncident = useCallback((pool: GameIncident[], sessionQuestionIds: number[]) => {
+  const chooseIncident = useCallback((pool: GameIncident[], sessionQuestionIds: CategoryQuestionId[]) => {
     lifelineUseLocksRef.current.clear();
     codeReviewEmphasis.stopAnimation();
     codeReviewEmphasis.setValue(0);
     snapshotStatusPulse.stopAnimation();
     snapshotStatusPulse.setValue(1);
     setIsCodeReviewActive(false);
+    setCodeReviewEliminatedIds([]);
     setIsScaleUpUsed(false);
     setIsReverted(false);
     setRevertedChoiceId(null);
     lostStreakRef.current = 0;
     setLostStreak(0);
-    const next = selectNextQuestion(
+    const next = selectCategoryQuestion(
       pool,
       sessionQuestionIds,
-      seenIdsRef.current,
-      careerTierRef.current,
+      attemptedQuestionIdsRef.current,
     );
     if (!next) {
       setIncident(null);
@@ -413,16 +430,23 @@ export default function GameScreen() {
     try {
       setIsLoading(true);
       setError(null);
-      const { data, error: fetchError } = await supabase
-        .from('game_incidents')
-        .select('id, rank_level, tag, title, optimal_text, acceptable_text, wrong_text, fatal_text')
-        .order('id', { ascending: true });
-      if (fetchError) throw fetchError;
-      if (!data?.length) {
-        setError('Kriz senaryosu bulunamadı.');
+      if (!categoryId || !difficultyStar) {
+        setError('Geçerli bir kategori ve yıldız seçmelisin.');
         return;
       }
-      const loadedIncidents = data as GameIncident[];
+      const { data, error: fetchError } = await supabase
+        .from('game_incidents')
+        .select('id, rank_level, category_id, difficulty_star, tag, title, optimal_text, acceptable_text, wrong_text, fatal_text')
+        .eq('category_id', categoryId)
+        .eq('difficulty_star', difficultyStar)
+        .order('id', { ascending: true });
+      if (fetchError) throw fetchError;
+      const loadedIncidents = (data as CategoryQuestionRow[] | null ?? [])
+        .filter((row) => isValidCategoryQuestion(row, categoryId, difficultyStar)) as GameIncident[];
+      if (loadedIncidents.length !== QUESTIONS_PER_TIER) {
+        setError(`Bu seviye henüz hazır değil (${loadedIncidents.length}/${QUESTIONS_PER_TIER} geçerli soru).`);
+        return;
+      }
       incidentsRef.current = loadedIncidents;
       sessionQuestionIdsRef.current = [];
       chooseIncident(loadedIncidents, []);
@@ -431,7 +455,7 @@ export default function GameScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [chooseIncident]);
+  }, [categoryId, chooseIncident, difficultyStar]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -455,17 +479,13 @@ export default function GameScreen() {
     setIsOutcomePending(true);
     setIsAnswered(true);
     setActiveChoice(choice);
-    seenIdsRef.current = appendRecentQuestionId(seenIdsRef.current, currentIncident.id, RECENT_QUESTION_HISTORY_LIMIT);
-    contextActionsRef.current.setSeenIds(seenIdsRef.current);
-
-    const reward = EVALUATION_REWARDS[choice.tier];
-    contextActionsRef.current.recordRankingOutcome(
-      choice.tier === 'optimal'
-        ? 'success'
-        : choice.tier === 'acceptable'
-          ? 'partial'
-          : 'fail',
-    );
+    if (!categoryId || !difficultyStar) return;
+    const choiceOutcome = getCategoryChoiceOutcome(choice.tier);
+    const isCorrect = choiceOutcome === 'success';
+    if (!attemptedQuestionIdsRef.current.includes(currentIncident.id)) attemptedQuestionIdsRef.current = [...attemptedQuestionIdsRef.current, currentIncident.id];
+    contextActionsRef.current.recordCategoryQuestionAnswer(categoryId, difficultyStar, currentIncident.id, isCorrect);
+    const reward = getCategoryReward(difficultyStar, choiceOutcome);
+    contextActionsRef.current.recordRankingOutcome(choiceOutcome);
     setFeedbackPhrase(pickFeedback(reward.isPositive ? POSITIVE_FEEDBACK : ENCOURAGING_FEEDBACK));
     let milestoneBonus = 0;
     if (reward.isPositive) {
@@ -497,7 +517,7 @@ export default function GameScreen() {
       outcomePendingRef.current = false;
       setIsOutcomePending(false);
     }
-  }, [stopTimer]);
+  }, [categoryId, difficultyStar, stopTimer]);
 
   const handleSelectChoice = useCallback((choice: IncidentChoice) => {
     if (isAnswered || resolvingRef.current || outcomePendingRef.current) return;
@@ -517,7 +537,7 @@ export default function GameScreen() {
     if (!currentIncident) return;
 
     advancingRef.current = true;
-    if (sessionQuestionIdsRef.current.length >= SESSION_CRISIS_COUNT) {
+    if (sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT) {
       stopTimer();
       incidentRef.current = null;
       setIncident(null);
@@ -546,7 +566,7 @@ export default function GameScreen() {
 
   const handleExit = useCallback(() => {
     stopTimer();
-    router.replace('/(tabs)/');
+    router.replace('/(tabs)/play');
   }, [router, stopTimer]);
 
   const queueJokerOverlay = useCallback((icon: JokerUseActivation['icon'], name: string, countBefore: number) => {
@@ -571,13 +591,17 @@ export default function GameScreen() {
   const handleCodeReview = useCallback(() => {
     if (isAnswered || isCodeReviewActive || codeReview <= 0 || lifelineUseLocksRef.current.has('codeReview')) return;
     lifelineUseLocksRef.current.add('codeReview');
+    const wrongChoices = choices.filter((choice) => choice.tier !== 'optimal');
+    const shuffledWrongChoices = [...wrongChoices].sort(() => Math.random() - 0.5);
+    const eliminatedIds = shuffledWrongChoices.slice(0, 2).map((choice) => choice.id);
     const currentSelection = selectedChoiceRef.current;
-    if (currentSelection?.tier === 'fatal' || currentSelection?.tier === 'wrong') {
+    if (currentSelection && eliminatedIds.includes(currentSelection.id)) {
       selectedChoiceRef.current = null;
       setSelectedChoice(null);
     }
     queueJokerOverlay('scan-outline', 'Code Review', codeReview);
     setIsCodeReviewActive(true);
+    setCodeReviewEliminatedIds(eliminatedIds);
     consumeCodeReview();
     if (!reduceMotion) {
       codeReviewEmphasis.stopAnimation();
@@ -587,7 +611,7 @@ export default function GameScreen() {
         Animated.timing(codeReviewEmphasis, { toValue: 0, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
     }
-  }, [codeReview, codeReviewEmphasis, consumeCodeReview, isAnswered, isCodeReviewActive, queueJokerOverlay, reduceMotion]);
+  }, [choices, codeReview, codeReviewEmphasis, consumeCodeReview, isAnswered, isCodeReviewActive, queueJokerOverlay, reduceMotion]);
 
   const handleServerScaleUp = useCallback(() => {
     if (isAnswered || isScaleUpUsed || serverScaleUp <= 0 || lifelineUseLocksRef.current.has('serverScaleUp')) return;
@@ -600,7 +624,7 @@ export default function GameScreen() {
     setTimeLeft(extendedTime);
   }, [consumeServerScaleUp, isAnswered, isScaleUpUsed, queueJokerOverlay, serverScaleUp]);
 
-  const failedChoiceSelected = activeChoice?.tier === 'fatal' || activeChoice?.tier === 'wrong';
+  const failedChoiceSelected = Boolean(activeChoice && activeChoice.tier !== 'optimal');
   const canUseGitRevert = isAnswered && failedChoiceSelected && gitRevert > 0 && !isReverted;
   const canUseSnapshotBackup = isAnswered && failedChoiceSelected && lostStreak > 0 && snapshotBackup > 0;
 
@@ -730,10 +754,20 @@ export default function GameScreen() {
 
   if (isLoading) return <LoadingScreen styles={styles} color={colors.warning} />;
   if (error) return <ErrorScreen styles={styles} message={error} onRetry={fetchIncidents} />;
-  if (!incident) return <CompleteScreen styles={styles} onRestart={handleRestart} onExit={handleExit} />;
+  if (!incident && category && difficultyStar) return (
+    <CompleteScreen
+      styles={styles}
+      onRestart={handleRestart}
+      onExit={handleExit}
+      categoryName={category.name}
+      star={difficultyStar}
+      attemptedCount={Math.min(QUESTIONS_PER_TIER, attemptedQuestionIdsRef.current.length)}
+    />
+  );
 
-  const selectedReward = activeChoice ? EVALUATION_REWARDS[activeChoice.tier] : null;
-  const timeoutReward = TIMEOUT_REWARD;
+  if (!incident || !category || !difficultyStar) return <ErrorScreen styles={styles} message="Geçerli bir oyun seçimi bulunamadı." onRetry={() => router.replace('/(tabs)/play')} />;
+  const selectedReward = activeChoice ? getCategoryReward(difficultyStar, getCategoryChoiceOutcome(activeChoice.tier)) : null;
+  const timeoutReward = getCategoryReward(difficultyStar, 'timeout');
   const feedbackReward = timedOut ? timeoutReward : selectedReward;
   const timerColor = timerColorProgress.interpolate({
     inputRange: [0, 1],
@@ -749,13 +783,11 @@ export default function GameScreen() {
     && (UPTIME_MILESTONE_REWARDS[uptimeStreak] ?? 0) > 0;
   const resultTone: GameResultTone | null = timedOut
     ? 'timeout'
-    : activeChoice?.tier === 'optimal'
+    : activeChoice && getCategoryChoiceOutcome(activeChoice.tier) === 'success'
       ? 'success'
-      : activeChoice?.tier === 'acceptable'
-        ? 'partial'
-        : activeChoice
-          ? 'fail'
-          : null;
+      : activeChoice
+        ? 'fail'
+        : null;
   const questionTranslateY = questionTransition.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
   const resultTranslateY = resultTransition.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
   const confirmationTranslateY = confirmationTransition.interpolate({ inputRange: [0, 1], outputRange: [5, 0] });
@@ -782,8 +814,10 @@ export default function GameScreen() {
                 <Text style={styles.exitText}>×</Text>
               </Pressable>
               <View style={styles.headerCopy}>
-                <Text style={styles.header}>Kriz Müdahalesi</Text>
-                <Text style={styles.subheader}>Her karar Kariyer XP, bütçe ve itibarını etkiler.</Text>
+                <Text style={styles.header}>{category.name}</Text>
+                <Text style={styles.subheader}>
+                  {difficultyStar} yıldız · {DIFFICULTY_LABELS[difficultyStar]} · Soru {Math.min(sessionQuestionIdsRef.current.length, SESSION_QUESTION_COUNT)}/{SESSION_QUESTION_COUNT} · Seviye {Math.min(QUESTIONS_PER_TIER, attemptedQuestionIdsRef.current.length)}/{QUESTIONS_PER_TIER}
+                </Text>
               </View>
               <View
                 pointerEvents="none"
@@ -902,10 +936,11 @@ export default function GameScreen() {
                         careerXpDelta={feedbackReward.careerXpDelta}
                         reputationDelta={feedbackReward.reputationDelta}
                         budgetDelta={feedbackReward.budgetDelta}
+                        rewardLabel={`${difficultyStar} YILDIZ ÖDÜLÜ`}
                         bestAnswer={!feedbackReward.isPositive ? incident.optimal_text : undefined}
                         isProcessing={isOutcomePending}
                         onNext={handleNextScenario}
-                        nextLabel={sessionQuestionIdsRef.current.length >= SESSION_CRISIS_COUNT ? 'Vardiyayı Tamamla' : 'Sonraki Soru'}
+                        nextLabel={sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT ? 'Oturumu Tamamla' : 'Sonraki Soru'}
                       />
                     </Animated.View>
                   ) : (
@@ -917,6 +952,7 @@ export default function GameScreen() {
                           index={index}
                           codeReviewEmphasis={codeReviewEmphasis}
                           isCodeReviewActive={isCodeReviewActive}
+                          isCodeReviewEliminated={codeReviewEliminatedIds.includes(choice.id)}
                           isRevertedChoice={choice.id === revertedChoiceId}
                           isSelected={selectedChoice?.id === choice.id}
                           isLocked={isOutcomePending}
@@ -986,7 +1022,23 @@ function ErrorScreen({ styles, message, onRetry }: { styles: ReturnType<typeof m
   );
 }
 
-function CompleteScreen({ styles, onRestart, onExit }: { styles: ReturnType<typeof makeStyles>; onRestart: () => void; onExit: () => void }) {
+function CompleteScreen({
+  styles,
+  onRestart,
+  onExit,
+  categoryName,
+  star,
+  attemptedCount,
+}: {
+  styles: ReturnType<typeof makeStyles>;
+  onRestart: () => void;
+  onExit: () => void;
+  categoryName: string;
+  star: DifficultyStar;
+  attemptedCount: number;
+}) {
+  const tierCompleted = attemptedCount >= QUESTIONS_PER_TIER;
+  const nextTierUnlocked = tierCompleted && star < 3;
   return (
     <GameBackdrop>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -1001,11 +1053,17 @@ function CompleteScreen({ styles, onRestart, onExit }: { styles: ReturnType<type
                 importantForAccessibility="no-hide-descendants"
               />
             </View>
-            <Text style={styles.completeTitle}>Vardiya Tamamlandı!</Text>
-            <Text style={styles.completeMessage}>{SESSION_CRISIS_COUNT} krizden oluşan vardiyayı tamamladın. Yeni bir vardiyaya başlayabilirsin.</Text>
+            <Text style={styles.completeTitle}>Oturum Tamamlandı!</Text>
+            <Text style={styles.completeMessage}>{categoryName} · {star} yıldız oturumundaki {SESSION_QUESTION_COUNT} soruyu tamamladın. Seviye ilerlemen {attemptedCount}/{QUESTIONS_PER_TIER}.</Text>
+            {tierCompleted ? (
+              <View style={styles.unlockNotice}>
+                <Ionicons name={nextTierUnlocked ? 'lock-open-outline' : 'checkmark-circle-outline'} size={20} style={styles.completeIcon} />
+                <Text style={styles.unlockNoticeText}>{nextTierUnlocked ? `${star + 1} yıldız seviyesi açıldı.` : 'Bu kategorideki tüm yıldız seviyelerini tamamladın.'}</Text>
+              </View>
+            ) : null}
             <View style={styles.completeActions}>
-              <GameActionButton label="Yeni Vardiya Başlat" onPress={onRestart} style={styles.completeAction} />
-              <GameActionButton label="Ana Sayfaya Dön" onPress={onExit} variant="secondary" style={styles.completeAction} />
+              <GameActionButton label="Aynı Seviyeyi Tekrarla" onPress={onRestart} style={styles.completeAction} />
+              <GameActionButton label="Oyun Merkezine Dön" onPress={onExit} variant="secondary" style={styles.completeAction} />
             </View>
           </View>
         </View>
@@ -1051,6 +1109,8 @@ function makeStyles(tokens: DashboardTokens) {
     completeIcon: { color: colors.secondary },
     completeTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, textAlign: 'center' },
     completeMessage: { ...tokens.type.body, fontFamily: fonts.bodyMedium, color: colors.textMuted, textAlign: 'center', marginBottom: tokens.layout.isCompact ? 4 : 8 },
+    unlockNotice: { width: '100%', minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 10, borderRadius: radius.sm, backgroundColor: colors.secondarySoft, borderWidth: 1, borderColor: colors.secondary },
+    unlockNoticeText: { ...tokens.type.bodySmall, flexShrink: 1, fontFamily: fonts.bodySemiBold, color: colors.text, textAlign: 'center' },
     completeActions: { width: '100%', gap: 10, marginTop: 4 },
     completeAction: { width: '100%' },
     headerRow: {

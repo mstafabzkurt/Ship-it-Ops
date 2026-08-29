@@ -19,9 +19,11 @@ import ProfileButton from '../../src/components/profile/ProfileButton';
 import ProfileStatCard from '../../src/components/profile/ProfileStatCard';
 import ProfileSummaryCard from '../../src/components/profile/ProfileSummaryCard';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
+import { useAuth } from '../../src/state/AuthContext';
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
+import { MAX_COMPANY_NAME_LENGTH } from '../../src/config/company';
 import { formatCurrency } from '../../src/utils/format';
 import { calculateSuccessRate } from '../../src/utils/ranking';
 
@@ -40,7 +42,9 @@ export default function ProfileScreen() {
     wrongAnswers,
     equippedAvatar,
     equippedAvatarFrame,
+    flushPlayerSave,
   } = useReputation();
+  const { user, signOut } = useAuth();
   const { theme, resetTheme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
@@ -56,6 +60,8 @@ export default function ProfileScreen() {
   const [companyError, setCompanyError] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [accountError, setAccountError] = useState('');
   const [showToast, setShowToast] = useState(false);
   const toastAnim = useRef(new Animated.Value(0)).current;
 
@@ -120,6 +126,20 @@ export default function ProfileScreen() {
     void addBudget(10_000);
   };
 
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setAccountError('');
+    setIsSigningOut(true);
+    await flushPlayerSave();
+    const result = await signOut();
+
+    if (!result.ok) {
+      setAccountError(result.error.message);
+      setIsSigningOut(false);
+    }
+    // A successful sign-out is routed to Login by the root protected stack.
+  };
+
   return (
     <View style={styles.background}>
       <View pointerEvents="none" style={styles.topRule} />
@@ -181,6 +201,7 @@ export default function ProfileScreen() {
                       placeholder="Şirket adını giriniz..."
                       placeholderTextColor={tokens.colors.textMuted}
                       autoCapitalize="words"
+                      maxLength={MAX_COMPANY_NAME_LENGTH}
                       style={[
                         styles.textInput,
                         inputFocused && styles.textInputFocused,
@@ -218,16 +239,29 @@ export default function ProfileScreen() {
               </View>
 
               <View style={[styles.secondaryColumn, isWide && styles.secondaryColumnWide]}>
-                <SectionHeading eyebrow="GELECEK" title="Hesap" styles={styles} compact />
+                <SectionHeading eyebrow="HESAP" title="Oturum Bilgileri" styles={styles} compact />
                 <View style={styles.settingsCard}>
                   <View style={styles.accountRow}>
-                    <View style={styles.accountMark}><Ionicons name="log-out-outline" size={20} color={tokens.colors.textMuted} /></View>
+                    <View style={styles.accountMark}><Ionicons name="shield-checkmark-outline" size={21} color={tokens.colors.secondary} /></View>
                     <View style={styles.accountCopy}>
-                      <Text style={styles.preferenceTitle}>Çıkış Yap</Text>
-                      <Text style={styles.preferenceDescription}>Kimlik doğrulama henüz kullanılmıyor.</Text>
+                      <Text style={styles.accountEmail}>{user?.email || 'E-posta bilgisi bulunamadı'}</Text>
+                      <View style={styles.accountStatusRow}>
+                        <View style={styles.accountStatusDot} />
+                        <Text style={styles.accountStatusText}>Oturum açık</Text>
+                      </View>
                     </View>
                   </View>
-                  <ProfileButton label="Çıkış Yap — Kullanılamıyor" variant="disabled" disabled style={styles.fullWidthButton} />
+                  <Text style={styles.accountDescription}>Çıkış yapmak bu cihazdaki Kariyer XP, İtibar, bütçe veya envanteri silmez.</Text>
+                  {accountError ? (
+                    <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.accountError}>{accountError}</Text>
+                  ) : null}
+                  <ProfileButton
+                    label={isSigningOut ? 'Çıkış yapılıyor…' : 'Çıkış Yap'}
+                    variant={isSigningOut ? 'disabled' : 'danger'}
+                    disabled={isSigningOut}
+                    onPress={() => void handleSignOut()}
+                    style={styles.fullWidthButton}
+                  />
                 </View>
 
                 {__DEV__ ? (
@@ -348,6 +382,12 @@ function makeStyles(tokens: DashboardTokens) {
     accountRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: tokens.layout.isCompact ? 11 : 15 },
     accountMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     accountCopy: { flex: 1, minWidth: 0 },
+    accountEmail: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 20, color: colors.text, flexShrink: 1 },
+    accountStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 3 },
+    accountStatusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.secondary },
+    accountStatusText: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.secondary },
+    accountDescription: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginBottom: 12 },
+    accountError: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.danger, marginBottom: 10 },
     fullWidthButton: { width: '100%' },
     developerCard: { padding: tokens.layout.isCompact ? 14 : 18, borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle, borderLeftWidth: 3, borderLeftColor: colors.warning },
     developerHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },

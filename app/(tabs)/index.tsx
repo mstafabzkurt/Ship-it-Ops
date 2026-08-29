@@ -1,12 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import AchievementCard from '../../src/components/dashboard/AchievementCard';
 import CareerSummaryCard from '../../src/components/dashboard/CareerSummaryCard';
-import CompanyGrowthCTA from '../../src/components/dashboard/CompanyGrowthCTA';
 import DashboardHeader from '../../src/components/dashboard/DashboardHeader';
 import ResourceDock from '../../src/components/dashboard/ResourceDock';
 import StreakCard from '../../src/components/dashboard/StreakCard';
@@ -16,10 +13,8 @@ import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
 
 export default function DashboardScreen() {
-  const router = useRouter();
   const { width } = useWindowDimensions();
   const {
-    badges,
     budget,
     careerXp,
     codeReview,
@@ -91,8 +86,6 @@ export default function DashboardScreen() {
     );
   };
 
-  const earnedBadges = badges.filter((badge) => badge.earned);
-  const lastBadge = earnedBadges.length > 0 ? earnedBadges[earnedBadges.length - 1] : null;
   const currentLevel = Math.max(1, RANKS.findIndex((rank) => rank.id === currentRank.id) + 1);
 
   return (
@@ -125,14 +118,12 @@ export default function DashboardScreen() {
 
             <View style={[styles.dashboardGrid, isWide && styles.dashboardGridWide]}>
               <View style={[styles.primaryColumn, isWide && styles.primaryColumnWide]}>
-                <CompanyGrowthCTA onPress={() => router.push('/(tabs)/game')} />
                 <StreakCard
                   days={streakDays}
                   todayIndex={todayIndex}
                   streakCount={streakCount}
                   onClaim={handleClaimStreak}
                 />
-                {isWide ? <AchievementCard badge={lastBadge} /> : null}
               </View>
 
               <View style={[styles.secondaryColumn, isWide && styles.secondaryColumnWide]}>
@@ -142,7 +133,6 @@ export default function DashboardScreen() {
                   serverScaleUp={serverScaleUp}
                   snapshotBackup={snapshotBackup}
                 />
-                {!isWide ? <AchievementCard badge={lastBadge} /> : null}
               </View>
             </View>
 
