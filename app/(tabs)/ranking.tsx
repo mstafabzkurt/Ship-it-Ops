@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import LeaderboardRow from '../../src/components/ranking/LeaderboardRow';
@@ -23,6 +24,7 @@ import { useAuth } from '../../src/state/AuthContext';
 import { useLeaderboard } from '../../src/state/LeaderboardContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
+import { trackEvent } from '../../src/utils/telemetry';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -40,6 +42,10 @@ export default function RankingScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const requestIdRef = useRef(0);
+
+  useFocusEffect(useCallback(() => {
+    void trackEvent('leaderboard_opened');
+  }, []));
 
   const loadLeaderboard = useCallback(async (initial = false) => {
     if (!user?.id) return;
@@ -84,11 +90,18 @@ export default function RankingScreen() {
     void loadLeaderboard(false);
   }, [loadLeaderboard, retrySync]);
 
+  const topEntries = useMemo(() => entries.slice(0, 10), [entries]);
   const currentUserIndex = user?.id
     ? entries.findIndex((entry) => entry.userId === user.id)
     : -1;
-  const myEntryOutsideTop = loadState === 'ready' && myEntry && currentUserIndex === -1
-    ? myEntry
+  const currentUserRank = currentUserIndex >= 0 ? currentUserIndex + 1 : null;
+  const currentUserEntry = currentUserIndex >= 0 ? entries[currentUserIndex] : myEntry;
+  const isCurrentUserInTopTen = currentUserRank !== null && currentUserRank <= 10;
+  const pinnedCurrentUser = loadState === 'ready' && user?.id && currentUserEntry && !isCurrentUserInTopTen
+    ? currentUserEntry
+    : null;
+  const pinnedCurrentUserRank = currentUserRank !== null && currentUserRank > 10
+    ? currentUserRank
     : null;
   const statusLabel = refreshing
     ? 'YENİLENİYOR'
@@ -96,8 +109,8 @@ export default function RankingScreen() {
       ? 'BAĞLANTI HATASI'
       : syncStatus === 'waiting' || syncStatus === 'syncing'
         ? 'SENKRONİZE EDİLİYOR'
-      : entries.length > 0
-        ? 'CANLI / TOP 50'
+      : topEntries.length > 0
+        ? `CANLI / ${topEntries.length} KAYIT`
         : 'HAZIR';
 
   const renderItem = useCallback(({ item, index }: { item: LeaderboardEntry; index: number }) => (
@@ -106,9 +119,9 @@ export default function RankingScreen() {
       position={index + 1}
       isCurrentUser={item.userId === user?.id}
       compact={compact}
-      isLast={index === entries.length - 1}
+      isLast={index === topEntries.length - 1}
     />
-  ), [compact, entries.length, user?.id]);
+  ), [compact, topEntries.length, user?.id]);
 
   return (
     <View style={styles.background}>
@@ -116,7 +129,7 @@ export default function RankingScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <FlatList
           accessibilityLabel="Global Ship It Ops sıralaması"
-          data={loadState === 'ready' ? entries : []}
+          data={loadState === 'ready' ? topEntries : []}
           keyExtractor={(item) => item.userId}
           renderItem={renderItem}
           refreshing={refreshing}
@@ -127,10 +140,10 @@ export default function RankingScreen() {
           ListHeaderComponent={(
             <>
               <View style={styles.pageHeader}>
-                <Text style={styles.eyebrow}>GLOBAL OPERASYON SIRALAMASI</Text>
+                <Text style={styles.eyebrow}>GLOBAL SIRALAMA</Text>
                 <Text accessibilityRole="header" style={styles.title}>Sıralama</Text>
                 <Text style={styles.description}>
-                  Operatörler; Sıralama Puanı, Başarı Oranı ve başarılı kriz sayısına göre sıralanır.
+                  Kullanıcılar; Sıralama Puanı, Başarı Oranı ve başarılı soru sayısına göre sıralanır.
                 </Text>
               </View>
 
@@ -165,7 +178,7 @@ export default function RankingScreen() {
                     syncStatus === 'synced' && loadState === 'ready' && styles.statusDotLive,
                   ]} />
                   <View style={styles.boardTitleCopy}>
-                    <Text style={styles.boardTitle}>LİDERLİK TABLOSU</Text>
+                    <Text style={styles.boardTitle}>TOP 10</Text>
                     <Text style={styles.boardStatus}>{statusLabel}</Text>
                   </View>
                 </View>
@@ -209,7 +222,7 @@ export default function RankingScreen() {
                     <Text style={[styles.columnLabel, styles.operatorColumn]}>OPERATÖR</Text>
                     <Text style={[styles.columnLabel, styles.rankColumn]}>KARİYER RÜTBESİ</Text>
                     <Text style={[styles.columnLabel, styles.successColumn]}>BAŞARI</Text>
-                    <Text style={[styles.columnLabel, styles.countColumn]}>BAŞARILI KRİZ</Text>
+                    <Text style={[styles.columnLabel, styles.countColumn]}>BAŞARILI SORU</Text>
                     <Text style={[styles.columnLabel, styles.scoreColumn]}>PUAN</Text>
                   </>
                 )}
@@ -234,26 +247,41 @@ export default function RankingScreen() {
                 : (
                   <LeaderboardMessage
                     icon="podium-outline"
-                    title="İlk operatörler bekleniyor"
+                    title="Sıralama henüz boş"
                     description="Henüz yayınlanmış bir sıralama profili yok. Yerel ilerlemen senkronize olduğunda liste burada oluşacak."
                     styles={styles}
                     tokens={tokens}
                   />
                 )
           )}
-          ListFooterComponent={myEntryOutsideTop ? (
+          ListFooterComponent={pinnedCurrentUser ? (
             <View style={styles.pinnedSection}>
-              <Text style={styles.pinnedEyebrow}>SENİN SIRAN</Text>
+              <View style={styles.pinnedHeading}>
+                <View style={styles.pinnedTitleGroup}>
+                  <Ionicons
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    name="locate-outline"
+                    size={18}
+                    color={tokens.colors.secondary}
+                  />
+                  <Text style={styles.pinnedEyebrow}>SENİN SIRAN</Text>
+                </View>
+                <Text style={styles.pinnedStatus}>SABİTLENMİŞ</Text>
+              </View>
               <Text style={styles.pinnedDescription}>
-                İlk 50 dışında. Kesin global konum, çoklu eşitlik kuralları nedeniyle bu fazda tahmin edilmez.
+                {pinnedCurrentUserRank === null
+                  ? 'Top 50 dışında. Kesin global konum tahmin edilmez.'
+                  : 'İlk 10 dışındaki güncel global konumun.'}
               </Text>
               <LeaderboardRow
-                entry={myEntryOutsideTop}
-                position={null}
+                entry={pinnedCurrentUser}
+                position={pinnedCurrentUserRank}
                 isCurrentUser
                 compact={compact}
                 isLast
                 standalone
+                positionFallbackLabel="Top 50 dışında"
               />
             </View>
           ) : null}
@@ -468,8 +496,16 @@ function makeStyles(tokens: DashboardTokens) {
     messageDescription: { ...tokens.type.bodySmall, maxWidth: 520, marginTop: 7, fontFamily: fonts.body, color: colors.textMuted, textAlign: 'center' },
     retryButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 18, paddingHorizontal: 16, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
     retryText: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: colors.secondary },
-    pinnedSection: { marginTop: 22 },
+    pinnedSection: {
+      marginTop: tokens.layout.isCompact ? 18 : 24,
+      paddingTop: tokens.layout.isCompact ? 14 : 18,
+      borderTopWidth: 1,
+      borderTopColor: colors.borderStrong,
+    },
+    pinnedHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+    pinnedTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     pinnedEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary },
+    pinnedStatus: { fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, letterSpacing: 0.55, color: colors.textMuted },
     pinnedDescription: { ...tokens.type.bodySmall, maxWidth: 620, marginTop: 4, marginBottom: 10, fontFamily: fonts.body, color: colors.textMuted },
   });
 }

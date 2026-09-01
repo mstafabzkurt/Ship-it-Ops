@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { Badge } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
@@ -22,7 +23,7 @@ export default function AchievementCard({ badge }: AchievementCardProps) {
         <>
           <View style={styles.badgeRow}>
             <View style={styles.badgeMark} accessibilityLabel={`${badge.title} rozeti`}>
-              <Text style={styles.badgeIcon}>{badge.icon}</Text>
+              <Ionicons name={badge.icon} size={25} color={tokens.colors.warning} />
             </View>
             <View style={styles.badgeCopy}>
               <Text style={styles.title}>{badge.title}</Text>
@@ -33,7 +34,7 @@ export default function AchievementCard({ badge }: AchievementCardProps) {
             <View style={styles.earnedPill}>
               <Text style={styles.earnedText}>KAZANILDI</Text>
             </View>
-            <Text style={styles.rewardValue}>+${badge.rewardBudget.toLocaleString('tr-TR')} bütçe</Text>
+            <Text style={styles.rewardValue}>{badge.progressText}</Text>
           </View>
         </>
       ) : (
@@ -42,7 +43,7 @@ export default function AchievementCard({ badge }: AchievementCardProps) {
             <Text style={styles.emptyMarkText}>01</Text>
           </View>
           <Text style={styles.title}>İlk rozetin hazır</Text>
-          <Text style={styles.description}>Kriz senaryolarını çöz, Kariyer XP ve İtibar kazanarak koleksiyonu başlat.</Text>
+          <Text style={styles.description}>Oturumları tamamla ve alan ilerlemeni geliştirerek koleksiyonu başlat.</Text>
         </View>
       )}
     </View>
@@ -76,7 +77,6 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderWidth: 1,
       borderColor: colors.warning,
     },
-    badgeIcon: { fontSize: 25 },
     badgeCopy: { flex: 1, minWidth: 0 },
     title: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
     description: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 3 },

@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { formatCurrency } from '../../utils/format';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import { AcquisitionCaption, AcquisitionRail, useAcquisitionMotion, type StoreFeedbackEvent } from './StoreFeedback';
 
 interface ThemeStoreCardProps {
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   title: string;
   description: string;
   features: string[];
@@ -17,6 +19,10 @@ interface ThemeStoreCardProps {
   active: boolean;
   canAfford: boolean;
   isDefault?: boolean;
+  isProcessing?: boolean;
+  actionLocked?: boolean;
+  reduceMotion: boolean;
+  feedback?: StoreFeedbackEvent;
   onAction: () => void;
 }
 
@@ -31,6 +37,10 @@ export default function ThemeStoreCard({
   active,
   canAfford,
   isDefault = false,
+  isProcessing = false,
+  actionLocked = false,
+  reduceMotion,
+  feedback,
   onAction,
 }: ThemeStoreCardProps) {
   const { theme } = useTheme();
@@ -39,10 +49,11 @@ export default function ThemeStoreCard({
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const { rail, pulseStyle } = useAcquisitionMotion(feedback?.id, reduceMotion);
 
-  const disabled = active || (!owned && !canAfford);
-  const buttonLabel = active
-    ? isDefault ? 'Aktif' : 'Kuşanıldı'
+  const disabled = active || actionLocked || (!owned && !canAfford);
+  const buttonLabel = isProcessing ? 'İşleniyor' : actionLocked ? 'İşlem Sürüyor' : active
+    ? 'Aktif'
     : owned
       ? isDefault ? 'Varsayılanı Kuşan' : 'Kuşan'
       : canAfford
@@ -50,17 +61,20 @@ export default function ThemeStoreCard({
         : `${formatCurrency(price ?? 0)} Gerekli`;
 
   return (
-    <View style={[styles.card, active && styles.cardActive, owned && !active && styles.cardOwned]}>
+    <View style={[styles.card, active && styles.cardActive, owned && !active && styles.cardOwned, feedback && { borderColor: previewColors[1] }]}>
+      <AcquisitionRail progress={rail} color={previewColors[1]} reduceMotion={reduceMotion} />
       <View style={[styles.preview, { backgroundColor: previewColors[0] }]}>
         <View style={[styles.previewOrbLarge, { backgroundColor: previewColors[1] }]} />
         <View style={[styles.previewOrbSmall, { backgroundColor: previewColors[2] }]} />
-        <View style={styles.previewPanel}>
-          <Text style={styles.previewIcon} accessibilityElementsHidden>{icon}</Text>
+        <Animated.View style={[styles.previewPanel, pulseStyle]}>
+          <View style={[styles.previewIcon, { borderColor: previewColors[1] }]} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Ionicons name={icon} size={28} color={previewColors[1]} />
+          </View>
           <View style={styles.previewLines}>
             <View style={[styles.previewLineLong, { backgroundColor: previewColors[1] }]} />
             <View style={[styles.previewLineShort, { backgroundColor: previewColors[2] }]} />
           </View>
-        </View>
+        </Animated.View>
         <View style={[styles.statusPill, active ? styles.statusPillActive : owned ? styles.statusPillOwned : styles.statusPillAvailable]}>
           <Text style={[styles.statusText, active ? styles.statusTextActive : owned ? styles.statusTextOwned : styles.statusTextAvailable]}>
             {active ? 'AKTİF' : owned ? 'ALINDI' : 'MEVCUT'}
@@ -89,12 +103,13 @@ export default function ThemeStoreCard({
           <View style={styles.priceReadout}>
             <Text style={styles.priceLabel}>FİYAT</Text>
             <Text style={[styles.priceText, !canAfford && styles.priceTextUnavailable]}>{formatCurrency(price)}</Text>
+            <AcquisitionCaption event={feedback} color={tokens.colors.warning} />
           </View>
-        ) : <View />}
+        ) : <View style={styles.priceReadout}><AcquisitionCaption event={feedback} color={tokens.colors.warning} /></View>}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${title}: ${buttonLabel}`}
-          accessibilityState={{ disabled }}
+          accessibilityState={{ disabled, busy: isProcessing }}
           disabled={disabled}
           onPress={onAction}
           onFocus={() => setFocused(true)}
@@ -107,14 +122,14 @@ export default function ThemeStoreCard({
             owned && !active && styles.actionOwned,
             !owned && canAfford && styles.actionPurchase,
             !owned && !canAfford && styles.actionDisabled,
-            hovered && !disabled && styles.actionHovered,
+            hovered && !disabled && !reduceMotion && styles.actionHovered,
             focused && styles.actionFocused,
-            pressed && styles.actionPressed,
+            pressed && (reduceMotion ? styles.pressedStill : styles.actionPressed),
           ]}
         >
-          <Text style={[styles.actionText, active && styles.actionTextActive, !owned && !canAfford && styles.actionTextDisabled]}>
+          {isProcessing && !reduceMotion ? <ActivityIndicator color={tokens.colors.onAccent} size="small" accessibilityLabel="Tema işleniyor" /> : <Text style={[styles.actionText, active && styles.actionTextActive, !owned && !canAfford && styles.actionTextDisabled]}>
             {buttonLabel}
-          </Text>
+          </Text>}
         </Pressable>
       </View>
     </View>
@@ -131,7 +146,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     previewOrbLarge: { position: 'absolute', width: 170, height: 170, top: -95, right: -40, borderRadius: 85, opacity: 0.42 },
     previewOrbSmall: { position: 'absolute', width: 90, height: 90, bottom: -50, left: 20, borderRadius: 45, opacity: 0.32 },
     previewPanel: { width: 154, minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radius.sm, backgroundColor: 'rgba(9,10,20,0.76)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)' },
-    previewIcon: { fontSize: 32, lineHeight: 40 },
+    previewIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
     previewLines: { flex: 1, gap: 8 },
     previewLineLong: { height: 8, borderRadius: 4 },
     previewLineShort: { width: '62%', height: 8, borderRadius: 4 },
@@ -154,7 +169,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     featureIndexActive: { color: colors.warning },
     featureText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.textMuted },
     footer: { minHeight: tokens.layout.isCompact ? 64 : 72, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 8 : 10, padding: tokens.layout.isCompact ? 10 : 14, borderTopWidth: 1, borderTopColor: colors.dividerSubtle },
-    priceReadout: { minHeight: 36, justifyContent: 'center' },
+    priceReadout: { minHeight: 36, flexShrink: 1, justifyContent: 'center' },
     priceLabel: { fontFamily: fonts.bodySemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.55, color: colors.textMuted },
     priceText: { fontFamily: fonts.monoBold, fontSize: 12, lineHeight: 17, color: colors.warning },
     priceTextUnavailable: { color: colors.danger },
@@ -166,6 +181,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     actionHovered: { transform: [{ translateY: -1 }], ...shadow.card },
     actionFocused: { borderColor: colors.text },
     actionPressed: { transform: [{ scale: 0.98 }] },
+    pressedStill: { opacity: 0.85 },
     actionText: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: colors.onAccent, textAlign: 'center' },
     actionTextActive: { color: colors.warning },
     actionTextDisabled: { color: colors.textMuted },

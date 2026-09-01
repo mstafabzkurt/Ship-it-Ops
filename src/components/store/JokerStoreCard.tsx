@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { formatCurrency } from '../../utils/format';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import { AcquisitionCaption, AcquisitionRail, useAcquisitionMotion, type StoreFeedbackEvent } from './StoreFeedback';
 
 interface JokerStoreCardProps {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -16,6 +17,8 @@ interface JokerStoreCardProps {
   canAfford: boolean;
   isProcessing: boolean;
   purchaseLocked: boolean;
+  reduceMotion: boolean;
+  feedback?: StoreFeedbackEvent;
   onPurchase: () => void;
 }
 
@@ -28,12 +31,15 @@ export default function JokerStoreCard({
   canAfford,
   isProcessing,
   purchaseLocked,
+  reduceMotion,
+  feedback,
   onPurchase,
 }: JokerStoreCardProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const { rail, pulseStyle } = useAcquisitionMotion(feedback?.id, reduceMotion);
   const disabled = !canAfford || purchaseLocked;
   const actionLabel = isProcessing
     ? 'İşleniyor'
@@ -44,7 +50,8 @@ export default function JokerStoreCard({
         : 'Satın Al';
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, feedback && { borderColor: tokens.colors.warning }]}>
+      <AcquisitionRail progress={rail} color={tokens.colors.warning} reduceMotion={reduceMotion} />
       <View style={styles.equipmentRow}>
         <View style={styles.iconSlot}>
           <Ionicons name={icon} size={24} color={tokens.colors.primary} />
@@ -55,8 +62,10 @@ export default function JokerStoreCard({
           <Text style={styles.description}>{description}</Text>
         </View>
         <View style={styles.countReadout}>
-          <Text style={styles.countLabel}>SAHİP OLUNAN</Text>
-          <Text style={styles.countText}>{String(count).padStart(2, '0')}</Text>
+          <Text style={styles.countLabel}>ENVANTER</Text>
+          <Animated.View style={pulseStyle}>
+            <Text style={styles.countText} numberOfLines={1} adjustsFontSizeToFit>x{count}</Text>
+          </Animated.View>
         </View>
       </View>
       <View style={styles.footer}>
@@ -65,6 +74,7 @@ export default function JokerStoreCard({
           <Text style={[styles.priceText, !canAfford && styles.priceTextUnavailable]}>
             {formatCurrency(price)}
           </Text>
+          <AcquisitionCaption event={feedback} color={tokens.colors.warning} />
         </View>
         <Pressable
           accessibilityRole="button"
@@ -75,10 +85,10 @@ export default function JokerStoreCard({
           style={({ pressed }) => [
             styles.action,
             disabled && styles.actionDisabled,
-            pressed && !disabled && styles.actionPressed,
+            pressed && !disabled && (reduceMotion ? styles.pressedStill : styles.actionPressed),
           ]}
         >
-          {isProcessing ? (
+          {isProcessing && !reduceMotion ? (
             <ActivityIndicator size="small" color={tokens.colors.onAccent} />
           ) : (
             <Text style={[styles.actionText, disabled && styles.actionTextDisabled]}>{actionLabel}</Text>
@@ -93,7 +103,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
     card: { flex: 1, overflow: 'hidden', borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle, ...shadow.card, shadowColor: colors.shadowNeutral, shadowOpacity: 0.12 },
-    equipmentRow: { minHeight: tokens.layout.isCompact ? 112 : 126, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 11 : 14, padding: tokens.layout.isCompact ? 12 : 15 },
+    equipmentRow: { flex: 1, minHeight: tokens.layout.isCompact ? 112 : 126, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 11 : 14, padding: tokens.layout.isCompact ? 12 : 15 },
     iconSlot: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary },
     copy: { flex: 1, minWidth: 0 },
     equipmentLabel: { fontFamily: fonts.bodySemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.6, color: colors.textMuted, marginBottom: 2 },
@@ -110,6 +120,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     action: { minWidth: tokens.layout.isCompact ? 116 : 124, minHeight: tokens.control.height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 13, borderRadius: radius.sm, backgroundColor: colors.warning, borderWidth: 1, borderColor: colors.warning },
     actionDisabled: { backgroundColor: colors.surfaceSoft, borderColor: colors.borderSubtle, opacity: 0.62 },
     actionPressed: tokens.motion.pressed,
+    pressedStill: { opacity: 0.85 },
     actionText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.onAccent, textAlign: 'center' },
     actionTextDisabled: { color: colors.textMuted },
   });

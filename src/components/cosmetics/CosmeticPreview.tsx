@@ -1,9 +1,11 @@
 import React, { useMemo } from 'react';
 import {
   Image,
+  Platform,
   StyleSheet,
   useWindowDimensions,
   View,
+  type ImageStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -11,18 +13,24 @@ import type {
   AvatarCosmetic,
   AvatarFrameCosmetic,
   CosmeticType,
+  CosmeticDefinition,
   CosmeticVisualReference,
 } from '../../config/cosmetics';
 import { useTheme } from '../../state/ThemeContext';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
 
-interface CosmeticPreviewProps {
-  avatar: AvatarCosmetic;
-  frame: AvatarFrameCosmetic;
+export type CosmeticPreviewMode = 'avatarOnly' | 'frameOnly' | 'equippedCombo';
+
+type CosmeticPreviewProps = {
   size?: number;
   variant?: CosmeticPreviewVariant;
   accessibilityLabel?: string;
-}
+  onAssetError?: () => void;
+} & (
+  | { mode: 'avatarOnly'; avatar: AvatarCosmetic; frame?: never }
+  | { mode: 'frameOnly'; frame: AvatarFrameCosmetic; avatar?: never }
+  | { mode?: 'equippedCombo'; avatar: AvatarCosmetic; frame: AvatarFrameCosmetic }
+);
 
 type CosmeticPreviewVariant = 'compact' | 'store' | 'profile';
 
@@ -68,9 +76,11 @@ interface VisualGlyphProps {
   type: CosmeticType;
   size: number;
   color: string;
+  pixelArt?: boolean;
+  onAssetError?: () => void;
 }
 
-function VisualGlyph({ visual, type, size, color }: VisualGlyphProps) {
+function VisualGlyph({ visual, type, size, color, pixelArt, onAssetError }: VisualGlyphProps) {
   if (visual.kind === 'asset') {
     return (
       <Image
@@ -78,8 +88,13 @@ function VisualGlyph({ visual, type, size, color }: VisualGlyphProps) {
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         source={visual.source}
+        onError={onAssetError}
         resizeMode="contain"
-        style={{ width: size, height: size }}
+        style={[
+          { width: size, height: size },
+          // Inherited by React Native Web's background image; native keeps contain sizing.
+          pixelArt && Platform.OS === 'web' && ({ imageRendering: 'pixelated' } as ImageStyle),
+        ]}
       />
     );
   }
@@ -103,6 +118,8 @@ export default function CosmeticPreview({
   size,
   variant = 'compact',
   accessibilityLabel,
+  mode = 'equippedCombo',
+  onAssetError,
 }: CosmeticPreviewProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -110,11 +127,17 @@ export default function CosmeticPreview({
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const metrics = PREVIEW_METRICS[variant];
   const resolvedSize = size ?? (tokens.layout.isCompact ? metrics.compactSize : metrics.regularSize);
-  const avatarViewportSize = Math.round(resolvedSize * metrics.avatarViewportScale);
+  const avatarViewportSize = Math.round(resolvedSize * (mode === 'avatarOnly' ? 1 : metrics.avatarViewportScale));
   const innerSize = Math.round(resolvedSize * 0.72);
-  const avatarAssetSize = Math.round(resolvedSize * metrics.avatarScale);
-  const avatarOffsetY = Math.round(resolvedSize * metrics.avatarOffsetYScale);
-  const frameAssetSize = Math.round(resolvedSize * metrics.frameScale);
+  const avatarPreview = (avatar as CosmeticDefinition | undefined)?.preview;
+  const framePreview = (frame as CosmeticDefinition | undefined)?.preview;
+  const avatarScale = mode === 'avatarOnly'
+    ? (avatarPreview?.pixelArt ? 0.8 : 0.96)
+    : Math.min(avatarPreview?.scale ?? metrics.avatarScale, framePreview?.portraitScale ?? Infinity);
+  const avatarAssetSize = Math.round(resolvedSize * avatarScale);
+  const avatarOffsetY = mode === 'avatarOnly' || avatarPreview?.pixelArt || framePreview?.pixelArt
+    ? 0 : Math.round(resolvedSize * metrics.avatarOffsetYScale);
+  const frameAssetSize = Math.round(resolvedSize * (framePreview?.scale ?? metrics.frameScale));
 
   return (
     <View
@@ -127,14 +150,14 @@ export default function CosmeticPreview({
         { width: resolvedSize, height: resolvedSize },
       ]}
     >
-      <View pointerEvents="none" style={styles.avatarLayer}>
+      {avatar && mode !== 'frameOnly' ? <View pointerEvents="none" style={styles.avatarLayer}>
         <View
           style={[
             styles.avatarViewport,
             {
               width: avatarViewportSize,
               height: avatarViewportSize,
-              borderRadius: Math.round(avatarViewportSize * 0.2),
+              borderRadius: mode === 'avatarOnly' ? 0 : Math.round(avatarViewportSize * 0.2),
             },
           ]}
         >
@@ -142,6 +165,8 @@ export default function CosmeticPreview({
             <View style={{ transform: [{ translateY: avatarOffsetY }] }}>
               <VisualGlyph
                 visual={avatar.visual}
+                pixelArt={avatarPreview?.pixelArt}
+                onAssetError={onAssetError}
                 type="avatar"
                 size={avatarAssetSize}
                 color={tokens.colors.secondary}
@@ -158,15 +183,17 @@ export default function CosmeticPreview({
             </View>
           )}
         </View>
-      </View>
-      <View pointerEvents="none" style={styles.frameLayer}>
+      </View> : null}
+      {frame && mode !== 'avatarOnly' ? <View pointerEvents="none" style={styles.frameLayer}>
         <VisualGlyph
           visual={frame.visual}
+          pixelArt={framePreview?.pixelArt}
+          onAssetError={onAssetError}
           type="avatar_frame"
           size={frame.visual.kind === 'asset' ? frameAssetSize : Math.round(resolvedSize * 0.92)}
           color={tokens.colors.primary}
         />
-      </View>
+      </View> : null}
     </View>
   );
 }

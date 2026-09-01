@@ -43,6 +43,7 @@ import {
   calculateRankingScore,
   normalizeRankingOutcomeStats,
   recordRankingOutcome as advanceRankingOutcomeStats,
+  revertRankingOutcome as rollbackRankingOutcomeStats,
   type RankingOutcome,
   type RankingOutcomeStats,
 } from '../utils/ranking';
@@ -55,49 +56,52 @@ import {
   type PlayerSaveSnapshot,
 } from '../utils/playerSave';
 import {
+  completeOperationSession,
   createDefaultCategoryProgress,
   recordCategoryAttempt,
+  revertCategoryAttemptOutcome,
   type CategoryProgress,
+  type OperationCheckpointId,
+  type OperationSessionCompletion,
 } from '../utils/categoryProgress';
 import type { DifficultyStar, GameCategoryId } from '../config/gameCategories';
 import type { CategoryQuestionId } from '../utils/categoryQuestions';
+import { deriveAchievements, type DerivedAchievement } from '../utils/achievements';
 import { useAuth } from './AuthContext';
 
 export { RANKS } from '../config/progression';
 export type { Rank } from '../config/progression';
 
-// --- Rozetler ---------------------------------------------------------------
-export interface Badge {
+// The visible catalog is fully derived from persisted progression and answer
+// stats. No achievement IDs are added to the player-save schema.
+export type Badge = DerivedAchievement;
+
+interface LegacyBadgeRewardMilestone {
   id: string;
-  icon: string;
-  title: string;
-  description: string;
   requiredScore: number;
   requirementType?: 'reputation' | 'careerXp';
   rewardBudget: number;
 }
 
-export const BADGES: Badge[] = [
-  // ── Erken aşama (0 – 749) ────────────────────────────────────────────────
-  { id: 'first-response', icon: '🧯', title: 'İlk Müdahale', description: 'İlk production krizini çözdün. Hoş geldin!', requiredScore: 0, rewardBudget: 1500 },
-  { id: 'hello-world', icon: '👋', title: 'Merhaba Dünya', description: 'İlk 200 itibar puanını kazandın.', requiredScore: 200, rewardBudget: 2000 },
-  { id: 'bug-hunter', icon: '🐛', title: 'Hata Avcısı', description: "5 bug'ı başarıyla izole edip çözdün.", requiredScore: 450, rewardBudget: 3500 },
-  { id: 'night-shift', icon: '🌙', title: 'Gece Nöbeti', description: 'Gece yarısı acil bir kesintiyi yönettın.', requiredScore: 750, rewardBudget: 5000 },
-  // ── Orta aşama (1.000 – 3.999) ───────────────────────────────────────────
-  { id: 'architect', icon: '🏗️', title: 'Mimar', description: 'Kritik bir sistem tasarım kararını doğru verdin.', requiredScore: 1000, rewardBudget: 8000 },
-  { id: 'postmortem-pro', icon: '📋', title: 'Post-Mortem Ustası', description: 'Bir incident sonrası eksiksiz post-mortem raporu yazdın.', requiredScore: 1400, rewardBudget: 6000 },
-  { id: 'oncall-hero', icon: '📟', title: 'On-Call Kahraman', description: 'Hafta sonu on-call vardiyasında 3 alarmı çözdün.', requiredScore: 2000, rewardBudget: 12000 },
-  { id: 'refactor-king', icon: '♻️', title: 'Refactor Kralı', description: 'Teknik borcu azaltan kapsamlı bir refactor tamamladın.', requiredScore: 2600, rewardBudget: 10000 },
-  { id: 'ci-cd-wizard', icon: '⚙️', title: 'CI/CD Sihirbazı', description: 'Deployment süresini yarıya indiren bir pipeline kurdun.', requiredScore: 3200, rewardBudget: 14000 },
-  // ── İleri aşama (4.000 – 9.999) ──────────────────────────────────────────
-  { id: 'lead-badge', icon: '🎖️', title: 'Takım Lideri', description: 'Takım Lideri rütbesine ulaştın. Ekip seni izliyor.', requiredScore: 4300, requirementType: 'careerXp', rewardBudget: 25000 },
-  { id: 'mentor', icon: '🎓', title: 'Mentor', description: 'Bir junior mühendise 10 PR review yaptın.', requiredScore: 5000, rewardBudget: 20000 },
-  { id: 'sre-guardian', icon: '🛡️', title: 'SRE Bekçisi', description: "99.9% uptime'ı 3 ay üst üste korudun.", requiredScore: 6000, rewardBudget: 30000 },
-  { id: 'platform-builder', icon: '🔧', title: 'Platform Mimarı', description: 'Tüm takımın kullandığı dahili bir araç geliştirdin.', requiredScore: 7500, rewardBudget: 40000 },
-  // ── Efsane (10.000+) ──────────────────────────────────────────────────────
-  { id: 'director-badge', icon: '🌟', title: 'Direktör', description: 'Direktör rütbesine ulaştın. Şirket stratejisini şekillendiriyorsun.', requiredScore: 11200, requirementType: 'careerXp', rewardBudget: 60000 },
-  { id: 'chaos-engineer', icon: '🌪️', title: 'Kaos Mühendisi', description: 'Chaos Engineering senaryosu tasarlayıp uyguladın.', requiredScore: 14000, rewardBudget: 75000 },
-  { id: 'cto-badge', icon: '👑', title: 'CTO', description: 'Teknoloji vizyonunu tüm şirkete mal ettin. Efsane.', requiredScore: 16000, requirementType: 'careerXp', rewardBudget: 100000 },
+// These thresholds preserve the pre-B2 budget economy exactly. They are not
+// part of the visible achievement catalog and carry no user-facing copy.
+const LEGACY_BADGE_REWARD_MILESTONES: readonly LegacyBadgeRewardMilestone[] = [
+  { id: 'first-response', requiredScore: 0, rewardBudget: 1500 },
+  { id: 'hello-world', requiredScore: 200, rewardBudget: 2000 },
+  { id: 'bug-hunter', requiredScore: 450, rewardBudget: 3500 },
+  { id: 'night-shift', requiredScore: 750, rewardBudget: 5000 },
+  { id: 'architect', requiredScore: 1000, rewardBudget: 8000 },
+  { id: 'postmortem-pro', requiredScore: 1400, rewardBudget: 6000 },
+  { id: 'oncall-hero', requiredScore: 2000, rewardBudget: 12000 },
+  { id: 'refactor-king', requiredScore: 2600, rewardBudget: 10000 },
+  { id: 'ci-cd-wizard', requiredScore: 3200, rewardBudget: 14000 },
+  { id: 'lead-badge', requiredScore: 4300, requirementType: 'careerXp', rewardBudget: 25000 },
+  { id: 'mentor', requiredScore: 5000, rewardBudget: 20000 },
+  { id: 'sre-guardian', requiredScore: 6000, rewardBudget: 30000 },
+  { id: 'platform-builder', requiredScore: 7500, rewardBudget: 40000 },
+  { id: 'director-badge', requiredScore: 11200, requirementType: 'careerXp', rewardBudget: 60000 },
+  { id: 'chaos-engineer', requiredScore: 14000, rewardBudget: 75000 },
+  { id: 'cto-badge', requiredScore: 16000, requirementType: 'careerXp', rewardBudget: 100000 },
 ];
 
 // Streak day rewards (index = day number 0-6 = Mon-Sun)
@@ -118,15 +122,21 @@ export type CosmeticEquipResult = 'ok' | 'not_owned' | 'type_mismatch' | 'busy' 
 
 export type PlayerSaveStatus = 'idle' | 'loading' | 'migrating' | 'ready' | 'saving' | 'error';
 
+export interface OutcomeRollbackSnapshot {
+  careerXp: number;
+  reputation: number;
+  budget: number;
+}
+
 export function getCompanyInitial(name: string): string {
   const trimmed = name.trim();
   return trimmed ? trimmed.charAt(0).toUpperCase() : 'S';
 }
 
-export function isBadgeEarned(badge: Badge, reputation: number, careerXp: number): boolean {
-  return badge.requirementType === 'careerXp'
-    ? careerXp >= badge.requiredScore
-    : reputation >= badge.requiredScore;
+function isLegacyRewardMilestoneReached(milestone: LegacyBadgeRewardMilestone, reputation: number, careerXp: number): boolean {
+  return milestone.requirementType === 'careerXp'
+    ? careerXp >= milestone.requiredScore
+    : reputation >= milestone.requiredScore;
 }
 
 // --- Türetilmiş yardımcılar ---------------------------------------------------
@@ -151,7 +161,7 @@ interface ReputationContextValue {
   currentRank: Rank;
   nextRank: Rank | null;
   rankProgress: number; // 0-1 arası, ekranın kendi hesap yapmasına gerek yok
-  badges: (Badge & { earned: boolean })[];
+  badges: Badge[];
   codeReview: number;
   gitRevert: number;
   serverScaleUp: number;
@@ -178,13 +188,17 @@ interface ReputationContextValue {
   equipAvatarFrame: (cosmeticId: CosmeticId) => Promise<CosmeticEquipResult>;
   isCosmeticOwned: (cosmeticId: CosmeticId) => boolean;
   getEquippedCosmetic: (type: CosmeticType) => CosmeticCatalogItem;
-  /** Sadece skoru değiştirir, o çağrıda yeni kazanılan rozetleri döner. */
+  /** Sadece İtibarı değiştirir; eski çağrı sözleşmesi için boş rozet dizisi döner. */
   addScore: (amount: number) => Promise<Badge[]>;
-  /** Bir kriz sonucunda Career XP, İtibar ve bütçeyi atomik olarak günceller. */
+  /** Bir cevap sonucunda Career XP, İtibar ve bütçeyi atomik olarak günceller. */
   applyOutcome: (careerXpDelta: number, reputationDelta: number, budgetDelta: number) => Promise<Badge[]>;
+  /** Git Revert için cevap uygulanmadan hemen önceki kesin progression değerlerini okur. */
+  getOutcomeRollbackSnapshot: () => OutcomeRollbackSnapshot;
+  /** Git Revert sırasında ödül, ceza, clamp ve eşik bonuslarını kesin olarak geri alır. */
+  restoreOutcomeRollbackSnapshot: (snapshot: OutcomeRollbackSnapshot) => void;
   /** Bütçeyi skor veya rozet durumunu değiştirmeden günceller. */
   addBudget: (amount: number) => Promise<Badge[]>;
-  /** Yeni kazanılan ama henüz kullanıcıya gösterilmemiş rozetler (toast kuyruğu). */
+  /** Geriye dönük uyumluluk için korunan geçici rozet kuyruğu. */
   pendingBadges: Badge[];
   dismissBadge: () => void;
   /** Skoru ve bütçeyi varsayılana döndürür, hafızadan da siler. Profil ekranındaki "İlerlemeyi Sıfırla" için. */
@@ -218,6 +232,7 @@ interface ReputationContextValue {
   rankingOutcomeStats: RankingOutcomeStats;
   /** Sonucu leaderboard istatistiklerine kaydeder; ödül/progression değiştirmez. */
   recordRankingOutcome: (outcome: RankingOutcome) => void;
+  revertRankingOutcome: (outcome: RankingOutcome) => void;
   /** Kullanıcının gördüğü soru ID'leri */
   seenIds: number[];
   /** Doğru cevap sayısını günceller */
@@ -235,6 +250,17 @@ interface ReputationContextValue {
     questionId: CategoryQuestionId,
     correct: boolean,
   ) => void;
+  revertCategoryQuestionAnswer: (
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    correct: boolean,
+  ) => void;
+  completeCategoryOperationSession: (
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    checkpointId: OperationCheckpointId | null,
+    netReputation: number,
+  ) => OperationSessionCompletion;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -588,6 +614,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setRankingOutcomeStats(next);
   }, []);
 
+  const revertRankingOutcomeHandler = useCallback((outcome: RankingOutcome) => {
+    const current = rankingOutcomeStatsRef.current;
+    const next = rollbackRankingOutcomeStats(current, outcome);
+    rankingOutcomeStatsRef.current = next;
+    setRankingOutcomeStats(next);
+  }, []);
+
   const setSeenIdsHandler: React.Dispatch<React.SetStateAction<number[]>> = (action) => {
     setSeenIds((prev) => {
       const requested = typeof action === 'function' ? action(prev) : action;
@@ -617,6 +650,34 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setCategoryProgress(next);
   }, []);
 
+  const revertCategoryQuestionAnswer = useCallback((
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    correct: boolean,
+  ) => {
+    const next = revertCategoryAttemptOutcome(categoryProgressRef.current, categoryId, star, correct);
+    categoryProgressRef.current = next;
+    setCategoryProgress(next);
+  }, []);
+
+  const completeCategoryOperationSession = useCallback((
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    checkpointId: OperationCheckpointId | null,
+    netReputation: number,
+  ): OperationSessionCompletion => {
+    const completion = completeOperationSession(
+      categoryProgressRef.current,
+      categoryId,
+      star,
+      checkpointId,
+      netReputation,
+    );
+    categoryProgressRef.current = completion.progress;
+    setCategoryProgress(completion.progress);
+    return completion;
+  }, []);
+
   const applyDelta = async (careerXpDelta: number, reputationDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
     const oldCareerXp = careerXpRef.current;
@@ -625,16 +686,14 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     const newCareerXp = progression.careerXp;
     let newBudget = budgetRef.current + budgetDelta;
 
-    const earned = BADGES.filter((badge) => (
-      !isBadgeEarned(badge, oldScore, oldCareerXp)
-      && isBadgeEarned(badge, newScore, newCareerXp)
+    const earnedLegacyRewards = LEGACY_BADGE_REWARD_MILESTONES.filter((milestone) => (
+      !isLegacyRewardMilestoneReached(milestone, oldScore, oldCareerXp)
+      && isLegacyRewardMilestoneReached(milestone, newScore, newCareerXp)
     ));
 
-    // YENİ EKLENDİ: Eğer rozet kazanıldıysa, ödül bütçesini de ana bütçeye ekle
-    if (earned.length > 0) {
-      const totalReward = earned.reduce((sum, badge) => sum + badge.rewardBudget, 0);
+    if (earnedLegacyRewards.length > 0) {
+      const totalReward = earnedLegacyRewards.reduce((sum, milestone) => sum + milestone.rewardBudget, 0);
       newBudget += totalReward;
-      setPendingBadges((prev) => [...prev, ...earned]);
     }
 
     scoreRef.current = newScore;
@@ -644,13 +703,26 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setCareerXp(newCareerXp);
     setBudget(newBudget);
 
-    return earned;
+    return [];
   };
 
   const addScore = (amount: number) => applyDelta(0, amount, 0);
   const applyOutcome = (careerXpDelta: number, reputationDelta: number, budgetDelta: number) => (
     applyDelta(careerXpDelta, reputationDelta, budgetDelta)
   );
+  const getOutcomeRollbackSnapshot = useCallback((): OutcomeRollbackSnapshot => ({
+    careerXp: careerXpRef.current,
+    reputation: scoreRef.current,
+    budget: budgetRef.current,
+  }), []);
+  const restoreOutcomeRollbackSnapshot = useCallback((snapshot: OutcomeRollbackSnapshot) => {
+    careerXpRef.current = snapshot.careerXp;
+    scoreRef.current = snapshot.reputation;
+    budgetRef.current = snapshot.budget;
+    setCareerXp(snapshot.careerXp);
+    setScore(snapshot.reputation);
+    setBudget(snapshot.budget);
+  }, []);
   const addBudget = (amount: number) => applyDelta(0, 0, amount);
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));
 
@@ -853,7 +925,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
   const value = useMemo<ReputationContextValue>(() => {
     const { current, next } = getRankForCareerXp(careerXp);
-    const badges = BADGES.map((badge) => ({ ...badge, earned: isBadgeEarned(badge, score, careerXp) }));
+    const badges = deriveAchievements({ careerXp, correctAnswers, wrongAnswers, categoryProgress });
     const rankProgress = getRankProgress(careerXp, current, next);
     const rankingScore = calculateRankingScore(rankingOutcomeStats);
     const dayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
@@ -905,6 +977,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       getEquippedCosmetic,
       addScore,
       applyOutcome,
+      getOutcomeRollbackSnapshot,
+      restoreOutcomeRollbackSnapshot,
       addBudget,
       pendingBadges,
       dismissBadge,
@@ -921,6 +995,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       rankingScore,
       rankingOutcomeStats,
       recordRankingOutcome: recordRankingOutcomeHandler,
+      revertRankingOutcome: revertRankingOutcomeHandler,
       seenIds,
       setCorrectAnswers: setCorrectAnswersHandler,
       setWrongAnswers: setWrongAnswersHandler,
@@ -928,6 +1003,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       clearSeenIds,
       categoryProgress,
       recordCategoryQuestionAnswer,
+      revertCategoryQuestionAnswer,
+      completeCategoryOperationSession,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

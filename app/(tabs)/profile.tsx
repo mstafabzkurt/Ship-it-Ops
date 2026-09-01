@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -6,15 +6,16 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import ProfileCosmetics from '../../src/components/profile/ProfileCosmetics';
 import ProfileButton from '../../src/components/profile/ProfileButton';
 import ProfileStatCard from '../../src/components/profile/ProfileStatCard';
 import ProfileSummaryCard from '../../src/components/profile/ProfileSummaryCard';
@@ -26,6 +27,7 @@ import { fonts } from '../../src/theme/typography';
 import { MAX_COMPANY_NAME_LENGTH } from '../../src/config/company';
 import { formatCurrency } from '../../src/utils/format';
 import { calculateSuccessRate } from '../../src/utils/ranking';
+import { trackEvent } from '../../src/utils/telemetry';
 
 export default function ProfileScreen() {
   const { width } = useWindowDimensions();
@@ -40,6 +42,9 @@ export default function ProfileScreen() {
     resetProgress,
     correctAnswers,
     wrongAnswers,
+    ownedCosmeticIds,
+    equipAvatar,
+    equipAvatarFrame,
     equippedAvatar,
     equippedAvatarFrame,
     flushPlayerSave,
@@ -59,11 +64,14 @@ export default function ProfileScreen() {
   const [companyInput, setCompanyInput] = useState(companyName);
   const [companyError, setCompanyError] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [showToast, setShowToast] = useState(false);
   const toastAnim = useRef(new Animated.Value(0)).current;
+
+  useFocusEffect(useCallback(() => {
+    void trackEvent('profile_opened');
+  }, []));
 
   useEffect(() => {
     setCompanyInput(companyName);
@@ -164,6 +172,8 @@ export default function ProfileScreen() {
               equippedAvatar={equippedAvatar}
               equippedAvatarFrame={equippedAvatarFrame}
             />
+            <ProfileCosmetics ownedCosmeticIds={ownedCosmeticIds} avatar={equippedAvatar} frame={equippedAvatarFrame}
+              onEquipAvatar={equipAvatar} onEquipFrame={equipAvatarFrame} />
 
             <SectionHeading eyebrow="PERFORMANS" title="Kullanıcı İstatistikleri" styles={styles} />
             <View style={styles.statsGrid}>
@@ -216,24 +226,6 @@ export default function ProfileScreen() {
                     ) : (
                       <Text style={styles.validationHint}>Değişiklikler cihazında kalıcı olarak saklanır.</Text>
                     )}
-                  </View>
-                </View>
-
-                <SectionHeading eyebrow="AYARLAR" title="Genel Tercihler" styles={styles} compact />
-                <View style={styles.settingsCard}>
-                  <View style={styles.preferenceRow}>
-                    <View style={styles.preferenceMark}><Ionicons name="volume-medium-outline" size={21} color={tokens.colors.secondary} /></View>
-                    <View style={styles.preferenceCopy}>
-                      <Text style={styles.preferenceTitle}>Ses Efektleri</Text>
-                      <Text style={styles.preferenceDescription}>Uygulama içi ses ve bildirim tonları</Text>
-                    </View>
-                    <Switch
-                      accessibilityLabel="Ses Efektleri"
-                      value={soundEnabled}
-                      onValueChange={setSoundEnabled}
-                      trackColor={{ false: tokens.colors.borderStrong, true: tokens.colors.secondary }}
-                      thumbColor={tokens.colors.text}
-                    />
                   </View>
                 </View>
               </View>
@@ -374,11 +366,6 @@ function makeStyles(tokens: DashboardTokens) {
     validationSlot: { minHeight: 21, justifyContent: 'flex-end', marginTop: 7 },
     validationError: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.danger },
     validationHint: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
-    preferenceRow: { minHeight: tokens.layout.isCompact ? 54 : 62, flexDirection: 'row', alignItems: 'center', gap: 10 },
-    preferenceMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
-    preferenceCopy: { flex: 1, minWidth: 0 },
-    preferenceTitle: { ...tokens.type.body, fontFamily: fonts.bodySemiBold, color: colors.text },
-    preferenceDescription: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 1 },
     accountRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: tokens.layout.isCompact ? 11 : 15 },
     accountMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     accountCopy: { flex: 1, minWidth: 0 },

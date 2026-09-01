@@ -15,6 +15,7 @@ interface LeaderboardRowProps {
   compact: boolean;
   isLast?: boolean;
   standalone?: boolean;
+  positionFallbackLabel?: string;
 }
 
 function LeaderboardRow({
@@ -24,6 +25,7 @@ function LeaderboardRow({
   compact,
   isLast = false,
   standalone = false,
+  positionFallbackLabel = 'Konum bekleniyor',
 }: LeaderboardRowProps) {
   const { width } = useWindowDimensions();
   const { theme } = useTheme();
@@ -33,14 +35,14 @@ function LeaderboardRow({
     () => resolveLeaderboardCosmetics(entry.avatarId, entry.avatarFrameId),
     [entry.avatarFrameId, entry.avatarId],
   );
-  const positionLabel = position === null ? 'Konum bekleniyor' : `${position}. sıra`;
+  const positionLabel = position === null ? positionFallbackLabel : `${position}. sıra`;
   const accessibilityLabel = [
     positionLabel,
     entry.companyName,
     entry.careerRank,
     `${entry.rankingScore} sıralama puanı`,
     `yüzde ${entry.successRate.toFixed(2)} başarı oranı`,
-    `${entry.successCount} başarılı kriz`,
+    `${entry.successCount} başarılı soru`,
     isCurrentUser ? 'senin profilin' : '',
   ].filter(Boolean).join(', ');
 
@@ -81,7 +83,7 @@ function LeaderboardRow({
             <View style={styles.mobileStats}>
               <Text style={styles.mobileStat}>%{entry.successRate.toFixed(2)} başarı</Text>
               <View style={styles.statDot} />
-              <Text style={styles.mobileStat}>{entry.successCount} başarılı kriz</Text>
+              <Text style={styles.mobileStat}>{entry.successCount} başarılı soru</Text>
             </View>
           </>
         ) : null}

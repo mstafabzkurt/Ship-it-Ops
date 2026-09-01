@@ -1,16 +1,42 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { getCompanyInitial } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { getDashboardTokens } from './dashboardTokens';
+import type { AvatarCosmetic, AvatarFrameCosmetic } from '../../config/cosmetics';
+import CosmeticPreview from '../cosmetics/CosmeticPreview';
 
 interface DashboardHeaderProps {
   companyName: string;
   level: number;
+  avatar?: AvatarCosmetic | null;
+  frame?: AvatarFrameCosmetic | null;
 }
 
-export default function DashboardHeader({ companyName, level }: DashboardHeaderProps) {
+function OperatorIdentity({ companyName, avatar, frame, styles, size }: Omit<DashboardHeaderProps, 'level'> & {
+  styles: ReturnType<typeof makeStyles>;
+  size: number;
+}) {
+  const [assetFailed, setAssetFailed] = useState(false);
+  if (!avatar || !frame || assetFailed) {
+    return (
+      <View style={styles.mark} accessibilityLabel={`${companyName} şirket kimliği`}>
+        <View style={styles.markHighlight} />
+        <Text style={styles.markText}>{getCompanyInitial(companyName)}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.operatorBadge}>
+      <CosmeticPreview mode="equippedCombo" avatar={avatar} frame={frame} size={size}
+        accessibilityLabel={`${companyName} operatörü: ${avatar.name}, ${frame.name}`}
+        onAssetError={() => setAssetFailed(true)} />
+    </View>
+  );
+}
+
+export default function DashboardHeader({ companyName, level, avatar, frame }: DashboardHeaderProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
@@ -19,10 +45,8 @@ export default function DashboardHeader({ companyName, level }: DashboardHeaderP
   return (
     <View style={styles.header}>
       <View style={styles.identity}>
-        <View style={styles.mark} accessibilityElementsHidden>
-          <View style={styles.markHighlight} />
-          <Text style={styles.markText}>{getCompanyInitial(companyName)}</Text>
-        </View>
+        <OperatorIdentity key={`${avatar?.id}:${frame?.id}`} companyName={companyName} avatar={avatar} frame={frame}
+          styles={styles} size={tokens.layout.isCompact ? 46 : 52} />
         <View style={styles.identityCopy}>
           <Text style={styles.eyebrow}>SHIP IT OPS</Text>
           <Text style={styles.companyName} numberOfLines={1}>{companyName}</Text>
@@ -62,6 +86,13 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 9 : 12 },
     identityCopy: { flexShrink: 1 },
+    operatorBadge: {
+      width: tokens.layout.isCompact ? 46 : 52,
+      height: tokens.layout.isCompact ? 46 : 52,
+      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised,
+      borderBottomWidth: 1, borderBottomColor: colors.secondary,
+    },
     mark: {
       width: tokens.layout.isCompact ? 46 : 52,
       height: tokens.layout.isCompact ? 46 : 52,

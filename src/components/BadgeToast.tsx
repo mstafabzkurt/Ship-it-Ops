@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../state/ThemeContext';
 import type { Theme } from '../theme/themes';
 import { fonts, fontSizes } from '../theme/typography';
@@ -37,15 +38,10 @@ export default function BadgeToast() {
         },
       ]}
     >
-      <Text style={styles.icon}>{badge.icon}</Text>
+      <Ionicons name={badge.icon} size={24} color={theme.colors.accentPositive} />
       <View style={styles.textWrap}>
         <Text style={styles.title}>Yeni rozet: {badge.title}</Text>
         <Text style={styles.desc}>{badge.description}</Text>
-        {badge.rewardBudget && (
-          <Text style={styles.rewardToastText}>
-            +{badge.rewardBudget.toLocaleString('tr-TR')} Bütçe Eklendi!
-          </Text>
-        )}
       </View>
     </Animated.View>
   );
@@ -69,9 +65,6 @@ function makeStyles(theme: Theme) {
       gap: 10,
       ...effects.glowPositive,
     },
-    icon: {
-      fontSize: 24,
-    },
     textWrap: {
       flex: 1,
     },
@@ -85,12 +78,6 @@ function makeStyles(theme: Theme) {
       fontSize: fontSizes.sm,
       color: colors.textMuted,
       marginTop: 2,
-    },
-    rewardToastText: {
-      fontFamily: fonts.bodySemiBold,
-      fontSize: fontSizes.sm,
-      color: colors.accentPositive,
-      marginTop: 4,
     },
   });
 }

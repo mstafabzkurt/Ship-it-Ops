@@ -26,9 +26,9 @@ const REWARDS: Record<DifficultyStar, Record<CategoryOutcome, Omit<EvaluationRew
 };
 
 const FEEDBACK: Record<CategoryOutcome, string> = {
-  success: 'Doğru müdahale. Kriz başarıyla kontrol altına alındı.',
-  fail: 'Yanlış müdahale. Doğru seçeneği inceleyip yeniden deneyebilirsin.',
-  timeout: 'Süre doldu. Bu soru yanlış olarak kaydedildi.',
+  success: 'Doğru seçenek onaylandı.',
+  fail: 'Doğru cevabı inceleyip sonraki soruya geçebilirsin.',
+  timeout: 'Bu soru cevaplanmadığı için yanlış olarak kaydedildi.',
 };
 
 export function getCategoryReward(star: DifficultyStar, outcome: CategoryOutcome): EvaluationReward {

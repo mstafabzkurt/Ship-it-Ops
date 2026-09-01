@@ -36,6 +36,7 @@ export default function ProfileSummaryCard({
 
       <View style={styles.avatarStage}>
         <CosmeticPreview
+          mode="equippedCombo"
           avatar={equippedAvatar}
           frame={equippedAvatarFrame}
           variant="profile"

@@ -5,17 +5,20 @@ import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import ProgressSweep from '../ProgressSweep';
 
 interface UptimeMilestoneCardProps {
   currentUptime: number;
   nextMilestone: number | null;
   milestoneReached: boolean;
+  reduceMotion: boolean;
 }
 
 export default function UptimeMilestoneCard({
   currentUptime,
   nextMilestone,
   milestoneReached,
+  reduceMotion,
 }: UptimeMilestoneCardProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -25,8 +28,6 @@ export default function UptimeMilestoneCard({
   const progress = nextMilestone === null
     ? 1
     : Math.min(1, Math.max(0, currentUptime / nextMilestone));
-  const progressPercent = Math.round(progress * 100);
-  const progressWidth = `${progressPercent}%` as `${number}%`;
   const progressMax = nextMilestone ?? Math.max(currentUptime, 1);
   const progressNow = nextMilestone === null ? progressMax : Math.min(currentUptime, progressMax);
   const nextTargetLabel = nextMilestone?.toLocaleString('tr-TR') ?? 'Maks.';
@@ -55,7 +56,7 @@ export default function UptimeMilestoneCard({
           </View>
 
           <View style={styles.currentCopy}>
-            <Text style={styles.metricLabel}>UPTIME</Text>
+            <Text style={styles.metricLabel}>UPTIME TRACK</Text>
             <Text style={[styles.currentValue, milestoneReached && styles.currentValueReached]}>
               {currentUptime.toLocaleString('tr-TR')}
             </Text>
@@ -73,7 +74,7 @@ export default function UptimeMilestoneCard({
       {milestoneReached ? (
         <View style={styles.reachedPill}>
           <Ionicons
-            name="sparkles"
+            name="checkmark-circle-outline"
             size={13}
             color={tokens.colors.secondary}
             accessibilityElementsHidden
@@ -87,22 +88,17 @@ export default function UptimeMilestoneCard({
         <Text style={styles.progressLabel}>{progressLabel}</Text>
         <Text style={styles.progressValue}>{progressValueLabel}</Text>
       </View>
-      <View
-        style={styles.progressTrack}
-        accessibilityRole="progressbar"
+      <ProgressSweep
+        value={progress}
+        reduceMotion={reduceMotion}
+        trackStyle={styles.progressTrack}
+        fillStyle={[styles.progressFill, milestoneReached && styles.progressFillReached]}
+        sweepColor={tokens.colors.text}
         accessibilityLabel={milestoneReached
           ? `Uptime ${currentUptime}, dönüm noktası tamamlandı. Sonraki hedef ${nextTargetLabel}`
           : `Uptime ${currentUptime}. Sonraki hedef ${nextTargetLabel}`}
         accessibilityValue={{ min: 0, max: progressMax, now: progressNow, text: progressValueLabel }}
-      >
-        <View
-          style={[
-            styles.progressFill,
-            milestoneReached && styles.progressFillReached,
-            { width: progressWidth },
-          ]}
-        />
-      </View>
+      />
     </View>
   );
 }
@@ -113,13 +109,14 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   return StyleSheet.create({
     card: {
       overflow: 'hidden',
-      paddingLeft: tokens.layout.isCompact ? 9 : 12,
-      borderLeftWidth: 2,
-      borderLeftColor: colors.warning,
-      backgroundColor: 'transparent',
+      padding: tokens.layout.isCompact ? 12 : 16,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.floatingSurface,
     },
     cardReached: {
-      borderLeftColor: colors.secondary,
+      borderColor: colors.secondary,
     },
     topRow: {
       flexDirection: 'row',
@@ -129,11 +126,13 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     currentGroup: { flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 8 : 11 },
     iconSlot: {
-      width: tokens.layout.isCompact ? 36 : 42,
-      height: tokens.layout.isCompact ? 36 : 42,
+      width: tokens.layout.isCompact ? 44 : 50,
+      height: tokens.layout.isCompact ? 44 : 50,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.sm,
+      borderRadius: 26,
+      borderWidth: 1,
+      borderColor: colors.warning,
       backgroundColor: colors.warningSoft,
     },
     iconSlotReached: { backgroundColor: colors.secondarySoft },
@@ -152,8 +151,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     currentCopy: { minWidth: 62 },
     metricLabel: {
-      fontFamily: fonts.bodySemiBold,
-      fontSize: 11,
+      fontFamily: fonts.monoMedium,
+      fontSize: 10,
       lineHeight: 15,
       letterSpacing: 0.7,
       color: colors.textMuted,
@@ -213,7 +212,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     progressLabel: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted },
     progressValue: { fontFamily: fonts.monoSemiBold, fontSize: 11, lineHeight: 16, color: colors.text },
     progressTrack: {
-      height: tokens.layout.isCompact ? 5 : 6,
+      height: 7,
       overflow: 'hidden',
       borderRadius: radius.pill,
       backgroundColor: colors.dividerSubtle,

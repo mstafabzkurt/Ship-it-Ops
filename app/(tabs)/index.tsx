@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import CareerSummaryCard from '../../src/components/dashboard/CareerSummaryCard';
@@ -11,6 +12,7 @@ import { getDashboardTokens } from '../../src/components/dashboard/dashboardToke
 import { RANKS, useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
+import { trackEvent } from '../../src/utils/telemetry';
 
 export default function DashboardScreen() {
   const { width } = useWindowDimensions();
@@ -19,6 +21,8 @@ export default function DashboardScreen() {
     careerXp,
     codeReview,
     companyName,
+    equippedAvatar,
+    equippedAvatarFrame,
     currentRank,
     gitRevert,
     nextRank,
@@ -39,6 +43,7 @@ export default function DashboardScreen() {
   const [toastMessage, setToastMessage] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
   const toastAnimation = useRef(new Animated.Value(0)).current;
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -50,6 +55,11 @@ export default function DashboardScreen() {
       if (toastTimeout.current) clearTimeout(toastTimeout.current);
     };
   }, []);
+
+  useFocusEffect(useCallback(() => {
+    setIsScreenFocused(true);
+    return () => setIsScreenFocused(false);
+  }, []));
 
   const showToast = (message: string) => {
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
@@ -79,6 +89,12 @@ export default function DashboardScreen() {
 
   const handleClaimStreak = async () => {
     const reward = await claimStreakDay();
+    if (reward > 0) {
+      void trackEvent('daily_reward_claimed', {
+        streak_count: streakCount + 1,
+        reward_budget: reward,
+      });
+    }
     showToast(
       reward > 0
         ? `Günlük ödül alındı · +$${reward.toLocaleString('tr-TR')} bütçe`
@@ -105,7 +121,7 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.container}>
-            <DashboardHeader companyName={companyName} level={currentLevel} />
+            <DashboardHeader companyName={companyName} level={currentLevel} avatar={equippedAvatar} frame={equippedAvatarFrame} />
 
             <CareerSummaryCard
               budget={budget}
@@ -114,6 +130,8 @@ export default function DashboardScreen() {
               currentRank={currentRank}
               nextRank={nextRank}
               progress={rankProgress}
+              reduceMotion={reduceMotion}
+              active={isScreenFocused}
             />
 
             <View style={[styles.dashboardGrid, isWide && styles.dashboardGridWide]}>

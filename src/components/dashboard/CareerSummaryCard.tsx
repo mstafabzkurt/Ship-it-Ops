@@ -1,9 +1,11 @@
 import React, { useMemo } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { Rank } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { formatCurrency } from '../../utils/format';
+import RankProgressRail from '../RankProgressRail';
 import { getDashboardTokens } from './dashboardTokens';
 
 interface CareerSummaryCardProps {
@@ -13,6 +15,8 @@ interface CareerSummaryCardProps {
   currentRank: Rank;
   nextRank: Rank | null;
   progress: number;
+  reduceMotion: boolean;
+  active: boolean;
 }
 
 interface MetricProps {
@@ -44,6 +48,8 @@ export default function CareerSummaryCard({
   currentRank,
   nextRank,
   progress,
+  reduceMotion,
+  active,
 }: CareerSummaryCardProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -53,34 +59,35 @@ export default function CareerSummaryCard({
 
   return (
     <View style={styles.card}>
-      <View pointerEvents="none" style={styles.instrumentRail}>
-        <View style={styles.instrumentNode} />
-        <View style={styles.instrumentLine} />
-        <View style={styles.instrumentNode} />
-      </View>
+      <View pointerEvents="none" style={styles.instrumentRail} />
       <View style={styles.titleRow}>
+        <View style={styles.rankRing} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <View style={styles.rankCore}>
+            <Ionicons name="ribbon-outline" size={24} color={tokens.colors.warning} />
+          </View>
+        </View>
         <View style={styles.titleCopy}>
-          <Text style={styles.eyebrow}>KARİYER İLERLEMESİ</Text>
+          <Text style={styles.eyebrow}>CAREER TRACK</Text>
           <Text style={styles.title}>{currentRank.name}</Text>
         </View>
         <View style={styles.progressBadge}>
           <Text style={styles.progressBadgeValue}>{pct}%</Text>
-          <Text style={styles.progressBadgeLabel}>TAMAMLANDI</Text>
+          <Text style={styles.progressBadgeLabel}>İLERLEME</Text>
         </View>
       </View>
 
-      <View
-        style={styles.progressTrack}
-        accessibilityRole="progressbar"
+      <RankProgressRail
+        progress={progress}
+        complete={!nextRank}
+        reduceMotion={reduceMotion}
+        active={active}
         accessibilityLabel={`${currentRank.name} kariyer ilerlemesi`}
-        accessibilityValue={{ min: 0, max: 100, now: pct }}
-      >
-        <View style={[styles.progressFill, { width: `${pct}%` }]} />
-      </View>
+        tokens={tokens}
+      />
       <View style={styles.progressMeta}>
         <Text style={styles.progressMetaText}>{careerXp.toLocaleString('tr-TR')} Kariyer XP</Text>
         <Text style={styles.progressMetaText}>
-          {nextRank ? `${nextRank.threshold.toLocaleString('tr-TR')} XP · ${nextRank.name}` : 'Maksimum rütbe'}
+          {nextRank ? `Sonraki Hedef · ${nextRank.name}\n${nextRank.threshold.toLocaleString('tr-TR')} XP` : 'Maksimum rütbe'}
         </Text>
       </View>
 
@@ -121,7 +128,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderRadius: radius.md,
       padding: tokens.layout.cardPadding,
       paddingTop: tokens.layout.cardPadding + 8,
-      backgroundColor: colors.secondarySurface,
+      backgroundColor: colors.floatingSurface,
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       ...shadow.card,
@@ -131,25 +138,20 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     instrumentRail: {
       position: 'absolute',
       top: 0,
-      left: 0,
-      right: 0,
-      height: 8,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 10,
-      backgroundColor: colors.floatingSurfaceRaised,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.dividerSubtle,
+      left: 22,
+      right: 22,
+      height: 1,
+      backgroundColor: colors.warning,
+      opacity: 0.5,
     },
-    instrumentNode: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.secondary },
-    instrumentLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
+    rankRing: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+    rankCore: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.warningSoft, alignItems: 'center', justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: tokens.layout.isCompact ? 10 : 16 },
     titleCopy: { flex: 1, minWidth: 0 },
     eyebrow: {
       ...tokens.type.eyebrow,
-      fontFamily: fonts.bodySemiBold,
-      color: colors.secondary,
+      fontFamily: fonts.monoMedium,
+      color: colors.warning,
       marginBottom: 5,
     },
     title: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
@@ -162,14 +164,6 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     progressBadgeValue: { fontFamily: fonts.monoBold, fontSize: 17, lineHeight: 21, color: colors.warning },
     progressBadgeLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 13, letterSpacing: 0.4, color: colors.textMuted },
-    progressTrack: {
-      height: 6,
-      marginTop: tokens.layout.isCompact ? 12 : 18,
-      borderRadius: radius.pill,
-      backgroundColor: colors.dividerSubtle,
-      overflow: 'hidden',
-    },
-    progressFill: { height: '100%', borderRadius: radius.pill, minWidth: 4, backgroundColor: colors.warning },
     progressMeta: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 8 },
     progressMetaText: { flexShrink: 1, fontFamily: fonts.bodyMedium, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },
     metrics: {
@@ -191,12 +185,12 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     metricSeparated: { borderLeftWidth: 1, borderLeftColor: colors.dividerSubtle },
     metricRail: { position: 'absolute', top: 0, left: 9, right: 9, height: 2 },
-    primaryMetric: { backgroundColor: colors.primary },
+    primaryMetric: { backgroundColor: colors.borderStrong },
     secondaryMetric: { backgroundColor: colors.secondary },
     warningMetric: { backgroundColor: colors.warning },
     metricLabel: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isNarrow ? 9 : 10, lineHeight: 14, letterSpacing: 0.45, color: colors.textMuted },
     metricValue: { ...tokens.type.metric, fontFamily: fonts.monoBold, marginVertical: tokens.layout.isCompact ? 2 : 5 },
-    primaryValue: { color: colors.primary },
+    primaryValue: { color: colors.text },
     secondaryValue: { color: colors.secondary },
     warningValue: { color: colors.warning, fontSize: tokens.layout.isCompact ? 16 : tokens.type.metric.fontSize },
     metricDetail: { fontFamily: fonts.bodyMedium, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },

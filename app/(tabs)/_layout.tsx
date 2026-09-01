@@ -46,17 +46,17 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="reputation"
-        options={{
-          title: 'Kariyer',
-          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'trophy' : 'trophy-outline'} color={color} size={22} />,
-        }}
-      />
-      <Tabs.Screen
         name="play"
         options={{
           title: 'Oyun',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} color={color} size={width <= 430 ? 20 : 22} />,
+        }}
+      />
+      <Tabs.Screen
+        name="reputation"
+        options={{
+          title: 'Kariyer',
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'trophy' : 'trophy-outline'} color={color} size={22} />,
         }}
       />
       <Tabs.Screen

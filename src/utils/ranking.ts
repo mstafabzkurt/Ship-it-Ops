@@ -79,6 +79,25 @@ export function recordRankingOutcome(
   return stats;
 }
 
+export function revertRankingOutcome(
+  stats: RankingOutcomeStats,
+  outcome: RankingOutcome,
+): RankingOutcomeStats {
+  if (outcome === 'success') {
+    return { ...stats, successCount: Math.max(0, stats.successCount - 1) };
+  }
+  if (outcome === 'partial') {
+    return { ...stats, partialCount: Math.max(0, stats.partialCount - 1) };
+  }
+  if (outcome === 'fail') {
+    return { ...stats, failCount: Math.max(0, stats.failCount - 1) };
+  }
+  if (outcome === 'timeout') {
+    return { ...stats, timeoutCount: Math.max(0, stats.timeoutCount - 1) };
+  }
+  return stats;
+}
+
 export function calculateRankingScore(stats: RankingOutcomeStats): number {
   return (
     stats.successCount * RANKING_SCORE_BY_OUTCOME.success
