@@ -97,7 +97,7 @@ export default function DashboardScreen() {
     }
     showToast(
       reward > 0
-        ? `Günlük ödül alındı · +$${reward.toLocaleString('tr-TR')} bütçe`
+        ? `Günlük ödül alındı · +${reward.toLocaleString('tr-TR')} bütçe`
         : 'Bugünün ödülü zaten alındı.',
     );
   };

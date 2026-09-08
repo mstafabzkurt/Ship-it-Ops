@@ -1,7 +1,10 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { JOKER_ICON_ASSETS } from '../../config/iconAssets';
+import { JOKER_DISPLAY } from '../../config/jokers';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
+import AssetIcon from '../AssetIcon';
 import { getDashboardTokens } from './dashboardTokens';
 
 interface ResourceDockProps {
@@ -12,10 +15,10 @@ interface ResourceDockProps {
 }
 
 const TOOL_COPY = [
-  { key: 'codeReview', initials: 'CR', title: 'Code Review', detail: 'İki zayıf seçeneği eler' },
-  { key: 'gitRevert', initials: 'GR', title: 'Git Revert', detail: 'Son kararı geri alır' },
-  { key: 'serverScaleUp', initials: 'SU', title: 'Scale Up', detail: 'Müdahale süresini uzatır' },
-  { key: 'snapshotBackup', initials: 'SB', title: 'Snapshot', detail: 'Kriz durumunu korur' },
+  { key: 'codeReview', iconSource: JOKER_ICON_ASSETS.codeReview, fallbackIcon: 'scan-outline', ...JOKER_DISPLAY.codeReview },
+  { key: 'gitRevert', iconSource: JOKER_ICON_ASSETS.gitRevert, fallbackIcon: 'arrow-undo-outline', ...JOKER_DISPLAY.gitRevert },
+  { key: 'serverScaleUp', iconSource: JOKER_ICON_ASSETS.serverScaleUp, fallbackIcon: 'flash-outline', ...JOKER_DISPLAY.serverScaleUp },
+  { key: 'snapshotBackup', iconSource: JOKER_ICON_ASSETS.snapshotBackup, fallbackIcon: 'camera-outline', ...JOKER_DISPLAY.snapshotBackup },
 ] as const;
 
 export default function ResourceDock({
@@ -45,7 +48,8 @@ export default function ResourceDock({
       <View style={styles.headingRow}>
         <View style={styles.headingCopy}>
           <Text style={styles.eyebrow}>MÜDAHALE ARAÇLARI</Text>
-          <Text style={styles.title}>Lifeline envanteri</Text>
+          <Text style={styles.title}>Teknik Destek Paketi</Text>
+          <Text style={styles.availability}>Mağazadan alınabilir</Text>
         </View>
         <View style={styles.readyBadge}>
           <View style={styles.readyDot} />
@@ -57,13 +61,18 @@ export default function ResourceDock({
         {TOOL_COPY.map((tool, index) => (
           <View key={tool.key} style={[styles.toolRow, index > 0 && styles.toolRowSeparated]}>
             <View style={[styles.toolMark, index % 2 === 1 && styles.toolMarkAlt]}>
-              <Text style={[styles.toolInitials, index % 2 === 1 && styles.toolInitialsAlt]}>{tool.initials}</Text>
+              <AssetIcon
+                source={tool.iconSource}
+                fallbackName={tool.fallbackIcon}
+                fallbackColor={index % 2 === 1 ? tokens.colors.secondary : tokens.colors.primary}
+                size={30}
+              />
             </View>
             <View style={styles.toolCopy}>
-              <Text style={styles.toolTitle}>{tool.title}</Text>
-              <Text style={styles.toolDetail}>{tool.detail}</Text>
+              <Text style={styles.toolTitle}>{tool.name}</Text>
+              <Text style={styles.toolDetail}>{tool.description}</Text>
             </View>
-            <View style={styles.countBadge} accessibilityLabel={`${tool.title}, ${counts[tool.key]} adet`}>
+            <View style={styles.countBadge} accessibilityLabel={`${tool.name}, ${counts[tool.key]} adet`}>
               <Text style={styles.countPrefix}>×</Text>
               <Text style={styles.countValue}>{counts[tool.key]}</Text>
             </View>
@@ -88,7 +97,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderColor: colors.borderSubtle,
       ...shadow.card,
       shadowColor: colors.shadowNeutral,
-      shadowOpacity: 0.2,
+      shadowOpacity: tokens.effects.decorativeOpacity === 0 ? 0.06 : 0.2,
     },
     consoleRail: {
       position: 'absolute',
@@ -103,6 +112,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       backgroundColor: colors.floatingSurfaceRaised,
       borderBottomWidth: 1,
       borderBottomColor: colors.dividerSubtle,
+      opacity: tokens.effects.decorativeOpacity,
     },
     consoleNode: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.secondary },
     consoleLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
@@ -110,6 +120,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     headingCopy: { flex: 1 },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.primary, marginBottom: 3 },
     title: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
+    availability: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted, marginTop: 2 },
     readyBadge: {
       minHeight: 30,
       paddingHorizontal: 4,
@@ -142,8 +153,6 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderLeftColor: colors.primary,
     },
     toolMarkAlt: { backgroundColor: colors.secondarySoft, borderLeftColor: colors.secondary },
-    toolInitials: { fontFamily: fonts.monoBold, fontSize: 13, color: colors.primary },
-    toolInitialsAlt: { color: colors.secondary },
     toolCopy: { flex: 1, minWidth: 0 },
     toolTitle: { fontFamily: fonts.headingSemiBold, fontSize: 15, lineHeight: 20, color: colors.text },
     toolDetail: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },

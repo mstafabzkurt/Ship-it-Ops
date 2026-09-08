@@ -4,7 +4,7 @@ Tier access is derived from two persisted operation checkpoints per category and
 
 Each completed 10-question session is assigned to the first unpassed checkpoint in its current tier. Reputation is derived from the currently resolved question results and compared with the tier target: Kolay `+40`, Orta `+50`, and Zor `+60`. Failed checkpoints remain retryable, retain their best net reputation, and passed checkpoints never regress. Once both checkpoints pass, later sessions are ordinary replays and do not create or overwrite qualification checkpoints.
 
-Git Revert removes the current question's resolved session result, so its reputation delta disappears from qualification immediately. It also restores the exact pre-answer Career XP, İtibar, and budget snapshot—including clamp and milestone effects—and rolls back the answer, ranking, category-result, and uptime counters before the question is answered again. The replacement answer is then recorded exactly once.
+Rollback removes the current question's resolved session result, so its reputation delta disappears from qualification immediately. It also restores the exact pre-answer Career XP, İtibar, and budget snapshot—including clamp and milestone effects—and rolls back the answer, ranking, category-result, and uptime counters before the question is answered again. The replacement answer is then recorded exactly once.
 
 Checkpoint data lives inside the existing `categoryProgress[categoryId][star]` save object:
 

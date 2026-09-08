@@ -1,6 +1,8 @@
 // Mağaza öğeleri — all purchases use the standard company budget.
 // Tüm fiyat, açıklama ve kategori bilgisi tek yerden yönetilir.
 
+import type { Theme } from '../theme/themes';
+
 export type StoreCategory = 'office' | 'premium' | 'theme';
 
 export interface StoreItem {
@@ -15,7 +17,7 @@ export interface StoreItem {
    * Sadece 'theme' kategorisindeki öğeler için — ThemeContext'teki themeId değeri.
    * Equip edildiğinde setThemeId(themeIdKey) çağrılır.
    */
-  themeIdKey?: 'default' | 'cyberpunk' | 'hardware' | 'nebula';
+  themeIdKey?: Theme['id'];
 }
 
 // --- Kategori A: Ofis / Şirket Bütçesi --------------------------------

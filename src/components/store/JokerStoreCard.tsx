@@ -1,15 +1,17 @@
 import React, { useMemo } from 'react';
-import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, useWindowDimensions, View, type ImageSourcePropType } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { formatCurrency } from '../../utils/format';
+import AssetIcon from '../AssetIcon';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
 import { AcquisitionCaption, AcquisitionRail, useAcquisitionMotion, type StoreFeedbackEvent } from './StoreFeedback';
 
-interface JokerStoreCardProps {
-  icon: React.ComponentProps<typeof Ionicons>['name'];
+export interface JokerStoreCardProps {
+  iconSource: ImageSourcePropType;
+  fallbackIcon: React.ComponentProps<typeof Ionicons>['name'];
   name: string;
   description: string;
   count: number;
@@ -23,7 +25,8 @@ interface JokerStoreCardProps {
 }
 
 export default function JokerStoreCard({
-  icon,
+  iconSource,
+  fallbackIcon,
   name,
   description,
   count,
@@ -54,7 +57,7 @@ export default function JokerStoreCard({
       <AcquisitionRail progress={rail} color={tokens.colors.warning} reduceMotion={reduceMotion} />
       <View style={styles.equipmentRow}>
         <View style={styles.iconSlot}>
-          <Ionicons name={icon} size={24} color={tokens.colors.primary} />
+          <AssetIcon source={iconSource} fallbackName={fallbackIcon} fallbackColor={tokens.colors.primary} size={42} />
         </View>
         <View style={styles.copy}>
           <Text style={styles.equipmentLabel}>OPERASYON EKİPMANI</Text>
@@ -104,7 +107,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   return StyleSheet.create({
     card: { flex: 1, overflow: 'hidden', borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle, ...shadow.card, shadowColor: colors.shadowNeutral, shadowOpacity: 0.12 },
     equipmentRow: { flex: 1, minHeight: tokens.layout.isCompact ? 112 : 126, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 11 : 14, padding: tokens.layout.isCompact ? 12 : 15 },
-    iconSlot: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary },
+    iconSlot: { width: 56, height: 56, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary },
     copy: { flex: 1, minWidth: 0 },
     equipmentLabel: { fontFamily: fonts.bodySemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.6, color: colors.textMuted, marginBottom: 2 },
     name: { fontFamily: fonts.headingBold, fontSize: 17, lineHeight: 22, color: colors.text, marginBottom: 2 },

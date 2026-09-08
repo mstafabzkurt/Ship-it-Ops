@@ -28,9 +28,12 @@ import {
   type CosmeticId,
   type CosmeticType,
 } from '../config/cosmetics';
-import { DEFAULT_COMPANY_NAME, normalizeCompanyName } from '../config/company';
+import { DEFAULT_COMPANY_NAME } from '../config/company';
 import {
-  claimAndLoadLegacySave,
+  saveCompanyName as persistCompanyName,
+  type CompanyNameSaveResult,
+} from '../services/companyName';
+import {
   createMyPlayerSave,
   fetchMyPlayerSave,
   getPlayerSaveErrorMessage,
@@ -49,12 +52,17 @@ import {
 } from '../utils/ranking';
 import {
   buildPlayerSaveSnapshot,
+  canPersistAccountSave,
+  canPersistCloudSave,
   createDefaultJokerInventory,
   createDefaultPlayerSave,
+  isAuthenticatedSaveVisible,
   normalizePlayerSaveForCurrentWeek,
   PLAYER_SAVE_VERSION,
+  selectAuthenticatedSaveSource,
   type PlayerSaveSnapshot,
 } from '../utils/playerSave';
+import { trackEvent } from '../utils/telemetry';
 import {
   completeOperationSession,
   createDefaultCategoryProgress,
@@ -67,6 +75,16 @@ import {
 import type { DifficultyStar, GameCategoryId } from '../config/gameCategories';
 import type { CategoryQuestionId } from '../utils/categoryQuestions';
 import { deriveAchievements, type DerivedAchievement } from '../utils/achievements';
+import {
+  createSkippedOnboardingSelection,
+  normalizeInterestAreas,
+  type InterestAreaId,
+  type OnboardingProfileSelection,
+} from '../utils/onboarding';
+import {
+  planCompletedGameSession,
+  type GameSessionCommitInput,
+} from '../utils/gameSession';
 import { useAuth } from './AuthContext';
 
 export { RANKS } from '../config/progression';
@@ -152,6 +170,14 @@ interface ReputationContextValue {
   careerXp: number;
   budget: number;
   companyName: string;
+  companyNameSet: boolean;
+  onboardingCompleted: boolean;
+  tutorialCompleted: boolean;
+  selectedInterestAreas: InterestAreaId[];
+  completeOnboarding: (selection: OnboardingProfileSelection) => Promise<CompanyNameSaveResult>;
+  skipOnboarding: () => void;
+  completeTutorial: () => void;
+  setInterestAreas: (areas: InterestAreaId[]) => void;
   isLoaded: boolean;
   saveStatus: PlayerSaveStatus;
   saveError: string | null;
@@ -192,9 +218,9 @@ interface ReputationContextValue {
   addScore: (amount: number) => Promise<Badge[]>;
   /** Bir cevap sonucunda Career XP, İtibar ve bütçeyi atomik olarak günceller. */
   applyOutcome: (careerXpDelta: number, reputationDelta: number, budgetDelta: number) => Promise<Badge[]>;
-  /** Git Revert için cevap uygulanmadan hemen önceki kesin progression değerlerini okur. */
+  /** Rollback için cevap uygulanmadan hemen önceki kesin progression değerlerini okur. */
   getOutcomeRollbackSnapshot: () => OutcomeRollbackSnapshot;
-  /** Git Revert sırasında ödül, ceza, clamp ve eşik bonuslarını kesin olarak geri alır. */
+  /** Rollback sırasında ödül, ceza, clamp ve eşik bonuslarını kesin olarak geri alır. */
   restoreOutcomeRollbackSnapshot: (snapshot: OutcomeRollbackSnapshot) => void;
   /** Bütçeyi skor veya rozet durumunu değiştirmeden günceller. */
   addBudget: (amount: number) => Promise<Badge[]>;
@@ -204,7 +230,7 @@ interface ReputationContextValue {
   /** Skoru ve bütçeyi varsayılana döndürür, hafızadan da siler. Profil ekranındaki "İlerlemeyi Sıfırla" için. */
   resetProgress: () => Promise<void>;
   /** Şirket adını günceller ve kalıcı olarak saklar (Profil ekranı vb. için). */
-  setCompanyName: (name: string) => Promise<void>;
+  setCompanyName: (name: string) => Promise<CompanyNameSaveResult>;
   /**
    * Bir mağaza öğesini satın alır.
    * @param itemId   Satın alınacak öğenin ID'si
@@ -261,6 +287,8 @@ interface ReputationContextValue {
     checkpointId: OperationCheckpointId | null,
     netReputation: number,
   ) => OperationSessionCompletion;
+  /** Commits one complete 10-question session to permanent progression atomically. */
+  commitGameSession: (session: GameSessionCommitInput) => OperationSessionCompletion | null;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -271,6 +299,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [careerXp, setCareerXp] = useState(DEFAULT_CAREER_XP);
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [companyName, setCompanyNameState] = useState(DEFAULT_COMPANY_NAME);
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const [tutorialCompleted, setTutorialCompleted] = useState(false);
+  const [selectedInterestAreas, setSelectedInterestAreas] = useState<InterestAreaId[]>([]);
   const [saveStatus, setSaveStatus] = useState<PlayerSaveStatus>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
@@ -280,7 +311,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [gitRevert, setGitRevertState] = useState(DEFAULT_LIFELINE_COUNT);
   const [serverScaleUp, setServerScaleUpState] = useState(DEFAULT_LIFELINE_COUNT);
   const [snapshotBackup, setSnapshotBackupState] = useState(DEFAULT_LIFELINE_COUNT);
-  const [uptimeStreak, setUptimeStreak] = useState(DEFAULT_UPTIME_STREAK);
+  const [uptimeStreak, setUptimeStreakState] = useState(DEFAULT_UPTIME_STREAK);
   const [inventory, setInventory] = useState<string[]>([]);
   const inventoryRef = useRef<string[]>([]);
   const lifelineInventoryRef = useRef<LifelineInventory>(createDefaultJokerInventory());
@@ -303,6 +334,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [categoryProgress, setCategoryProgress] = useState<CategoryProgress>(() => createDefaultCategoryProgress());
 
   const seenIdsRef = useRef<number[]>(DEFAULT_SEEN_IDS);
+  const correctAnswersRef = useRef(DEFAULT_CORRECT_ANSWERS);
+  const wrongAnswersRef = useRef(DEFAULT_WRONG_ANSWERS);
+  const uptimeStreakRef = useRef(DEFAULT_UPTIME_STREAK);
   const rankingOutcomeStatsRef = useRef<RankingOutcomeStats>(normalizeRankingOutcomeStats(null));
   const categoryProgressRef = useRef<CategoryProgress>(createDefaultCategoryProgress());
 
@@ -334,6 +368,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const careerXpRef = useRef(careerXp);
   const budgetRef = useRef(budget);
   const hydratedUserIdRef = useRef<string | null>(null);
+  const activeUserIdRef = useRef<string | null>(user?.id ?? null);
   const initializationIdRef = useRef(0);
   const lastPersistedSignatureRef = useRef('');
   const lastAttemptedSignatureRef = useRef('');
@@ -341,6 +376,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const latestSaveRef = useRef<PlayerSaveSnapshot>(createDefaultPlayerSave());
+  activeUserIdRef.current = user?.id ?? null;
 
   const hydrateRuntime = useCallback((input: PlayerSaveSnapshot) => {
     const save = buildPlayerSaveSnapshot(input);
@@ -356,11 +392,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     seenIdsRef.current = save.recentQuestionIds;
     streakDaysRef.current = save.streakDays;
     categoryProgressRef.current = save.categoryProgress;
+    correctAnswersRef.current = save.correctAnswers;
+    wrongAnswersRef.current = save.wrongAnswers;
 
     setScore(save.reputation);
     setCareerXp(save.careerXp);
     setBudget(save.companyBudget);
     setCompanyNameState(save.companyName);
+    setOnboardingCompleted(save.onboardingCompleted);
+    setTutorialCompleted(save.tutorialCompleted);
+    setSelectedInterestAreas(save.selectedInterestAreas);
     setInventory(save.ownedItemIds);
     setCodeReviewState(save.jokerInventory.codeReview);
     setGitRevertState(save.jokerInventory.gitRevert);
@@ -380,8 +421,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const clearRuntimeForAccountBoundary = useCallback(() => {
-    hydrateRuntime(createDefaultPlayerSave());
-    setUptimeStreak(DEFAULT_UPTIME_STREAK);
+    const cleanSave = createDefaultPlayerSave();
+    latestSaveRef.current = cleanSave;
+    hydrateRuntime(cleanSave);
+    uptimeStreakRef.current = DEFAULT_UPTIME_STREAK;
+    setUptimeStreakState(DEFAULT_UPTIME_STREAK);
   }, [hydrateRuntime]);
 
   const retrySaveInitialization = useCallback(() => {
@@ -407,24 +451,34 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     }
 
     setSaveStatus('loading');
+    void trackEvent('save_hydration_started');
 
     const initialize = async () => {
       try {
-        let save = await fetchMyPlayerSave(userId);
+        const cloudSave = await fetchMyPlayerSave(userId);
         if (initializationIdRef.current !== initializationId) return;
 
-        if (!save) {
-          setSaveStatus('migrating');
-          const accountCache = await loadAccountSaveCache(userId).catch(() => null);
-          if (accountCache) await claimAndLoadLegacySave(userId);
-          const legacySave = accountCache ? null : await claimAndLoadLegacySave(userId);
-          save = normalizePlayerSaveForCurrentWeek(accountCache ?? legacySave ?? createDefaultPlayerSave());
+        const accountCache = cloudSave
+          ? null
+          : await loadAccountSaveCache(userId).catch(() => null);
+        if (initializationIdRef.current !== initializationId) return;
+
+        let selection = selectAuthenticatedSaveSource(cloudSave, accountCache);
+        let save = selection.save;
+        if (!cloudSave) {
+          if (selection.source === 'account_cache') setSaveStatus('migrating');
+          save = normalizePlayerSaveForCurrentWeek(save);
+          if (
+            initializationIdRef.current !== initializationId
+            || activeUserIdRef.current !== userId
+          ) return;
           try {
             await createMyPlayerSave(userId, save);
           } catch (createError) {
             const concurrentSave = await fetchMyPlayerSave(userId).catch(() => null);
             if (!concurrentSave) throw createError;
             save = concurrentSave;
+            selection = { save: concurrentSave, source: 'cloud' };
           }
         }
 
@@ -438,6 +492,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         hydratedUserIdRef.current = userId;
         setHydratedUserId(userId);
         setSaveStatus('ready');
+        void trackEvent('save_hydration_completed', { source: selection.source });
         void writeAccountSaveCache(userId, normalized).catch((error) => {
           if (__DEV__) console.warn('[PlayerSave] Hesap yedeği yazılamadı.', error);
         });
@@ -456,6 +511,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         cloudBaselineReadyRef.current = false;
         setSaveError(getPlayerSaveErrorMessage(error));
         setSaveStatus('error');
+        void trackEvent('save_hydration_failed', { account_cache_fallback: Boolean(cached) });
       }
     };
 
@@ -483,6 +539,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     streakLastDate: streakLastDate || null,
     recentQuestionIds: seenIds,
     categoryProgress,
+    onboardingCompleted,
+    tutorialCompleted,
+    selectedInterestAreas,
   }), [
     budget,
     careerXp,
@@ -503,19 +562,21 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     correctAnswers,
     wrongAnswers,
     categoryProgress,
+    onboardingCompleted,
+    tutorialCompleted,
+    selectedInterestAreas,
   ]);
   latestSaveRef.current = saveSnapshot;
 
   const isLoaded = Boolean(
-    user?.id
-    && hydratedUserId === user.id
+    isAuthenticatedSaveVisible(user?.id ?? null, hydratedUserId)
     && (saveStatus === 'ready' || saveStatus === 'saving' || saveStatus === 'error'),
   );
 
   const queuePlayerSave = useCallback((userId: string, snapshot: PlayerSaveSnapshot) => {
     const signature = JSON.stringify(snapshot);
     saveQueueRef.current = saveQueueRef.current.then(async () => {
-      if (hydratedUserIdRef.current !== userId) return;
+      if (!canPersistAccountSave(userId, activeUserIdRef.current, hydratedUserIdRef.current)) return;
       lastAttemptedSignatureRef.current = signature;
       setSaveStatus('saving');
       setSaveError(null);
@@ -526,7 +587,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         if (__DEV__) console.warn('[PlayerSave] Hesap yedeği yazılamadı.', error);
       }
 
-      if (!cloudBaselineReadyRef.current) {
+      if (!canPersistCloudSave(
+        userId,
+        activeUserIdRef.current,
+        hydratedUserIdRef.current,
+        cloudBaselineReadyRef.current,
+      )) {
+        if (activeUserIdRef.current !== userId) return;
         setSaveError('Bulut kayıt doğrulanamadı. Hesap yedeğin bu cihazda korunuyor; bağlantıyı yenileyip tekrar dene.');
         setSaveStatus('error');
         return;
@@ -534,11 +601,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
       try {
         await upsertMyPlayerSave(userId, snapshot);
-        if (hydratedUserIdRef.current !== userId) return;
+        if (!canPersistAccountSave(userId, activeUserIdRef.current, hydratedUserIdRef.current)) return;
         lastPersistedSignatureRef.current = signature;
         setSaveStatus('ready');
       } catch (error) {
-        if (hydratedUserIdRef.current !== userId) return;
+        if (!canPersistAccountSave(userId, activeUserIdRef.current, hydratedUserIdRef.current)) return;
         setSaveError(getPlayerSaveErrorMessage(error));
         setSaveStatus('error');
       }
@@ -594,6 +661,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const setCorrectAnswersHandler: React.Dispatch<React.SetStateAction<number>> = (action) => {
     setCorrectAnswers((prev) => {
       const nextVal = typeof action === 'function' ? action(prev) : action;
+      correctAnswersRef.current = nextVal;
       return nextVal;
     });
   };
@@ -601,9 +669,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const setWrongAnswersHandler: React.Dispatch<React.SetStateAction<number>> = (action) => {
     setWrongAnswers((prev) => {
       const nextVal = typeof action === 'function' ? action(prev) : action;
+      wrongAnswersRef.current = nextVal;
       return nextVal;
     });
   };
+
+  const setUptimeStreakHandler = useCallback<React.Dispatch<React.SetStateAction<number>>>((action) => {
+    const next = typeof action === 'function' ? action(uptimeStreakRef.current) : action;
+    uptimeStreakRef.current = next;
+    setUptimeStreakState(next);
+  }, []);
 
   const recordRankingOutcomeHandler = useCallback((outcome: RankingOutcome) => {
     const current = rankingOutcomeStatsRef.current;
@@ -676,6 +751,54 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     categoryProgressRef.current = completion.progress;
     setCategoryProgress(completion.progress);
     return completion;
+  }, []);
+
+  const commitGameSession = useCallback((session: GameSessionCommitInput): OperationSessionCompletion | null => {
+    const plan = planCompletedGameSession({
+      permanentState: {
+        careerXp: careerXpRef.current,
+        reputation: scoreRef.current,
+        budget: budgetRef.current,
+        correctAnswers: correctAnswersRef.current,
+        wrongAnswers: wrongAnswersRef.current,
+        rankingOutcomeStats: rankingOutcomeStatsRef.current,
+        categoryProgress: categoryProgressRef.current,
+        uptimeStreak: uptimeStreakRef.current,
+      },
+      session,
+      getProgressionBudgetBonus: ({
+        previousCareerXp,
+        previousReputation,
+        nextCareerXp,
+        nextReputation,
+      }) => LEGACY_BADGE_REWARD_MILESTONES
+        .filter((milestone) => (
+          !isLegacyRewardMilestoneReached(milestone, previousReputation, previousCareerXp)
+          && isLegacyRewardMilestoneReached(milestone, nextReputation, nextCareerXp)
+        ))
+        .reduce((sum, milestone) => sum + milestone.rewardBudget, 0),
+    });
+    if (!plan) return null;
+
+    const next = plan.permanentState;
+    careerXpRef.current = next.careerXp;
+    scoreRef.current = next.reputation;
+    budgetRef.current = next.budget;
+    correctAnswersRef.current = next.correctAnswers;
+    wrongAnswersRef.current = next.wrongAnswers;
+    rankingOutcomeStatsRef.current = next.rankingOutcomeStats;
+    categoryProgressRef.current = next.categoryProgress;
+    uptimeStreakRef.current = next.uptimeStreak;
+
+    setCareerXp(next.careerXp);
+    setScore(next.reputation);
+    setBudget(next.budget);
+    setCorrectAnswers(next.correctAnswers);
+    setWrongAnswers(next.wrongAnswers);
+    setRankingOutcomeStats(next.rankingOutcomeStats);
+    setCategoryProgress(next.categoryProgress);
+    setUptimeStreakState(next.uptimeStreak);
+    return plan.completion;
   }, []);
 
   const applyDelta = async (careerXpDelta: number, reputationDelta: number, budgetDelta: number): Promise<Badge[]> => {
@@ -778,6 +901,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     inventoryRef.current = [];
     lifelineInventoryRef.current = createDefaultJokerInventory();
     seenIdsRef.current = [];
+    correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
+    wrongAnswersRef.current = DEFAULT_WRONG_ANSWERS;
     rankingOutcomeStatsRef.current = normalizeRankingOutcomeStats(null);
     streakDaysRef.current = [false, false, false, false, false, false, false];
     categoryProgressRef.current = createDefaultCategoryProgress();
@@ -790,7 +915,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setGitRevertState(DEFAULT_LIFELINE_COUNT);
     setServerScaleUpState(DEFAULT_LIFELINE_COUNT);
     setSnapshotBackupState(DEFAULT_LIFELINE_COUNT);
-    setUptimeStreak(DEFAULT_UPTIME_STREAK);
+    uptimeStreakRef.current = DEFAULT_UPTIME_STREAK;
+    setUptimeStreakState(DEFAULT_UPTIME_STREAK);
     setInventory([]);
     setPendingBadges([]);
 
@@ -823,9 +949,48 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   };
 
   const setCompanyName = async (name: string) => {
-    const normalized = normalizeCompanyName(name);
-    setCompanyNameState(normalized);
+    const result = await persistCompanyName(name);
+    if (result.status === 'saved') setCompanyNameState(result.displayName);
+    return result;
   };
+
+  const completeOnboarding = useCallback(async (selection: OnboardingProfileSelection) => {
+    const companyResult = await persistCompanyName(selection.companyName);
+    if (companyResult.status !== 'saved') return companyResult;
+
+    const avatar = validateCosmeticEquip(ownedCosmeticIdsRef.current, selection.avatarId, 'avatar');
+    const frame = validateCosmeticEquip(ownedCosmeticIdsRef.current, selection.avatarFrameId, 'avatar_frame');
+    const nextAvatarId = avatar.status === 'ok' ? avatar.cosmetic.id : DEFAULT_AVATAR_ID;
+    const nextFrameId = frame.status === 'ok' ? frame.cosmetic.id : DEFAULT_AVATAR_FRAME_ID;
+
+    equippedAvatarIdRef.current = nextAvatarId;
+    equippedAvatarFrameIdRef.current = nextFrameId;
+    setCompanyNameState(companyResult.displayName);
+    setEquippedAvatarId(nextAvatarId);
+    setEquippedAvatarFrameId(nextFrameId);
+    setSelectedInterestAreas(normalizeInterestAreas(selection.selectedInterestAreas));
+    setOnboardingCompleted(true);
+    return companyResult;
+  }, []);
+
+  const skipOnboarding = useCallback(() => {
+    const defaults = createSkippedOnboardingSelection();
+    equippedAvatarIdRef.current = defaults.avatarId;
+    equippedAvatarFrameIdRef.current = defaults.avatarFrameId;
+    setCompanyNameState(defaults.companyName);
+    setEquippedAvatarId(defaults.avatarId);
+    setEquippedAvatarFrameId(defaults.avatarFrameId);
+    setSelectedInterestAreas(defaults.selectedInterestAreas);
+    setOnboardingCompleted(true);
+  }, []);
+
+  const completeTutorial = useCallback(() => {
+    setTutorialCompleted(true);
+  }, []);
+
+  const setInterestAreas = useCallback((areas: InterestAreaId[]) => {
+    setSelectedInterestAreas(normalizeInterestAreas(areas));
+  }, []);
 
   const purchaseItem = async (
     itemId: string,
@@ -940,6 +1105,14 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       careerXp,
       budget,
       companyName,
+      companyNameSet: companyName !== DEFAULT_COMPANY_NAME,
+      onboardingCompleted,
+      tutorialCompleted,
+      selectedInterestAreas,
+      completeOnboarding,
+      skipOnboarding,
+      completeTutorial,
+      setInterestAreas,
       isLoaded,
       saveStatus,
       saveError,
@@ -959,7 +1132,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       consumeGitRevert,
       consumeServerScaleUp,
       consumeSnapshotBackup,
-      setUptimeStreak,
+      setUptimeStreak: setUptimeStreakHandler,
       setCodeReview,
       setGitRevert,
       setServerScaleUp,
@@ -1005,6 +1178,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       recordCategoryQuestionAnswer,
       revertCategoryQuestionAnswer,
       completeCategoryOperationSession,
+      commitGameSession,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1012,6 +1186,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     careerXp,
     budget,
     companyName,
+    onboardingCompleted,
+    tutorialCompleted,
+    selectedInterestAreas,
     isLoaded,
     saveStatus,
     saveError,

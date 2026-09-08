@@ -1,9 +1,12 @@
 # Supabase data setup
 
-Ship It Ops uses two deliberately separate account tables:
+Ship It Ops uses deliberately separated account tables:
 
 - `public.player_saves` is private, account-owned progression. RLS restricts every normal client to its own row.
 - `public.leaderboard_profiles` is the minimal public leaderboard projection. It never contains XP, İtibar, budget, inventories, recent questions, or achievement state.
+- `public.leaderboard_score_events` is private, insert-only completed-session score history. Raw rows are not client-readable; weekly and monthly totals are exposed through an authenticated aggregate RPC. Calendar weeks start Monday.
+- `public.company_name_identities` is the private, database-unique company-name claim for each account.
+- `public.company_name_blocklist` is an operator-editable moderation source. Normal clients cannot list its rows.
 
 ## Manual migrations
 
@@ -13,8 +16,9 @@ If migrations are not connected to the Supabase project, run each file once in t
 2. Open **SQL Editor** and choose **New query**.
 3. Paste the complete contents of `supabase/migrations/20260829093000_create_leaderboard_profiles.sql`, then choose **Run**.
 4. Create another query, paste the complete contents of `supabase/migrations/20260829150000_create_player_saves.sql`, then choose **Run**.
+5. Run the remaining migrations in timestamp order, ending with `supabase/migrations/20260907120000_create_company_name_identity.sql`.
 
-The player-save query should finish with `Success. No rows returned`. In **Table Editor**, verify `public.player_saves` exists with `user_id` as its primary key, `save_version`, typed progression/stat columns, JSONB inventory/history columns, and `created_at`/`updated_at`.
+The player-save query should finish with `Success. No rows returned`. In **Table Editor**, verify `public.player_saves` exists with `user_id` as its primary key, `save_version`, typed progression/stat columns, JSONB inventory/history/onboarding-interest columns, onboarding/tutorial completion flags, and `created_at`/`updated_at`.
 
 In **Authentication → Policies** (or the table policy panel), verify these three `player_saves` policies:
 
@@ -24,11 +28,15 @@ In **Authentication → Policies** (or the table policy panel), verify these thr
 
 There should be no authenticated DELETE policy and no anonymous table privileges. `leaderboard_profiles` should retain its separate authenticated-read and own-row write policies.
 
+The company-name migration adds the partial unique lookup index and the authenticated `check_company_name_availability` and `set_company_name` RPCs. Normal clients may read only their own identity row, cannot write identity rows directly, and cannot read the blocklist. The security-definer RPCs expose only status/message data and always scope writes to `auth.uid()`.
+
+Valid, non-default legacy company names are backfilled when their normalized lookup is unique. If multiple legacy rows collapse to the same lookup, the oldest row receives the claim and the remaining legacy names stay visible from `player_saves`; those accounts must choose an available name the next time they save it. This avoids migration failure and does not force existing users back through onboarding.
+
 ## Save ownership and migration
 
 Cloud saves are authoritative when available. The app keeps an account-scoped device cache under `@shipit_account_save:<user_uuid>` for safe fallback; it never uses an email address as the namespace.
 
-The first account on a device whose cloud row is missing may claim the legacy device-local progression. The claim is stored in `@shipit_legacy_save_claim_v1` with the owning user UUID and save version. Legacy keys are retained for rollback safety but are no longer active persistence, and a different account cannot import the same legacy save.
+Generic legacy device-local progression is never imported into an authenticated account automatically. When a cloud row is missing, only the same user's account-scoped cache may initialize it; otherwise the account starts from clean defaults. Legacy keys and the old `@shipit_legacy_save_claim_v1` marker are left untouched for rollback safety and a possible future explicit import flow, but they are not active authenticated persistence.
 
 This phase uses whole-save last-write-wins snapshots and serialized, coalesced writes. It does not implement realtime sync, save slots, rollback history, or multi-device conflict resolution. If two devices play the same account concurrently, the last completed snapshot write wins.
 

@@ -37,6 +37,9 @@ interface PlayerSaveDatabaseRow {
   streak_last_date: string | null;
   recent_question_ids: unknown;
   category_progress: unknown;
+  onboarding_completed: boolean;
+  tutorial_completed: boolean;
+  selected_interest_areas: unknown;
 }
 
 export type PlayerSaveErrorKind = 'schema_missing' | 'unauthorized' | 'unavailable';
@@ -96,6 +99,9 @@ const mapDatabaseRow = (row: PlayerSaveDatabaseRow): PlayerSaveSnapshot => {
     streakLastDate: row.streak_last_date,
     recentQuestionIds: row.recent_question_ids,
     categoryProgress: row.category_progress,
+    onboardingCompleted: row.onboarding_completed,
+    tutorialCompleted: row.tutorial_completed,
+    selectedInterestAreas: row.selected_interest_areas,
   });
 };
 
@@ -122,12 +128,15 @@ const toDatabaseRow = (userId: string, save: PlayerSaveSnapshot) => ({
   streak_last_date: save.streakLastDate,
   recent_question_ids: save.recentQuestionIds,
   category_progress: save.categoryProgress,
+  onboarding_completed: save.onboardingCompleted,
+  tutorial_completed: save.tutorialCompleted,
+  selected_interest_areas: save.selectedInterestAreas,
 });
 
 export async function fetchMyPlayerSave(userId: string): Promise<PlayerSaveSnapshot | null> {
   const { data, error } = await supabase
     .from('player_saves')
-    .select('user_id, save_version, career_xp, reputation, company_budget, company_name, correct_answers, wrong_answers, ranking_success_count, ranking_partial_count, ranking_fail_count, ranking_timeout_count, ranking_legacy_positive_count, joker_inventory, owned_item_ids, owned_cosmetic_ids, equipped_avatar_id, equipped_avatar_frame_id, streak_days, streak_last_date, recent_question_ids, category_progress')
+    .select('user_id, save_version, career_xp, reputation, company_budget, company_name, correct_answers, wrong_answers, ranking_success_count, ranking_partial_count, ranking_fail_count, ranking_timeout_count, ranking_legacy_positive_count, joker_inventory, owned_item_ids, owned_cosmetic_ids, equipped_avatar_id, equipped_avatar_frame_id, streak_days, streak_last_date, recent_question_ids, category_progress, onboarding_completed, tutorial_completed, selected_interest_areas')
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw normalizeServiceError(error);

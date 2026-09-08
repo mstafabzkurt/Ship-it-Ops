@@ -1,14 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, useWindowDimensions, View, type ImageSourcePropType } from 'react-native';
 
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
+import AssetIcon from '../AssetIcon';
 import { dashboardType, getDashboardTokens } from '../dashboard/dashboardTokens';
 
 export interface JokerUseActivation {
   activationId: number;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
+  iconSource: ImageSourcePropType;
+  fallbackIcon: React.ComponentProps<typeof Ionicons>['name'];
   name: string;
   countBefore: number;
 }
@@ -219,12 +221,11 @@ export default function JokerUseOverlay({ activation, reduceMotion, onFinished }
 
         <View style={styles.activationHeader}>
           <View style={styles.iconSlot}>
-            <Ionicons
-              name={activation.icon}
-              size={38}
-              color={accent.solid}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
+            <AssetIcon
+              source={activation.iconSource}
+              fallbackName={activation.fallbackIcon}
+              fallbackColor={accent.solid}
+              size={tokens.layout.isCompact ? 48 : 56}
             />
           </View>
 
@@ -260,10 +261,10 @@ export default function JokerUseOverlay({ activation, reduceMotion, onFinished }
 }
 
 function getJokerAccent(name: string, tokens: ReturnType<typeof getDashboardTokens>) {
-  if (name === 'Git Revert' || name === 'Snapshot') {
+  if (name === 'Rollback' || name === 'Snapshot') {
     return { solid: tokens.colors.secondary, soft: tokens.colors.secondarySoft };
   }
-  if (name === 'Scale Up') {
+  if (name === 'Overclock') {
     return { solid: tokens.colors.warning, soft: tokens.colors.warningSoft };
   }
   return { solid: tokens.colors.primary, soft: tokens.colors.primarySoft };

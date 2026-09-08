@@ -13,8 +13,10 @@ import { RECENT_QUESTION_HISTORY_LIMIT } from '../config/progression';
 import { appendRecentQuestionId } from './questionSelection';
 import { normalizeRankingOutcomeStats, type RankingOutcomeStats } from './ranking';
 import { createDefaultCategoryProgress, normalizeCategoryProgress, type CategoryProgress } from './categoryProgress';
+import { normalizeInterestAreas, type InterestAreaId } from './onboarding';
 
-export const PLAYER_SAVE_VERSION = 2;
+export const PLAYER_SAVE_VERSION = 3;
+const DEFAULT_PLAYER_BUDGET = 1_000;
 export const LEGACY_SAVE_CLAIM_VERSION = 1;
 export const PLAYER_SAVE_CACHE_PREFIX = '@shipit_account_save:';
 export const LEGACY_SAVE_CLAIM_KEY = '@shipit_legacy_save_claim_v1';
@@ -55,6 +57,9 @@ export interface PlayerSaveSnapshot {
   streakLastDate: string | null;
   recentQuestionIds: number[];
   categoryProgress: CategoryProgress;
+  onboardingCompleted: boolean;
+  tutorialCompleted: boolean;
+  selectedInterestAreas: InterestAreaId[];
 }
 
 export interface LegacySaveClaim {
@@ -127,7 +132,7 @@ export function createDefaultPlayerSave(): PlayerSaveSnapshot {
     saveVersion: PLAYER_SAVE_VERSION,
     careerXp: 0,
     reputation: 0,
-    companyBudget: 1_000,
+    companyBudget: DEFAULT_PLAYER_BUDGET,
     companyName: DEFAULT_COMPANY_NAME,
     correctAnswers: 0,
     wrongAnswers: 0,
@@ -141,7 +146,44 @@ export function createDefaultPlayerSave(): PlayerSaveSnapshot {
     streakLastDate: null,
     recentQuestionIds: [],
     categoryProgress: createDefaultCategoryProgress(),
+    onboardingCompleted: false,
+    tutorialCompleted: false,
+    selectedInterestAreas: [],
   };
+}
+
+export function hasMeaningfulPlayerProgress(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const input = value as Partial<Record<keyof PlayerSaveSnapshot, unknown>>;
+  const companyName = normalizeCompanyName(input.companyName);
+  const categoryProgress = normalizeCategoryProgress(input.categoryProgress);
+  const hasCategoryActivity = Object.values(categoryProgress).some((tiers) => (
+    Object.values(tiers).some((tier) => (
+      tier.attemptedQuestionIds.length > 0
+      || tier.correctCount > 0
+      || tier.incorrectCount > 0
+      || Object.values(tier.operationCheckpoints).some((checkpoint) => checkpoint.attempted)
+    ))
+  ));
+  const cosmeticState = normalizeCosmeticPlayerState(
+    input.ownedCosmeticIds,
+    input.equippedAvatarId,
+    input.equippedAvatarFrameId,
+  );
+  const rankingStats = normalizeRankingOutcomeStats(input.rankingOutcomeStats);
+
+  return companyName !== DEFAULT_COMPANY_NAME
+    || normalizeNonNegativeInteger(input.careerXp) > 0
+    || normalizeNonNegativeInteger(input.reputation) > 0
+    || normalizeNonNegativeInteger(input.correctAnswers) > 0
+    || normalizeNonNegativeInteger(input.wrongAnswers) > 0
+    || normalizeNonNegativeInteger(input.companyBudget, DEFAULT_PLAYER_BUDGET) !== DEFAULT_PLAYER_BUDGET
+    || Object.values(rankingStats).some((count) => count > 0)
+    || normalizeStringIds(input.ownedItemIds).length > 0
+    || cosmeticState.ownedCosmeticIds.length > DEFAULT_OWNED_COSMETIC_IDS.length
+    || normalizeRecentQuestionIds(input.recentQuestionIds).length > 0
+    || normalizeStreakDays(input.streakDays).some(Boolean)
+    || hasCategoryActivity;
 }
 
 export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
@@ -155,6 +197,13 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
     input.equippedAvatarId,
     input.equippedAvatarFrameId,
   );
+  // Rows created before save v3 received false defaults when the columns were
+  // added. Meaningful progress is a compatibility signal only for those rows;
+  // otherwise a new player who postpones the tutorial by entering a game could
+  // be mistaken for an established player after completing that first session.
+  const storedVersion = Number(input.saveVersion);
+  const predatesOnboardingSchema = !Number.isFinite(storedVersion) || storedVersion < 3;
+  const legacyPlayer = predatesOnboardingSchema && hasMeaningfulPlayerProgress(input);
 
   return {
     saveVersion: PLAYER_SAVE_VERSION,
@@ -174,6 +223,9 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
     streakLastDate: normalizeDate(input.streakLastDate),
     recentQuestionIds: normalizeRecentQuestionIds(input.recentQuestionIds),
     categoryProgress: normalizeCategoryProgress(input.categoryProgress),
+    onboardingCompleted: input.onboardingCompleted === true || legacyPlayer,
+    tutorialCompleted: input.tutorialCompleted === true || legacyPlayer,
+    selectedInterestAreas: normalizeInterestAreas(input.selectedInterestAreas),
   };
 }
 
@@ -222,6 +274,51 @@ export function buildLegacyPlayerSave(stored: Record<string, string | null>): Pl
 
 export function createAccountSaveCacheKey(userId: string): string {
   return `${PLAYER_SAVE_CACHE_PREFIX}${userId}`;
+}
+
+export type AuthenticatedSaveSource = 'cloud' | 'account_cache' | 'clean_default';
+
+export interface AuthenticatedSaveSelection {
+  save: PlayerSaveSnapshot;
+  source: AuthenticatedSaveSource;
+}
+
+/**
+ * Authenticated saves may come only from that user's cloud row or user-scoped
+ * device cache. Generic/legacy device progress is deliberately not accepted by
+ * this boundary and therefore cannot be attached to a newly-created account.
+ */
+export function selectAuthenticatedSaveSource(
+  cloudSave: PlayerSaveSnapshot | null,
+  accountCache: PlayerSaveSnapshot | null,
+): AuthenticatedSaveSelection {
+  if (cloudSave) return { save: cloudSave, source: 'cloud' };
+  if (accountCache) return { save: accountCache, source: 'account_cache' };
+  return { save: createDefaultPlayerSave(), source: 'clean_default' };
+}
+
+export function isAuthenticatedSaveVisible(
+  activeUserId: string | null,
+  hydratedUserId: string | null,
+): boolean {
+  return Boolean(activeUserId && hydratedUserId === activeUserId);
+}
+
+export function canPersistAccountSave(
+  targetUserId: string,
+  activeUserId: string | null,
+  hydratedUserId: string | null,
+): boolean {
+  return targetUserId === activeUserId && targetUserId === hydratedUserId;
+}
+
+export function canPersistCloudSave(
+  targetUserId: string,
+  activeUserId: string | null,
+  hydratedUserId: string | null,
+  cloudBaselineReady: boolean,
+): boolean {
+  return cloudBaselineReady && canPersistAccountSave(targetUserId, activeUserId, hydratedUserId);
 }
 
 export function canUseLegacySave(claim: LegacySaveClaim | null, userId: string): boolean {

@@ -11,6 +11,7 @@ import { AppState, Platform, type AppStateStatus } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import { normalizeAuthError, type NormalizedAuthError } from '../auth/authErrors';
+import { getWebOAuthRedirectUrl } from '../auth/oauthRedirect';
 import { supabase } from '../supabase';
 
 export interface EmailPasswordCredentials {
@@ -183,7 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(async (): Promise<AuthActionResult<GoogleSignInResult>> => {
     try {
       const redirectTo = Platform.OS === 'web' && typeof window !== 'undefined'
-        ? `${window.location.origin}/`
+        ? getWebOAuthRedirectUrl(window.location.origin)
         : Linking.createURL('/');
       const isNative = Platform.OS !== 'web';
       const { data, error } = await supabase.auth.signInWithOAuth({

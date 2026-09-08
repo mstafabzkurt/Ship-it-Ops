@@ -1,11 +1,15 @@
 import React, { useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
+import { ECONOMY_ICON_ASSETS } from '../../config/iconAssets';
 import type { Rank } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
-import { formatCurrency } from '../../utils/format';
+import { formatBudget } from '../../utils/format';
 import RankProgressRail from '../RankProgressRail';
+import AssetIcon from '../AssetIcon';
+import RankIcon from '../rank/RankIcon';
 import { getDashboardTokens } from './dashboardTokens';
 
 interface CareerSummaryCardProps {
@@ -26,16 +30,26 @@ interface MetricProps {
   tone: 'primary' | 'secondary' | 'warning';
   styles: ReturnType<typeof makeStyles>;
   separated?: boolean;
+  icon?: {
+    source: ImageSourcePropType;
+    fallbackName: React.ComponentProps<typeof Ionicons>['name'];
+    fallbackColor: string;
+  };
 }
 
-function Metric({ label, value, detail, tone, styles, separated = false }: MetricProps) {
+function Metric({ label, value, detail, tone, styles, separated = false, icon }: MetricProps) {
   return (
     <View style={[styles.metric, separated && styles.metricSeparated]}>
       <View style={[styles.metricRail, styles[`${tone}Metric`]]} />
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, styles[`${tone}Value`]]} numberOfLines={1} adjustsFontSizeToFit>
-        {value}
-      </Text>
+      <View style={styles.metricLabelRow}>
+        <Text style={styles.metricLabel}>{label}</Text>
+      </View>
+      <View style={styles.metricValueRow}>
+        {icon ? <AssetIcon source={icon.source} fallbackName={icon.fallbackName} fallbackColor={icon.fallbackColor} size={18} /> : null}
+        <Text style={[styles.metricValue, styles[`${tone}Value`]]} numberOfLines={1} adjustsFontSizeToFit>
+          {value}
+        </Text>
+      </View>
       <Text style={styles.metricDetail} numberOfLines={2}>{detail}</Text>
     </View>
   );
@@ -63,7 +77,7 @@ export default function CareerSummaryCard({
       <View style={styles.titleRow}>
         <View style={styles.rankRing} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <View style={styles.rankCore}>
-            <Ionicons name="ribbon-outline" size={24} color={tokens.colors.warning} />
+            <RankIcon rank={currentRank} size={tokens.layout.isCompact ? 48 : 56} fallbackColor={tokens.colors.warning} />
           </View>
         </View>
         <View style={styles.titleCopy}>
@@ -94,10 +108,11 @@ export default function CareerSummaryCard({
       <View style={styles.metrics}>
         <Metric
           label="ŞİRKET BÜTÇESİ"
-          value={formatCurrency(budget)}
+          value={formatBudget(budget)}
           detail="Müdahale kaynağı"
           tone="warning"
           styles={styles}
+          icon={{ source: ECONOMY_ICON_ASSETS.coin, fallbackName: 'wallet-outline', fallbackColor: tokens.colors.warning }}
         />
         <Metric
           label="KARİYER XP"
@@ -144,8 +159,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       backgroundColor: colors.warning,
       opacity: 0.5,
     },
-    rankRing: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-    rankCore: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.warningSoft, alignItems: 'center', justifyContent: 'center' },
+    rankRing: { width: tokens.layout.isCompact ? 58 : 66, height: tokens.layout.isCompact ? 58 : 66, borderRadius: 34, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+    rankCore: { width: tokens.layout.isCompact ? 52 : 60, height: tokens.layout.isCompact ? 52 : 60, borderRadius: 30, backgroundColor: colors.warningSoft, alignItems: 'center', justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: tokens.layout.isCompact ? 10 : 16 },
     titleCopy: { flex: 1, minWidth: 0 },
     eyebrow: {
@@ -188,11 +203,13 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     primaryMetric: { backgroundColor: colors.borderStrong },
     secondaryMetric: { backgroundColor: colors.secondary },
     warningMetric: { backgroundColor: colors.warning },
+    metricLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 },
+    metricValueRow: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
     metricLabel: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isNarrow ? 9 : 10, lineHeight: 14, letterSpacing: 0.45, color: colors.textMuted },
-    metricValue: { ...tokens.type.metric, fontFamily: fonts.monoBold, marginVertical: tokens.layout.isCompact ? 2 : 5 },
+    metricValue: { ...tokens.type.metric, minWidth: 0, flexShrink: 1, fontFamily: fonts.monoBold, marginVertical: tokens.layout.isCompact ? 2 : 5 },
     primaryValue: { color: colors.text },
     secondaryValue: { color: colors.secondary },
-    warningValue: { color: colors.warning, fontSize: tokens.layout.isCompact ? 16 : tokens.type.metric.fontSize },
+    warningValue: { color: colors.warning, fontSize: tokens.layout.isNarrow ? 15 : tokens.layout.isCompact ? 16 : tokens.type.metric.fontSize },
     metricDetail: { fontFamily: fonts.bodyMedium, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },
   });
 }

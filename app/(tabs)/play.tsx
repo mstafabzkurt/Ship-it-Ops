@@ -11,6 +11,7 @@ import {
   DIFFICULTY_STARS,
   GAME_CATEGORIES,
   QUESTIONS_PER_TIER,
+  buildGameSessionRoute,
   type DifficultyStar,
   type GameCategoryId,
 } from '../../src/config/gameCategories';
@@ -24,9 +25,17 @@ import {
   getTierAttemptedCount,
   isTierUnlocked,
 } from '../../src/utils/categoryProgress';
-import { isValidCategoryQuestion, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
+import { filterCategoryQuestions, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
+import { trackEvent } from '../../src/utils/telemetry';
 
 type Availability = Record<GameCategoryId, Record<DifficultyStar, number>>;
+type LockedTierFeedback = {
+  categoryId: GameCategoryId;
+  star: DifficultyStar;
+  message: string;
+  passedCount: number;
+  targetReputation: number;
+};
 
 const CATEGORY_PROGRESS_TOTAL = QUESTIONS_PER_TIER * DIFFICULTY_STARS.length;
 const HUB_PROGRESS_TOTAL = CATEGORY_PROGRESS_TOTAL * GAME_CATEGORIES.length;
@@ -48,6 +57,9 @@ export default function PlayHubScreen() {
   const [error, setError] = useState<string | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
+  const [lockedTierFeedback, setLockedTierFeedback] = useState<LockedTierFeedback | null>(null);
+  const [hoveredActionId, setHoveredActionId] = useState<GameCategoryId | null>(null);
+  const [focusedActionId, setFocusedActionId] = useState<GameCategoryId | null>(null);
 
   useFocusEffect(useCallback(() => {
     setIsScreenFocused(true);
@@ -59,6 +71,12 @@ export default function PlayHubScreen() {
     const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!lockedTierFeedback) return undefined;
+    const timer = setTimeout(() => setLockedTierFeedback(null), 4500);
+    return () => clearTimeout(timer);
+  }, [lockedTierFeedback]);
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -77,8 +95,11 @@ export default function PlayHubScreen() {
     const next = createEmptyAvailability();
     for (const category of GAME_CATEGORIES) {
       for (const star of DIFFICULTY_STARS) {
-        next[category.id][star] = (data as CategoryQuestionRow[] | null ?? [])
-          .filter((row) => isValidCategoryQuestion(row, category.id, star)).length;
+        next[category.id][star] = filterCategoryQuestions(
+          data as CategoryQuestionRow[] | null ?? [],
+          category.id,
+          star,
+        ).length;
       }
     }
     setAvailability(next);
@@ -90,8 +111,33 @@ export default function PlayHubScreen() {
   }, [loadAvailability]);
 
   const startSession = (categoryId: GameCategoryId, star: DifficultyStar) => {
-    router.push(`/(tabs)/game?category=${categoryId}&star=${star}`);
+    setLockedTierFeedback(null);
+    router.push(buildGameSessionRoute(categoryId, star));
   };
+
+  const showLockedTierFeedback = useCallback((
+    categoryId: GameCategoryId,
+    star: DifficultyStar,
+    passedCount: number,
+  ) => {
+    const prerequisiteStar = (star - 1) as DifficultyStar;
+    const targetReputation = getOperationReputationTarget(prerequisiteStar);
+    const prerequisiteLabel = DIFFICULTY_LABELS[prerequisiteStar];
+    setLockedTierFeedback({
+      categoryId,
+      star,
+      passedCount,
+      targetReputation,
+      message: `${DIFFICULTY_LABELS[star]} henüz açılmadı. ${prerequisiteLabel} operasyonlarında yeterli itibar kazanmalısın.`,
+    });
+    void trackEvent('locked_tier_tapped', {
+      category_id: categoryId,
+      difficulty_star: star,
+      operation_passed_count: passedCount,
+      operation_required_count: 2,
+      target_reputation: targetReputation,
+    });
+  }, []);
 
   const hubProgress = GAME_CATEGORIES.reduce((categoryTotal, category) => (
     categoryTotal + DIFFICULTY_STARS.reduce((tierTotal, star) => (
@@ -149,7 +195,7 @@ export default function PlayHubScreen() {
             ) : null}
 
             <View style={styles.categoryGrid}>
-              {GAME_CATEGORIES.map((category, categoryIndex) => {
+              {GAME_CATEGORIES.map((category) => {
                 const tiers = DIFFICULTY_STARS.map((star) => {
                   const attempted = getTierAttemptedCount(categoryProgress, category.id, star);
                   const passedOperations = getPassedOperationCount(categoryProgress, category.id, star);
@@ -160,34 +206,21 @@ export default function PlayHubScreen() {
                     star,
                     attempted,
                     passedOperations,
-                    target: getOperationReputationTarget(star),
                     unlocked,
                     completeContent,
                     playable: unlocked && completeContent && !loading,
                   };
                 });
                 const totalAttempted = tiers.reduce((total, tier) => total + tier.attempted, 0);
-                const openTier = [...tiers].reverse().find((tier) => tier.unlocked) ?? tiers[0];
                 const firstIncompletePlayable = tiers.find((tier) => tier.playable && tier.attempted < QUESTIONS_PER_TIER);
                 const fallbackPlayable = [...tiers].reverse().find((tier) => tier.playable);
                 const primaryTier = firstIncompletePlayable ?? fallbackPlayable;
-                const nextLockedTier = tiers.find((tier) => !tier.unlocked);
-                const prerequisiteTier = nextLockedTier ? tiers[nextLockedTier.star - 2] : null;
-                const nextGoal = nextLockedTier && prerequisiteTier
-                  ? `${DIFFICULTY_LABELS[nextLockedTier.star]} kilidi: ${prerequisiteTier.passedOperations}/2 operasyon geçti`
-                  : 'Tüm kademeler açık';
                 const hasIncompleteContent = tiers.some((tier) => tier.unlocked && !tier.completeContent);
 
                 return (
                   <View key={category.id} style={styles.categoryCard}>
                     <View style={styles.cardRail} />
                     <View style={styles.categoryHeader}>
-                      <View style={styles.categoryHeaderTopline}>
-                        <Text style={styles.categoryCode}>AREA {String(categoryIndex + 1).padStart(2, '0')}</Text>
-                        <View style={styles.categoryCapacityPill}>
-                          <Text style={styles.categoryCapacity}>{CATEGORY_PROGRESS_TOTAL} SORU</Text>
-                        </View>
-                      </View>
                       <View style={styles.categoryIdentity}>
                         <View style={styles.categoryIcon}>
                           <Ionicons name={category.icon} size={tokens.layout.isCompact ? 20 : 22} color={tokens.colors.secondary} />
@@ -200,7 +233,7 @@ export default function PlayHubScreen() {
                     </View>
 
                     <View style={styles.progressSection}>
-                      <Text style={styles.progressInline}>Kayıtlı ilerleme <Text style={styles.progressInlineStrong}>{totalAttempted}/{CATEGORY_PROGRESS_TOTAL} soru</Text></Text>
+                      <Text style={styles.progressInline}>{totalAttempted}/{CATEGORY_PROGRESS_TOTAL} soru</Text>
                       <ProgressSweep
                         value={totalAttempted / CATEGORY_PROGRESS_TOTAL}
                         reduceMotion={reduceMotion}
@@ -211,38 +244,31 @@ export default function PlayHubScreen() {
                         sweepColor={tokens.colors.text}
                         markers={[1 / 3, 2 / 3]}
                       />
-                      <Text style={styles.summaryInline}>Açık: <Text style={styles.summaryStrong}>{DIFFICULTY_LABELS[openTier.star]}</Text> · Hedef: <Text style={styles.summaryStrong}>{nextGoal}</Text></Text>
                     </View>
 
                     <View style={styles.tierSection}>
                       <Text style={styles.sectionLabel}>YILDIZ KADEMELERİ</Text>
                       <View style={styles.tierStrip}>
                         {tiers.map((tier) => {
-                          const prerequisite = tier.star > 1 ? tiers[tier.star - 2] : null;
+                          const unlockTarget = tier.star > 1
+                            ? getOperationReputationTarget((tier.star - 1) as DifficultyStar)
+                            : null;
                           const status = loading
-                            ? (tokens.layout.isCompact ? 'Kontrol ediliyor' : 'İçerik kontrol ediliyor')
-                            : !tier.completeContent
-                              ? 'İçerik eksik'
-                              : tier.unlocked
-                                ? tokens.layout.isCompact
-                                  ? `Açık\n${tier.attempted}/${QUESTIONS_PER_TIER} soru · ${tier.passedOperations}/2 yeterlilik\nHedef +${tier.target} İtibar`
-                                  : `${DIFFICULTY_LABELS[tier.star]} açık\nKademe ${tier.attempted}/${QUESTIONS_PER_TIER} soru\n${tier.star === 3 ? 'Ustalık hedefi' : 'Her operasyon'}: +${tier.target} İtibar · ${tier.passedOperations}/2 geçti`
-                                : tokens.layout.isCompact
-                                  ? `${DIFFICULTY_LABELS[(tier.star - 1) as DifficultyStar]} gerekli\n${prerequisite?.passedOperations ?? 0}/2 geçti · +${prerequisite?.target ?? tier.target} İtibar`
-                                  : `${DIFFICULTY_LABELS[(tier.star - 1) as DifficultyStar]} operasyonları gerekli\n${prerequisite?.passedOperations ?? 0}/2 operasyon geçti\nHer operasyon: +${prerequisite?.target ?? tier.target} İtibar`;
+                            ? 'Kontrol ediliyor'
+                            : !tier.unlocked
+                              ? `+${unlockTarget} itibar`
+                              : !tier.completeContent
+                                ? 'İçerik eksik'
+                                : 'Açık';
                           const isPrimary = primaryTier?.star === tier.star;
-                          return (
-                            <View
-                              key={tier.star}
-                              accessible
-                              accessibilityLabel={`${tier.star} yıldız, ${DIFFICULTY_LABELS[tier.star]}, ${status}${isPrimary ? ', sıradaki oturum' : ''}`}
-                              style={[
-                                styles.tierCell,
-                                isPrimary && styles.tierCellPrimary,
-                                !tier.unlocked && styles.tierCellLocked,
-                                !tier.completeContent && !loading && styles.tierCellIncomplete,
-                              ]}
-                            >
+                          const tierCellStyles = [
+                            styles.tierCell,
+                            isPrimary && styles.tierCellPrimary,
+                            !tier.unlocked && styles.tierCellLocked,
+                            !tier.completeContent && !loading && styles.tierCellIncomplete,
+                          ];
+                          const tierContent = (
+                            <>
                               <View style={styles.tierTopline}>
                                 <Text style={[styles.starLabel, !tier.unlocked && styles.tierTextMuted]}>{'★'.repeat(tier.star)}</Text>
                                 {tier.passedOperations >= 2 ? <Ionicons name="checkmark-circle" size={14} color={tokens.colors.warning} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" /> : null}
@@ -254,10 +280,44 @@ export default function PlayHubScreen() {
                               </View>
                               <Text style={[styles.tierTitle, !tier.unlocked && styles.tierTextMuted]}>{DIFFICULTY_LABELS[tier.star]}</Text>
                               <Text style={styles.tierStatus}>{status}</Text>
+                            </>
+                          );
+                          if (!tier.unlocked && !loading) {
+                            const prerequisite = tiers[tier.star - 2];
+                            return (
+                              <Pressable
+                                key={tier.star}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${category.name}, ${DIFFICULTY_LABELS[tier.star]} kilitli, ${status}`}
+                                accessibilityHint="Kilit açma koşulunu gösterir"
+                                onPress={() => showLockedTierFeedback(category.id, tier.star, prerequisite?.passedOperations ?? 0)}
+                                style={({ pressed }) => [tierCellStyles, pressed && styles.pressed]}
+                              >
+                                {tierContent}
+                              </Pressable>
+                            );
+                          }
+                          return (
+                            <View
+                              key={tier.star}
+                              accessible
+                              accessibilityLabel={`${tier.star} yıldız, ${DIFFICULTY_LABELS[tier.star]}, ${status}${isPrimary ? ', sıradaki oturum' : ''}`}
+                              style={tierCellStyles}
+                            >
+                              {tierContent}
                             </View>
                           );
                         })}
                       </View>
+                      {lockedTierFeedback?.categoryId === category.id ? (
+                        <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.lockedTierFeedback}>
+                          <Ionicons name="lock-closed-outline" size={17} color={tokens.colors.warning} />
+                          <View style={styles.lockedTierFeedbackCopy}>
+                            <Text style={styles.lockedTierFeedbackText}>{lockedTierFeedback.message}</Text>
+                            <Text style={styles.lockedTierFeedbackTarget}>Hedef: 2/2 operasyon · +{lockedTierFeedback.targetReputation} itibar</Text>
+                          </View>
+                        </View>
+                      ) : null}
                     </View>
 
                     <View style={styles.actionSection}>
@@ -274,7 +334,18 @@ export default function PlayHubScreen() {
                         accessibilityState={{ disabled: !primaryTier }}
                         disabled={!primaryTier}
                         onPress={() => primaryTier && startSession(category.id, primaryTier.star)}
-                        style={({ pressed }) => [styles.primaryButton, !primaryTier && styles.primaryButtonDisabled, pressed && styles.pressed]}
+                        onHoverIn={() => setHoveredActionId(category.id)}
+                        onHoverOut={() => setHoveredActionId(null)}
+                        onFocus={() => setFocusedActionId(category.id)}
+                        onBlur={() => setFocusedActionId(null)}
+                        style={({ pressed }) => [
+                          styles.primaryButton,
+                          theme.id === 'daylight' && hoveredActionId === category.id && primaryTier && styles.primaryButtonHovered,
+                          theme.id === 'daylight' && focusedActionId === category.id && primaryTier && styles.primaryButtonFocused,
+                          !primaryTier && styles.primaryButtonDisabled,
+                          theme.id === 'daylight' && pressed && primaryTier && styles.primaryButtonPressed,
+                          pressed && styles.pressed,
+                        ]}
                       >
                         <View style={styles.buttonCopy}>
                           <Text style={[styles.buttonTitle, !primaryTier && styles.buttonTitleDisabled]}>{primaryTier ? 'Oturuma Başla' : 'Hazır Değil'}</Text>
@@ -283,7 +354,11 @@ export default function PlayHubScreen() {
                           </Text>
                           </View>
                         <View style={[styles.buttonIcon, !primaryTier && styles.buttonIconDisabled]}>
-                          <Ionicons name={primaryTier ? 'arrow-forward' : 'lock-closed'} size={19} color={primaryTier ? tokens.colors.onAccent : tokens.colors.textMuted} />
+                          <Ionicons
+                            name={primaryTier ? 'arrow-forward' : 'lock-closed'}
+                            size={19}
+                            color={primaryTier ? tokens.colors.actionSubSurfaceForeground : tokens.colors.textMuted}
+                          />
                         </View>
                       </Pressable>
                     </View>
@@ -301,6 +376,7 @@ export default function PlayHubScreen() {
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number) {
   const { colors, radius, shadow } = tokens;
   const categoryWidth = width >= 1120 ? '32.2%' : width >= 680 ? '48%' : '100%';
+  const isCalmLightTheme = tokens.effects.decorativeOpacity === 0;
   return StyleSheet.create({
     background: { flex: 1, backgroundColor: colors.canvas },
     safeArea: { flex: 1 },
@@ -329,27 +405,20 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: 'center', gap: tokens.layout.isCompact ? 10 : 18 },
     categoryCard: { width: categoryWidth, minWidth: 0, overflow: 'hidden', borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.lg, backgroundColor: colors.surface, ...shadow.card },
     cardRail: { height: 3, backgroundColor: colors.secondary, opacity: 0.72 },
-    categoryHeader: { gap: tokens.layout.isCompact ? 6 : 10, padding: tokens.layout.isCompact ? 10 : 16, borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle },
-    categoryHeaderTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-    categoryCode: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, letterSpacing: 0.65, color: colors.secondary },
-    categoryCapacityPill: { minHeight: tokens.layout.isCompact ? 20 : 24, justifyContent: 'center', paddingHorizontal: tokens.layout.isCompact ? 7 : 9, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.pill, backgroundColor: colors.secondarySurfaceRaised },
-    categoryCapacity: { fontFamily: fonts.monoSemiBold, fontSize: tokens.layout.isCompact ? 9 : 10, lineHeight: 13, letterSpacing: 0.35, color: colors.textMuted },
+    categoryHeader: { padding: tokens.layout.isCompact ? 10 : 16, borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle },
     categoryIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: tokens.layout.isCompact ? 9 : 11 },
     categoryIcon: { width: tokens.layout.isCompact ? 38 : 42, height: tokens.layout.isCompact ? 38 : 42, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.secondarySoft },
     categoryCopy: { flex: 1, minWidth: 0 },
     categoryTitle: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
     categoryDescription: { marginTop: tokens.layout.isCompact ? 1 : 2, fontFamily: fonts.body, fontSize: tokens.layout.isCompact ? 12 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.textMuted },
     progressSection: { gap: tokens.layout.isCompact ? 7 : 9, paddingHorizontal: tokens.layout.isCompact ? 12 : 16, paddingVertical: tokens.layout.isCompact ? 10 : 13, borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle, backgroundColor: colors.floatingSurface },
-    progressInline: { fontFamily: fonts.bodyMedium, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },
-    progressInlineStrong: { fontFamily: fonts.bodySemiBold, color: colors.text },
+    progressInline: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.text },
     progressTrack: { height: 7, overflow: 'hidden', borderRadius: 3, backgroundColor: colors.borderSubtle },
     progressFill: { height: '100%', borderRadius: 3, backgroundColor: colors.warning },
-    summaryInline: { fontFamily: fonts.body, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },
-    summaryStrong: { fontFamily: fonts.bodySemiBold, color: colors.text },
     tierSection: { gap: tokens.layout.isCompact ? 5 : 7, padding: tokens.layout.isCompact ? 8 : 12 },
     sectionLabel: { paddingHorizontal: 3, fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, letterSpacing: 0.55, color: colors.textMuted },
     tierStrip: { flexDirection: 'row', alignItems: 'stretch', gap: 6 },
-    tierCell: { flex: 1, minWidth: 0, minHeight: tokens.layout.isCompact ? 88 : 108, paddingHorizontal: tokens.layout.isCompact ? 7 : 9, paddingVertical: tokens.layout.isCompact ? 6 : 9, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised },
+    tierCell: { flex: 1, minWidth: 0, minHeight: tokens.layout.isCompact ? 68 : 76, paddingHorizontal: tokens.layout.isCompact ? 7 : 9, paddingVertical: tokens.layout.isCompact ? 7 : 9, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised },
     tierCellPrimary: { borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
     tierCellLocked: { opacity: 0.56, backgroundColor: colors.secondarySurface },
     tierCellIncomplete: { borderColor: colors.warning, backgroundColor: colors.warningSoft },
@@ -358,18 +427,25 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     tierTextMuted: { color: colors.textMuted },
     tierTitle: { marginTop: tokens.layout.isCompact ? 1 : 2, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: tokens.layout.isCompact ? 17 : 18, color: colors.text },
     tierStatus: { marginTop: tokens.layout.isCompact ? 2 : 3, fontFamily: fonts.body, fontSize: tokens.layout.isCompact ? 10 : 9, lineHeight: 13, color: colors.textMuted },
+    lockedTierFeedback: { minHeight: 48, flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 9, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.sm, backgroundColor: colors.warningSoft },
+    lockedTierFeedbackCopy: { flex: 1, minWidth: 0, gap: 2 },
+    lockedTierFeedbackText: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.text },
+    lockedTierFeedbackTarget: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, color: colors.textMuted },
     nextBadge: { alignSelf: 'flex-start', paddingHorizontal: tokens.layout.isCompact ? 5 : 6, paddingVertical: 2, overflow: 'hidden', borderRadius: radius.pill, fontFamily: fonts.monoSemiBold, fontSize: tokens.layout.isCompact ? 9 : 8, lineHeight: 11, letterSpacing: 0.35, color: colors.secondary, backgroundColor: colors.secondarySoft },
     actionSection: { marginTop: 'auto', gap: tokens.layout.isCompact ? 6 : 8, padding: tokens.layout.isCompact ? 8 : 12, paddingTop: tokens.layout.isCompact ? 0 : 2 },
     availabilityNote: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 4 },
     availabilityText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted },
-    primaryButton: { minHeight: tokens.layout.isCompact ? 48 : 52, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 8 : 10, paddingHorizontal: tokens.layout.isCompact ? 12 : 14, borderRadius: radius.md, backgroundColor: colors.primary },
+    primaryButton: { minHeight: tokens.layout.isCompact ? 48 : 52, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 8 : 10, paddingHorizontal: tokens.layout.isCompact ? 12 : 14, borderRadius: radius.md, backgroundColor: isCalmLightTheme ? colors.action : colors.primary },
+    primaryButtonHovered: { backgroundColor: colors.actionHover },
+    primaryButtonFocused: { borderWidth: 2, borderColor: colors.actionFocus },
+    primaryButtonPressed: { backgroundColor: colors.actionPressed },
     primaryButtonDisabled: { borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurfaceRaised, opacity: 0.58 },
     buttonCopy: { flex: 1, minWidth: 0 },
     buttonTitle: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 18, color: colors.onAccent },
     buttonTitleDisabled: { color: colors.textMuted },
     buttonMeta: { marginTop: 1, fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 12, letterSpacing: 0.35, color: colors.onAccent },
     buttonMetaDisabled: { color: colors.textMuted },
-    buttonIcon: { width: tokens.layout.isCompact ? 30 : 32, height: tokens.layout.isCompact ? 30 : 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.surfaceHighlight },
+    buttonIcon: { width: tokens.layout.isCompact ? 30 : 32, height: tokens.layout.isCompact ? 30 : 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.actionSubSurface },
     buttonIconDisabled: { backgroundColor: colors.borderSubtle },
     pressed: tokens.motion.pressed,
   });

@@ -2,8 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
+import { UI_ICON_ASSETS } from '../../config/iconAssets';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
+import AssetIcon from '../AssetIcon';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
 import ProgressSweep from '../ProgressSweep';
 
@@ -41,12 +43,11 @@ export default function UptimeMilestoneCard({
       <View style={styles.topRow}>
         <View style={styles.currentGroup}>
           <View style={[styles.iconSlot, milestoneReached && styles.iconSlotReached]}>
-            <Ionicons
-              name="flame"
-              size={27}
-              color={milestoneReached ? tokens.colors.secondary : tokens.colors.warning}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
+            <AssetIcon
+              source={UI_ICON_ASSETS.flame}
+              fallbackName="flame"
+              fallbackColor={milestoneReached ? tokens.colors.secondary : tokens.colors.warning}
+              size={29}
             />
             {milestoneReached ? (
               <View style={styles.reachedMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">

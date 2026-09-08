@@ -87,7 +87,7 @@ export default function LoginScreen() {
     <AuthScreenShell
       eyebrow="OPERATÖR OTURUMU"
       title="Tekrar hoş geldin"
-      description="Hesabınla giriş yap. Bu cihazdaki mevcut oyun ilerlemen korunur."
+      description="Hesabınla giriş yap. Yalnızca bu hesaba ait ilerleme yüklenir."
     >
       <View style={styles.form}>
         <AuthField

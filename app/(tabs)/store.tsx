@@ -5,6 +5,7 @@ import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import CosmeticFilters, { type CosmeticCategoryFilter } from '../../src/components/cosmetics/CosmeticFilters';
+import AssetIcon from '../../src/components/AssetIcon';
 import CosmeticStoreCard from '../../src/components/store/CosmeticStoreCard';
 import JokerStoreCard from '../../src/components/store/JokerStoreCard';
 import StoreTabs, { type StoreTabId } from '../../src/components/store/StoreTabs';
@@ -12,7 +13,9 @@ import ThemeStoreCard from '../../src/components/store/ThemeStoreCard';
 import StoreFeedback, { useStoreFeedback } from '../../src/components/store/StoreFeedback';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { THEME_ITEMS, type StoreItem } from '../../src/data/storeItems';
+import { ECONOMY_ICON_ASSETS, JOKER_ICON_ASSETS } from '../../src/config/iconAssets';
 import { getJokerPrice, JOKER_STORE_ORDER, type JokerId } from '../../src/config/jokerEconomy';
+import { JOKER_DISPLAY } from '../../src/config/jokers';
 import {
   COSMETIC_CATALOG,
   compareCosmeticsByPrice,
@@ -24,13 +27,21 @@ import {
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
-import { formatCurrency } from '../../src/utils/format';
+import { THEME_METADATA, type Theme } from '../../src/theme/themes';
+import { formatBudget, formatCurrency } from '../../src/utils/format';
 import { trackEvent } from '../../src/utils/telemetry';
 
 const DEFAULT_THEME_FEATURES = [
   'Dengeli koyu mavi palet (#0B0F17)',
   'Yuvarlak köşeler (borderRadius: 12)',
   'Standart gölge efektleri',
+  'Tüm kullanıcılar için ücretsiz — her zaman erişilebilir',
+];
+
+const DAYLIGHT_THEME_FEATURES = [
+  'Sıcak krem tuval ve near-white kartlar',
+  'Lavanta seçim ve birincil aksiyon vurguları',
+  'Yumuşak gölgeler ve sakin yüzey hiyerarşisi',
   'Tüm kullanıcılar için ücretsiz — her zaman erişilebilir',
 ];
 
@@ -57,12 +68,14 @@ const THEME_FEATURES: Record<string, string[]> = {
 
 const THEME_PREVIEWS: Record<string, [string, string, string]> = {
   default: ['#111229', '#8B7CF6', '#49D7C5'],
+  daylight: ['#F7F4EF', '#62558E', '#35677B'],
   theme_cyberpunk: ['#05070A', '#00F5FF', '#FF3CAC'],
   theme_hardware: ['#07120C', '#00FF66', '#6F8F45'],
   theme_nebula: ['#17102E', '#A78BFA', '#E94057'],
 };
 
 const THEME_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  daylight: 'sunny-outline',
   theme_cyberpunk: 'hardware-chip-outline',
   theme_hardware: 'terminal-outline',
   theme_nebula: 'planet-outline',
@@ -70,13 +83,14 @@ const THEME_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']>
 
 const JOKER_CATALOG: Record<JokerId, {
   name: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
+  iconSource: React.ComponentProps<typeof JokerStoreCard>['iconSource'];
+  fallbackIcon: React.ComponentProps<typeof JokerStoreCard>['fallbackIcon'];
   description: string;
 }> = {
-  serverScaleUp: { name: 'Scale Up', icon: 'flash-outline', description: 'Müdahale süresini uzatır' },
-  codeReview: { name: 'Code Review', icon: 'scan-outline', description: 'İki zayıf seçeneği eler' },
-  snapshotBackup: { name: 'Snapshot', icon: 'camera-outline', description: 'Kriz durumunu korur' },
-  gitRevert: { name: 'Git Revert', icon: 'arrow-undo-outline', description: 'Son kararı geri alır' },
+  serverScaleUp: { ...JOKER_DISPLAY.serverScaleUp, iconSource: JOKER_ICON_ASSETS.serverScaleUp, fallbackIcon: 'flash-outline' },
+  codeReview: { ...JOKER_DISPLAY.codeReview, iconSource: JOKER_ICON_ASSETS.codeReview, fallbackIcon: 'scan-outline' },
+  snapshotBackup: { ...JOKER_DISPLAY.snapshotBackup, iconSource: JOKER_ICON_ASSETS.snapshotBackup, fallbackIcon: 'camera-outline' },
+  gitRevert: { ...JOKER_DISPLAY.gitRevert, iconSource: JOKER_ICON_ASSETS.gitRevert, fallbackIcon: 'arrow-undo-outline' },
 };
 
 const JOKERS = JOKER_STORE_ORDER.map((id) => ({ id, ...JOKER_CATALOG[id] }));
@@ -175,15 +189,17 @@ export default function StoreScreen() {
     } finally { setProcessingThemeId(null); }
   };
 
-  const handleEquipDefault = async () => {
-    if (themeId === 'default') return;
-    setProcessingThemeId('default');
+  const handleEquipBuiltIn = async (id: Extract<Theme['id'], 'default' | 'daylight'>) => {
+    if (themeId === id) return;
+    setProcessingThemeId(id);
     try {
-      await setThemeId('default');
-      void trackEvent('theme_equipped', { theme_id: 'default' });
-      showToast('Varsayılan tema aktif.', 'equip', { itemId: 'default', label: 'Tema aktif' });
+      await setThemeId(id);
+      void trackEvent('theme_equipped', { theme_id: id });
+      showToast(`${THEME_METADATA[id].title} aktif.`, 'equip', { itemId: id, label: 'Ücretsiz · Tema aktif' });
     } finally { setProcessingThemeId(null); }
   };
+
+  const handleEquipDefault = () => handleEquipBuiltIn('default');
 
   const handleJokerPurchase = async (joker: (typeof JOKERS)[number]) => {
     if (jokerPurchaseGuard.current) return;
@@ -259,13 +275,7 @@ export default function StoreScreen() {
     }
   };
 
-  const activeThemeLabel = themeId === 'cyberpunk'
-    ? 'Cyberpunk'
-    : themeId === 'hardware'
-      ? 'Hardware'
-      : themeId === 'nebula'
-        ? 'Nebula'
-        : 'Varsayılan';
+  const activeThemeLabel = THEME_METADATA[themeId].title;
   const feedbackFor = (itemId: string) => feedback?.acquisition?.itemId === itemId ? feedback : undefined;
 
   return (
@@ -281,11 +291,11 @@ export default function StoreScreen() {
                 <Text style={styles.headerDescription}>Operasyon görünümünü ve oyun envanterini buradan yönet.</Text>
               </View>
               <View style={styles.budgetCard}>
-                <Ionicons name="wallet-outline" size={18} color={tokens.colors.warning} />
+                <AssetIcon source={ECONOMY_ICON_ASSETS.coin} fallbackName="wallet-outline" fallbackColor={tokens.colors.warning} size={28} />
                 <View>
                   <Text style={styles.budgetLabel}>ŞİRKET BÜTÇESİ</Text>
-                  <Text style={styles.budgetValue}>{formatCurrency(budget)}</Text>
-                  {feedback?.acquisition?.spend ? <Text style={styles.budgetDelta}>−{formatCurrency(feedback.acquisition.spend)} · Harcama</Text> : null}
+                  <Text style={styles.budgetValue}>{formatBudget(budget)}</Text>
+                  {feedback?.acquisition?.spend ? <Text style={styles.budgetDelta}>−{formatBudget(feedback.acquisition.spend)} · Harcama</Text> : null}
                 </View>
               </View>
             </View>
@@ -337,6 +347,24 @@ export default function StoreScreen() {
                       reduceMotion={reduceMotion}
                       feedback={feedbackFor('default')}
                       onAction={() => void handleEquipDefault()}
+                    />
+                  </View>
+                  <View style={[styles.themeGridItem, isTablet && styles.themeGridItemTablet]}>
+                    <ThemeStoreCard
+                      icon={THEME_ICONS.daylight}
+                      title={THEME_METADATA.daylight.title}
+                      description={THEME_METADATA.daylight.description}
+                      features={DAYLIGHT_THEME_FEATURES}
+                      previewColors={THEME_PREVIEWS.daylight}
+                      previewScheme={{ surface: '#FFFDFA', border: '#D9D5CF', text: '#303641' }}
+                      owned
+                      active={themeId === 'daylight'}
+                      canAfford
+                      isProcessing={processingThemeId === 'daylight'}
+                      actionLocked={processingThemeId !== null}
+                      reduceMotion={reduceMotion}
+                      feedback={feedbackFor('daylight')}
+                      onAction={() => void handleEquipBuiltIn('daylight')}
                     />
                   </View>
                   {THEME_ITEMS.map((item) => {

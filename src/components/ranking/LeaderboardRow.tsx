@@ -109,6 +109,8 @@ export default memo(LeaderboardRow);
 
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius } = tokens;
+  const currentUserAccent = colors.currentUserBackground ? colors.primary : colors.secondary;
+  const currentUserSurface = colors.currentUserBackground ?? colors.secondarySurfaceRaised;
   return StyleSheet.create({
     row: {
       minHeight: 78,
@@ -127,8 +129,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     rowCompact: { minHeight: 82, gap: 8, paddingHorizontal: 10, paddingVertical: 9 },
     currentRow: {
       borderLeftWidth: 3,
-      borderLeftColor: colors.secondary,
-      backgroundColor: colors.secondarySurfaceRaised,
+      borderLeftColor: currentUserAccent,
+      backgroundColor: currentUserSurface,
     },
     lastRow: { borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md },
     standaloneRow: { borderTopWidth: 1, borderTopLeftRadius: radius.md, borderTopRightRadius: radius.md },
@@ -152,10 +154,10 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       paddingHorizontal: 7,
       borderRadius: 10,
       borderWidth: 1,
-      borderColor: colors.secondary,
-      backgroundColor: colors.secondarySoft,
+      borderColor: currentUserAccent,
+      backgroundColor: colors.currentUserBackground ?? colors.secondarySoft,
     },
-    youBadgeText: { fontFamily: fonts.monoSemiBold, fontSize: 8, lineHeight: 11, letterSpacing: 0.5, color: colors.secondary },
+    youBadgeText: { fontFamily: fonts.monoSemiBold, fontSize: 8, lineHeight: 11, letterSpacing: 0.5, color: currentUserAccent },
     mobileRank: { marginTop: 2, fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 15, color: colors.textMuted },
     mobileStats: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 3 },
     mobileStat: { fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, color: colors.textMuted },

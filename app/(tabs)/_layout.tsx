@@ -87,6 +87,10 @@ export default function TabsLayout() {
           title: 'Oyun',
         }}
       />
+      <Tabs.Screen
+        name="leaderboard"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }

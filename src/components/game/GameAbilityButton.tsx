@@ -1,19 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View, type ImageSourcePropType } from 'react-native';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
+import AssetIcon from '../AssetIcon';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
 
 interface GameAbilityButtonProps {
   name: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
+  iconSource: ImageSourcePropType;
+  fallbackIcon: React.ComponentProps<typeof Ionicons>['name'];
   count: number;
   enabled: boolean;
   onPress: () => void;
 }
 
-export default function GameAbilityButton({ name, icon, count, enabled, onPress }: GameAbilityButtonProps) {
+export default function GameAbilityButton({ name, iconSource, fallbackIcon, count, enabled, onPress }: GameAbilityButtonProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
@@ -43,12 +45,11 @@ export default function GameAbilityButton({ name, icon, count, enabled, onPress 
       ]}
     >
       <View style={styles.iconSlot}>
-        <Ionicons
-          name={icon}
-          size={tokens.layout.isCompact ? 20 : 22}
-          color={accent.solid}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
+        <AssetIcon
+          source={iconSource}
+          fallbackName={fallbackIcon}
+          fallbackColor={accent.solid}
+          size={tokens.layout.isCompact ? 30 : 33}
         />
       </View>
       <Text style={styles.name}>{name}</Text>
@@ -60,10 +61,10 @@ export default function GameAbilityButton({ name, icon, count, enabled, onPress 
 }
 
 function getAbilityAccent(name: string, tokens: ReturnType<typeof getDashboardTokens>) {
-  if (name === 'Git Revert' || name === 'Snapshot') {
+  if (name === 'Rollback' || name === 'Snapshot') {
     return { solid: tokens.colors.secondary, soft: tokens.colors.secondarySoft };
   }
-  if (name === 'Scale Up') {
+  if (name === 'Overclock') {
     return { solid: tokens.colors.warning, soft: tokens.colors.warningSoft };
   }
   return { solid: tokens.colors.primary, soft: tokens.colors.primarySoft };

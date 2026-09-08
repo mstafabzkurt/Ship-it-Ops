@@ -5,6 +5,16 @@ import type { LeaderboardProjection } from '../utils/leaderboard';
 
 export const GLOBAL_LEADERBOARD_LIMIT = 50;
 
+export type LeaderboardPeriod = 'all_time' | 'weekly' | 'monthly';
+
+export interface LeaderboardScoreEventInput {
+  userId: string;
+  scoreDelta: number;
+  categoryId: string;
+  difficultyStar: number;
+  sessionId: string;
+}
+
 export interface LeaderboardEntry {
   userId: string;
   companyName: string;
@@ -52,7 +62,7 @@ const normalizeServiceError = (error: unknown): LeaderboardServiceError => {
     ? String(error.code)
     : '';
 
-  if (code === '42P01' || code === 'PGRST205') {
+  if (code === '42P01' || code === '42883' || code === 'PGRST202' || code === 'PGRST205') {
     return new LeaderboardServiceError(
       'schema_missing',
       'Global sıralama henüz etkinleştirilmedi. Supabase kurulumunu tamamlayıp tekrar deneyin.',
@@ -122,6 +132,50 @@ export async function fetchGlobalLeaderboard(
 
   if (error) throw normalizeServiceError(error);
   return ((data ?? []) as LeaderboardDatabaseRow[]).map(mapLeaderboardRow);
+}
+
+export async function fetchLeaderboard(
+  period: LeaderboardPeriod,
+  limit = GLOBAL_LEADERBOARD_LIMIT,
+): Promise<LeaderboardEntry[]> {
+  if (period === 'all_time') return fetchGlobalLeaderboard(limit);
+  const safeLimit = Math.min(GLOBAL_LEADERBOARD_LIMIT, Math.max(1, Math.trunc(limit)));
+  const { data, error } = await supabase.rpc('get_period_leaderboard', {
+    p_period: period,
+    p_limit: safeLimit,
+  });
+
+  if (error) throw normalizeServiceError(error);
+  return ((data ?? []) as LeaderboardDatabaseRow[]).map(mapLeaderboardRow);
+}
+
+export function createLeaderboardSessionId(now = Date.now(), random = Math.random()): string {
+  const timePart = Math.max(0, Math.trunc(now)).toString(36);
+  const randomPart = Math.floor(Math.max(0, Math.min(0.9999999999999999, random)) * Number.MAX_SAFE_INTEGER)
+    .toString(36)
+    .padStart(10, '0');
+  return `session_${timePart}_${randomPart}`;
+}
+
+export async function writeLeaderboardScoreEvent(input: LeaderboardScoreEventInput): Promise<void> {
+  const scoreDelta = Math.trunc(input.scoreDelta);
+  if (scoreDelta <= 0) return;
+  if (!input.userId) {
+    throw new LeaderboardServiceError('unauthorized', 'Sıralama skoru için oturum gerekli.');
+  }
+
+  const { error } = await supabase
+    .from('leaderboard_score_events')
+    .insert({
+      user_id: input.userId,
+      score_delta: scoreDelta,
+      category_id: input.categoryId,
+      difficulty_star: Math.trunc(input.difficultyStar),
+      session_id: input.sessionId,
+    });
+
+  if (!error || error.code === '23505') return;
+  throw normalizeServiceError(error);
 }
 
 export async function fetchMyLeaderboardProfile(

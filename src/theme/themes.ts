@@ -54,12 +54,93 @@ export interface ThemeEffects {
   glowAlert: Pick<ViewStyle, 'shadowColor' | 'shadowOffset' | 'shadowOpacity' | 'shadowRadius' | 'elevation'>;
 }
 
+export interface ThemeSemanticColors {
+  canvas: string;
+  canvasGlow: string;
+  surface: string;
+  surfaceRaised: string;
+  surfaceSoft: string;
+  secondarySurface: string;
+  secondarySurfaceRaised: string;
+  floatingSurface: string;
+  floatingSurfaceRaised: string;
+  border: string;
+  borderStrong: string;
+  borderSubtle: string;
+  dividerSubtle: string;
+  primary: string;
+  primarySoft: string;
+  action: string;
+  actionHover: string;
+  actionPressed: string;
+  actionFocus: string;
+  actionSubSurface: string;
+  actionSubSurfaceForeground: string;
+  decision: string;
+  success: string;
+  successSoft: string;
+  successBorder: string;
+  info: string;
+  infoSoft: string;
+  infoBorder: string;
+  budget: string;
+  budgetSoft: string;
+  xp: string;
+  xpSoft: string;
+  reputation: string;
+  reputationSoft: string;
+  warning: string;
+  warningSoft: string;
+  danger: string;
+  dangerSoft: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  foregroundOnAction: string;
+  surfaceHover: string;
+  surfacePressed: string;
+  selectionBackground: string;
+  selectionBorder: string;
+  progressTrack: string;
+  disabledBackground: string;
+  disabledForeground: string;
+  disabledBorder: string;
+  shadowNeutral: string;
+  overlayScrim: string;
+  decorativeOpacity: number;
+  gameQuestionSurface: string;
+  gameQuestionHeaderSurface: string;
+  gameSupportSurface: string;
+  gameSupportRaisedSurface: string;
+  gameAnswerSurface: string;
+  gameAnswerHover: string;
+  gameAnswerPressed: string;
+  gameSelectionBackground: string;
+  gameSelectionBorder: string;
+  gameStructureAccent: string;
+  gameLabelAccent: string;
+  gameDivider: string;
+  gameProgress: string;
+  gameUrgency: string;
+  gameTimerBoost: string;
+}
+
 // ── Full theme shape ──────────────────────────────────────────────────────────
 export interface Theme {
-  id: 'default' | 'cyberpunk' | 'hardware' | 'nebula';
+  id: 'default' | 'daylight' | 'cyberpunk' | 'hardware' | 'nebula';
+  mode: 'light' | 'dark';
   colors: ThemeColors;
+  /** Optional richer roles. Legacy themes keep their established token fallbacks. */
+  semantic?: ThemeSemanticColors;
   geometry: ThemeGeometry;
   effects: ThemeEffects;
+}
+
+export interface ThemeMetadata {
+  id: Theme['id'];
+  title: string;
+  description: string;
+  builtIn: boolean;
 }
 
 /** Deep-space gradient stops used when theme.id === 'nebula' */
@@ -70,6 +151,7 @@ export const NEBULA_GRADIENT_COLORS = ['#0F0C29', '#302B63', '#24243E'] as const
 // ─────────────────────────────────────────────────────────────────────────────
 export const defaultTheme: Theme = {
   id: 'default',
+  mode: 'dark',
   colors: {
     bgBase: '#0B0F17',
     panel: '#151B27',
@@ -137,6 +219,7 @@ export const defaultTheme: Theme = {
 // ─────────────────────────────────────────────────────────────────────────────
 export const cyberpunkTheme: Theme = {
   id: 'cyberpunk',
+  mode: 'dark',
   colors: {
     bgBase: '#05070A',
     panel: '#0E131F',
@@ -204,6 +287,7 @@ export const cyberpunkTheme: Theme = {
 // ─────────────────────────────────────────────────────────────────────────────
 export const hardwareTheme: Theme = {
   id: 'hardware',
+  mode: 'dark',
   colors: {
     bgBase: '#09100D',
     panel: '#121F18',
@@ -271,6 +355,7 @@ export const hardwareTheme: Theme = {
 // ─────────────────────────────────────────────────────────────────────────────
 export const nebulaTheme: Theme = {
   id: 'nebula',
+  mode: 'dark',
   colors: {
     bgBase: '#0F0C29',
     panel: '#1E1A45',
@@ -333,9 +418,170 @@ export const nebulaTheme: Theme = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DAYLIGHT OPS — Krem zeminler, yumuşak renkler ve sakin operasyon yüzeyleri
+// ─────────────────────────────────────────────────────────────────────────────
+export const daylightTheme: Theme = {
+  id: 'daylight',
+  mode: 'light',
+  colors: {
+    bgBase: '#F7F4EF',
+    panel: '#FFFDFA',
+    panelAlt: '#FFFFFF',
+    border: '#D9D5CF',
+    accentAlert: '#805718',
+    accentDanger: '#A44249',
+    accentPositive: '#286448',
+    textPrimary: '#303641',
+    textMuted: '#64676C',
+    positiveBg: '#E7F1E9',
+    positiveBorder: '#286448',
+    dangerBg: '#FAE9E7',
+    dangerBorder: '#A44249',
+    alertBg: '#F6ECD7',
+    alertBorder: '#805718',
+  },
+  semantic: {
+    canvas: '#F7F4EF',
+    canvasGlow: '#EEEAE4',
+    surface: '#FFFDFA',
+    surfaceRaised: '#FFFFFF',
+    surfaceSoft: '#EEEAE4',
+    secondarySurface: '#EEEAE4',
+    secondarySurfaceRaised: '#FFFFFF',
+    floatingSurface: '#FFFFFF',
+    floatingSurfaceRaised: '#FFFDFA',
+    border: '#D9D5CF',
+    borderStrong: '#85868A',
+    borderSubtle: '#D9D5CF',
+    dividerSubtle: '#E3DFD8',
+    primary: '#62558E',
+    primarySoft: '#EEE9F5',
+    action: '#2F6B4F',
+    actionHover: '#285D45',
+    actionPressed: '#214F3B',
+    actionFocus: '#514632',
+    actionSubSurface: '#F5ECDD',
+    actionSubSurfaceForeground: '#514632',
+    decision: '#6B5A45',
+    success: '#286448',
+    successSoft: '#E7F1E9',
+    successBorder: '#286448',
+    info: '#35677B',
+    infoSoft: '#E5EFF3',
+    infoBorder: '#35677B',
+    budget: '#805718',
+    budgetSoft: '#F6ECD7',
+    xp: '#62558E',
+    xpSoft: '#EEE9F5',
+    reputation: '#35677B',
+    reputationSoft: '#E5EFF3',
+    warning: '#805718',
+    warningSoft: '#F6ECD7',
+    danger: '#A44249',
+    dangerSoft: '#FAE9E7',
+    text: '#303641',
+    textSecondary: '#555D68',
+    textMuted: '#64676C',
+    foregroundOnAction: '#FFFFFF',
+    surfaceHover: '#F2EEF7',
+    surfacePressed: '#E8E1F1',
+    selectionBackground: '#EEE9F5',
+    selectionBorder: '#62558E',
+    progressTrack: '#E3DFD8',
+    disabledBackground: '#E8E5E0',
+    disabledForeground: '#64676C',
+    disabledBorder: '#D9D5CF',
+    shadowNeutral: '#343842',
+    overlayScrim: 'rgba(48, 54, 65, 0.32)',
+    decorativeOpacity: 0,
+    gameQuestionSurface: '#FBF6ED',
+    gameQuestionHeaderSurface: '#F1E9DC',
+    gameSupportSurface: '#EEE6DA',
+    gameSupportRaisedSurface: '#F7F1E8',
+    gameAnswerSurface: '#FCF8F1',
+    gameAnswerHover: '#EFF3EA',
+    gameAnswerPressed: '#E5EEE4',
+    gameSelectionBackground: '#E5F0E7',
+    gameSelectionBorder: '#2F6B4F',
+    gameStructureAccent: '#6B5A45',
+    gameLabelAccent: '#6B5A45',
+    gameDivider: '#948167',
+    gameProgress: '#2F6B4F',
+    gameUrgency: '#9B4A13',
+    gameTimerBoost: '#2F6B4F',
+  },
+  geometry: {
+    borderRadius: 18,
+    borderRadiusSm: 14,
+    borderRadiusLg: 24,
+    borderWidth: 1,
+  },
+  effects: {
+    cardShadow: {
+      shadowColor: '#343842',
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 2,
+    },
+    panelShadow: {
+      shadowColor: '#343842',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.12,
+      shadowRadius: 20,
+      elevation: 4,
+    },
+    glowPositive: {
+      shadowColor: '#343842',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
+    },
+    glowDanger: {
+      shadowColor: '#343842',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
+    },
+    glowAlert: {
+      shadowColor: '#343842',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
+    },
+  },
+};
+
+export const THEME_METADATA: Record<Theme['id'], ThemeMetadata> = {
+  default: {
+    id: 'default',
+    title: 'Klasik · Koyu',
+    description: 'Koyu zemin ve teknik detaylarla mevcut Ship It Ops görünümü.',
+    builtIn: true,
+  },
+  daylight: {
+    id: 'daylight',
+    title: 'Daylight Ops · Açık',
+    description: 'Krem zeminler, yumuşak renkler ve sade bir operasyon alanı.',
+    builtIn: true,
+  },
+  cyberpunk: { id: 'cyberpunk', title: 'Cyberpunk Tema', description: 'Neon operasyon görünümü.', builtIn: false },
+  hardware: { id: 'hardware', title: 'Hardware Tema', description: 'Taktik donanım görünümü.', builtIn: false },
+  nebula: { id: 'nebula', title: 'Nebula Tema', description: 'Derin uzay görünümü.', builtIn: false },
+};
+
+export const BUILT_IN_THEME_IDS = (Object.values(THEME_METADATA)
+  .filter((metadata) => metadata.builtIn)
+  .map((metadata) => metadata.id)) as Theme['id'][];
+
 // ── Theme registry ────────────────────────────────────────────────────────────
 export const THEMES: Record<Theme['id'], Theme> = {
   default: defaultTheme,
+  daylight: daylightTheme,
   cyberpunk: cyberpunkTheme,
   hardware: hardwareTheme,
   nebula: nebulaTheme,

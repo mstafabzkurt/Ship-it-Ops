@@ -6,6 +6,7 @@ import type { Rank } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import RankIcon from '../rank/RankIcon';
 
 export interface RankTierVisual {
   label: string;
@@ -31,8 +32,9 @@ export default function RankTierCard({ ranks, careerXp, currentRank, visual, isE
   const containsCurrentRank = ranks.some((rank) => rank.id === currentRank.id);
   const isCompleted = !containsCurrentRank && ranks.every((rank) => careerXp >= rank.threshold);
   const stateLabel = containsCurrentRank ? currentRank.name : isCompleted ? 'Tamamlandı' : 'Kilitli';
-  const stateColor = containsCurrentRank ? visual.color : isCompleted ? tokens.colors.secondary : tokens.colors.textMuted;
-  const stateIcon = containsCurrentRank ? 'radio-button-on' : isCompleted ? 'checkmark' : 'lock-closed-outline';
+  const currentAccent = tokens.colors.rankCurrent ?? visual.color;
+  const currentAccentSoft = tokens.colors.rankCurrentSoft ?? visual.softColor;
+  const stateColor = containsCurrentRank ? currentAccent : isCompleted ? tokens.colors.success : tokens.colors.textMuted;
 
   return (
     <View style={styles.card}>
@@ -50,21 +52,20 @@ export default function RankTierCard({ ranks, careerXp, currentRank, visual, isE
             style={[
               styles.tierNode,
               (containsCurrentRank || isCompleted) && { borderColor: stateColor },
-              containsCurrentRank && { backgroundColor: visual.softColor },
+              containsCurrentRank && { backgroundColor: currentAccentSoft },
             ]}
           >
-            <Ionicons
-              name={stateIcon}
-              size={16}
-              color={stateColor}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
+            <RankIcon
+              rank={ranks[0]}
+              size={tokens.layout.isCompact ? 48 : 56}
+              fallbackName={visual.icon}
+              fallbackColor={stateColor}
             />
           </View>
         </View>
 
         <View style={styles.headerCopy}>
-          <Text style={[styles.tierLabel, containsCurrentRank && { color: visual.color }]}>{visual.label}</Text>
+          <Text style={[styles.tierLabel, containsCurrentRank && { color: currentAccent }]}>{visual.label}</Text>
           <Text style={styles.tierRange}>
             {ranks[0].threshold.toLocaleString('tr-TR')}–{ranks[ranks.length - 1].threshold.toLocaleString('tr-TR')} XP
           </Text>
@@ -95,7 +96,7 @@ export default function RankTierCard({ ranks, careerXp, currentRank, visual, isE
                 <View
                   style={[
                     styles.milestoneDot,
-                    reached && { borderColor: visual.color, backgroundColor: visual.color },
+                    reached && { borderColor: isCurrent ? currentAccent : visual.color, backgroundColor: isCurrent ? currentAccent : visual.color },
                     isCurrent && styles.milestoneDotCurrent,
                   ]}
                 >
@@ -106,20 +107,20 @@ export default function RankTierCard({ ranks, careerXp, currentRank, visual, isE
                 ) : null}
               </View>
 
-              <View style={[styles.milestoneContent, isCurrent && { backgroundColor: visual.softColor, borderLeftColor: visual.color }]}>
+              <View style={[styles.milestoneContent, isCurrent && { backgroundColor: currentAccentSoft, borderLeftColor: currentAccent }]}>
                 <View style={styles.rankCopy}>
-                  <Text style={[styles.rankName, isCurrent && { color: visual.color }]}>{levelLabel}</Text>
+                  <Text style={[styles.rankName, isCurrent && { color: currentAccent }]}>{levelLabel}</Text>
                   <Text style={styles.rankThreshold}>{rank.threshold.toLocaleString('tr-TR')} Kariyer XP</Text>
                 </View>
                 <View style={styles.levelState}>
                   <Ionicons
                     name={isCurrent ? 'radio-button-on' : reached ? 'checkmark' : 'lock-closed-outline'}
                     size={13}
-                    color={isCurrent ? visual.color : reached ? tokens.colors.secondary : tokens.colors.textMuted}
+                    color={isCurrent ? currentAccent : reached ? tokens.colors.success : tokens.colors.textMuted}
                     accessibilityElementsHidden
                     importantForAccessibility="no-hide-descendants"
                   />
-                  <Text style={[styles.levelStateText, isCurrent && { color: visual.color }]}>{levelState}</Text>
+                  <Text style={[styles.levelStateText, isCurrent && { color: currentAccent }]}>{levelState}</Text>
                 </View>
               </View>
             </View>
@@ -134,10 +135,10 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius } = tokens;
   return StyleSheet.create({
     card: { borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle },
-    cardHeader: { minHeight: tokens.layout.isCompact ? 62 : 70, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 9 : 12, paddingVertical: 9 },
+    cardHeader: { minHeight: tokens.layout.isCompact ? 68 : 78, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 9 : 12, paddingVertical: 7 },
     cardHeaderPressed: { backgroundColor: colors.secondarySurfaceRaised, opacity: 0.9 },
-    tierRail: { width: tokens.layout.isCompact ? 32 : 38, alignItems: 'center', justifyContent: 'center' },
-    tierNode: { width: tokens.layout.isCompact ? 28 : 32, height: tokens.layout.isCompact ? 28 : 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
+    tierRail: { width: tokens.layout.isCompact ? 56 : 64, alignItems: 'center', justifyContent: 'center' },
+    tierNode: { width: tokens.layout.isCompact ? 56 : 64, height: tokens.layout.isCompact ? 56 : 64, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     headerCopy: { flex: 1, minWidth: 0 },
     tierLabel: { fontFamily: fonts.headingBold, fontSize: tokens.layout.isCompact ? 16 : 17, lineHeight: 22, color: colors.text },
     tierRange: { fontFamily: fonts.monoMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted, marginTop: 2 },

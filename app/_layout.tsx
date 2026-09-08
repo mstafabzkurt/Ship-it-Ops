@@ -12,8 +12,10 @@ import { colors } from '../src/theme/colors';
 import { AuthProvider, useAuth } from '../src/state/AuthContext';
 import { LeaderboardProvider } from '../src/state/LeaderboardContext';
 import { ReputationProvider, useReputation } from '../src/state/ReputationContext';
-import { ThemeProvider } from '../src/state/ThemeContext';
+import { ThemeProvider, useTheme } from '../src/state/ThemeContext';
 import { fonts } from '../src/theme/typography';
+import GuidedProductTour from '../src/components/onboarding/GuidedProductTour';
+import OnboardingExperience from '../src/components/onboarding/OnboardingExperience';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -47,7 +49,8 @@ export default function RootLayout() {
 }
 
 function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { theme, isHydrated: isThemeHydrated } = useTheme();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const {
     isLoaded: isPlayerSaveLoaded,
     retryPlayerSave,
@@ -55,7 +58,31 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
     saveError,
     saveStatus,
   } = useReputation();
-  const isShellReady = fontsLoaded && !isLoading;
+  const isShellReady = fontsLoaded && !isLoading && isThemeHydrated;
+  const themedBackground = { backgroundColor: theme.colors.bgBase };
+  const shellColors = theme.mode === 'light'
+    ? {
+        primary: theme.semantic?.action ?? theme.colors.accentPositive,
+        danger: theme.semantic?.danger ?? theme.colors.accentDanger,
+        text: theme.semantic?.text ?? theme.colors.textPrimary,
+        muted: theme.semantic?.textMuted ?? theme.colors.textMuted,
+        panel: theme.semantic?.surface ?? theme.colors.panel,
+        panelRaised: theme.semantic?.surfaceRaised ?? theme.colors.panelAlt,
+        warning: theme.semantic?.warning ?? theme.colors.accentAlert,
+        warningSoft: theme.semantic?.warningSoft ?? theme.colors.alertBg,
+        warningBorder: theme.colors.alertBorder,
+      }
+    : {
+        primary: colors.accentPositive,
+        danger: colors.accentDanger,
+        text: colors.textPrimary,
+        muted: colors.textMuted,
+        panel: colors.panel,
+        panelRaised: colors.panelAlt,
+        warning: colors.accentAlert,
+        warningSoft: colors.alertBg,
+        warningBorder: colors.alertBorder,
+      };
 
   useEffect(() => {
     if (isShellReady) void SplashScreen.hideAsync();
@@ -63,11 +90,11 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
 
   if (!isShellReady) {
     return (
-      <View accessibilityLabel="Ship It Ops hazırlanıyor" style={styles.bootScreen}>
-        <View style={styles.bootMark} />
-        <Text style={[styles.bootTitle, fontsLoaded && styles.bootTitleLoaded]}>SHIP IT OPS</Text>
-        <Text style={[styles.bootLabel, fontsLoaded && styles.bootLabelLoaded]}>ACCESS NODE BAŞLATILIYOR</Text>
-        <ActivityIndicator accessibilityLabel="Oturum yükleniyor" color={colors.accentPositive} size="small" />
+      <View accessibilityLabel="Ship It Ops hazırlanıyor" style={[styles.bootScreen, themedBackground]}>
+        <View style={[styles.bootMark, { backgroundColor: shellColors.primary }]} />
+        <Text style={[styles.bootTitle, { color: shellColors.text }, fontsLoaded && styles.bootTitleLoaded]}>SHIP IT OPS</Text>
+        <Text style={[styles.bootLabel, { color: shellColors.muted }, fontsLoaded && styles.bootLabelLoaded]}>ACCESS NODE BAŞLATILIYOR</Text>
+        <ActivityIndicator accessibilityLabel="Oturum yükleniyor" color={shellColors.primary} size="small" />
       </View>
     );
   }
@@ -75,10 +102,10 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
   if (isAuthenticated && !isPlayerSaveLoaded) {
     const hasError = saveStatus === 'error';
     return (
-      <View accessibilityLabel="Hesap ilerlemesi hazırlanıyor" style={styles.bootScreen}>
-        <View style={[styles.bootMark, hasError && styles.bootMarkError]} />
-        <Text style={[styles.bootTitle, styles.bootTitleLoaded]}>SHIP IT OPS</Text>
-        <Text accessibilityLiveRegion="polite" style={[styles.bootLabel, styles.bootLabelLoaded]}>
+      <View accessibilityLabel="Hesap ilerlemesi hazırlanıyor" style={[styles.bootScreen, themedBackground]}>
+        <View style={[styles.bootMark, { backgroundColor: hasError ? shellColors.danger : shellColors.primary }]} />
+        <Text style={[styles.bootTitle, { color: shellColors.text }, styles.bootTitleLoaded]}>SHIP IT OPS</Text>
+        <Text accessibilityLiveRegion="polite" style={[styles.bootLabel, { color: shellColors.muted }, styles.bootLabelLoaded]}>
           {hasError
             ? 'HESAP KAYDI YÜKLENEMEDİ'
             : saveStatus === 'migrating'
@@ -87,43 +114,50 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
         </Text>
         {hasError ? (
           <>
-            <Text style={styles.bootError}>{saveError}</Text>
+            <Text style={[styles.bootError, { color: shellColors.muted }]}>{saveError}</Text>
             <Pressable
               accessibilityRole="button"
               onPress={retrySaveInitialization}
-              style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
+              style={({ pressed }) => [
+                styles.retryButton,
+                { borderColor: shellColors.primary, backgroundColor: shellColors.panelRaised },
+                pressed && styles.retryButtonPressed,
+              ]}
             >
-              <Text style={styles.retryButtonText}>Tekrar Dene</Text>
+              <Text style={[styles.retryButtonText, { color: shellColors.primary }]}>Tekrar Dene</Text>
             </Pressable>
           </>
         ) : (
-          <ActivityIndicator accessibilityLabel="Hesap ilerlemesi yükleniyor" color={colors.accentPositive} size="small" />
+          <ActivityIndicator accessibilityLabel="Hesap ilerlemesi yükleniyor" color={shellColors.primary} size="small" />
         )}
       </View>
     );
   }
 
   return (
-    <View style={styles.appRoot}>
-      <StatusBar style="light" />
+    <View style={[styles.appRoot, themedBackground]}>
+      <StatusBar style={theme.mode === 'light' ? 'dark' : 'light'} />
       {isAuthenticated && isPlayerSaveLoaded && saveStatus === 'error' ? (
-        <SafeAreaView edges={['top']} style={styles.syncNoticeSafeArea}>
-          <View accessibilityLiveRegion="polite" style={styles.syncNotice}>
+        <SafeAreaView edges={['top']} style={[styles.syncNoticeSafeArea, { backgroundColor: shellColors.panel }]}>
+          <View
+            accessibilityLiveRegion="polite"
+            style={[styles.syncNotice, { borderBottomColor: shellColors.warningBorder, backgroundColor: shellColors.warningSoft }]}
+          >
             <View style={styles.syncNoticeCopy}>
-              <Text style={styles.syncNoticeTitle}>Bulut kayıt bekliyor</Text>
-              <Text numberOfLines={2} style={styles.syncNoticeText}>{saveError}</Text>
+              <Text style={[styles.syncNoticeTitle, { color: shellColors.text }]}>Bulut kayıt bekliyor</Text>
+              <Text numberOfLines={2} style={[styles.syncNoticeText, { color: shellColors.muted }]}>{saveError}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
               onPress={retryPlayerSave}
               style={({ pressed }) => [styles.syncRetry, pressed && styles.retryButtonPressed]}
             >
-              <Text style={styles.syncRetryText}>Yeniden Dene</Text>
+              <Text style={[styles.syncRetryText, { color: shellColors.warning }]}>Yeniden Dene</Text>
             </Pressable>
           </View>
         </SafeAreaView>
       ) : null}
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgBase } }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: themedBackground }}>
         <Stack.Protected guard={isAuthenticated && isPlayerSaveLoaded}>
           <Stack.Screen name="(tabs)" />
         </Stack.Protected>
@@ -131,6 +165,12 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
           <Stack.Screen name="(auth)" />
         </Stack.Protected>
       </Stack>
+      {isAuthenticated && isPlayerSaveLoaded && user ? (
+        <>
+          <OnboardingExperience key={`onboarding-${user.id}`} />
+          <GuidedProductTour key={`tour-${user.id}`} />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -145,7 +185,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgBase,
   },
   bootMark: { width: 42, height: 3, borderRadius: 2, backgroundColor: colors.accentPositive },
-  bootMarkError: { backgroundColor: colors.accentDanger },
   bootTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '700', letterSpacing: 1.4 },
   bootTitleLoaded: { fontFamily: fonts.headingBold, fontWeight: '400' },
   bootLabel: { color: colors.textMuted, fontSize: 10, letterSpacing: 1.1, marginBottom: 4 },

@@ -184,9 +184,9 @@ Animations must be cancellable and cleaned up safely. Respect reduced-motion pre
 
 Keep established engineering and game feature names in English:
 
-- Code Review
-- Git Revert
-- Scale Up
+- Debug Lens
+- Rollback
+- Overclock
 - Snapshot
 - Uptime
 

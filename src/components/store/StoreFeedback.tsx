@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import type { DashboardTokens } from '../dashboard/dashboardTokens';
 import { fonts } from '../../theme/typography';
-import { formatCurrency } from '../../utils/format';
+import { formatBudget } from '../../utils/format';
 
 type FeedbackVariant = 'success' | 'error' | 'warning' | 'equip';
 export interface AcquisitionDetails {
@@ -90,7 +90,7 @@ export function AcquisitionRail({ progress, color, reduceMotion }: { progress: A
 export function AcquisitionCaption({ event, color }: { event?: StoreFeedbackEvent; color: string }) {
   if (!event?.acquisition) return null;
   return <Text style={[styles.caption, { color }]}>
-    {event.acquisition.label}{event.acquisition.spend ? ` · −${formatCurrency(event.acquisition.spend)}` : ''}
+    {event.acquisition.label}{event.acquisition.spend ? ` · −${formatBudget(event.acquisition.spend)}` : ''}
   </Text>;
 }
 

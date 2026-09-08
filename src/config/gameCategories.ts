@@ -98,6 +98,23 @@ export function parseDifficultyStar(value: unknown): DifficultyStar | null {
   return parsed === 1 || parsed === 2 || parsed === 3 ? parsed : null;
 }
 
+function getFirstRouteParam(value: unknown): unknown {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export function resolveGameCategoryId(value: unknown): GameCategoryId {
+  const candidate = getFirstRouteParam(value);
+  return isGameCategoryId(candidate) ? candidate : GAME_CATEGORIES[0].id;
+}
+
+export function resolveDifficultyStar(value: unknown): DifficultyStar {
+  return parseDifficultyStar(getFirstRouteParam(value)) ?? DIFFICULTY_STARS[0];
+}
+
+export function buildGameSessionRoute(categoryId: GameCategoryId, star: DifficultyStar): string {
+  return `/(tabs)/game?category=${categoryId}&star=${star}`;
+}
+
 export function getGameCategory(id: GameCategoryId): GameCategory {
   return GAME_CATEGORIES.find((category) => category.id === id) ?? GAME_CATEGORIES[0];
 }

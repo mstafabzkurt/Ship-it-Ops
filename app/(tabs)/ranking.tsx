@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
+  Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,13 +14,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 
+import AssetIcon from '../../src/components/AssetIcon';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import LeaderboardRow from '../../src/components/ranking/LeaderboardRow';
+import { UI_ICON_ASSETS } from '../../src/config/iconAssets';
 import {
-  fetchGlobalLeaderboard,
+  fetchLeaderboard,
   fetchMyLeaderboardProfile,
   getLeaderboardErrorMessage,
   type LeaderboardEntry,
+  type LeaderboardPeriod,
 } from '../../src/services/leaderboard';
 import { useAuth } from '../../src/state/AuthContext';
 import { useLeaderboard } from '../../src/state/LeaderboardContext';
@@ -27,6 +32,12 @@ import { fonts } from '../../src/theme/typography';
 import { trackEvent } from '../../src/utils/telemetry';
 
 type LoadState = 'loading' | 'ready' | 'error';
+
+const LEADERBOARD_PERIODS: ReadonlyArray<{ id: LeaderboardPeriod; label: string }> = [
+  { id: 'all_time', label: 'Genel' },
+  { id: 'weekly', label: 'Haftalık' },
+  { id: 'monthly', label: 'Aylık' },
+];
 
 export default function RankingScreen() {
   const { width } = useWindowDimensions();
@@ -41,6 +52,9 @@ export default function RankingScreen() {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [period, setPeriod] = useState<LeaderboardPeriod>('all_time');
+  const [infoVisible, setInfoVisible] = useState(false);
+  const [focusedControl, setFocusedControl] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   useFocusEffect(useCallback(() => {
@@ -57,8 +71,8 @@ export default function RankingScreen() {
 
     try {
       const [globalRows, currentRow] = await Promise.all([
-        fetchGlobalLeaderboard(),
-        fetchMyLeaderboardProfile(user.id),
+        fetchLeaderboard(period),
+        period === 'all_time' ? fetchMyLeaderboardProfile(user.id) : Promise.resolve(null),
       ]);
       if (requestIdRef.current !== requestId) return;
       setEntries(globalRows);
@@ -71,7 +85,7 @@ export default function RankingScreen() {
     } finally {
       if (requestIdRef.current === requestId) setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [period, user?.id]);
 
   useEffect(() => {
     void loadLeaderboard(true);
@@ -90,6 +104,26 @@ export default function RankingScreen() {
     void loadLeaderboard(false);
   }, [loadLeaderboard, retrySync]);
 
+  const handlePeriodChange = useCallback((nextPeriod: LeaderboardPeriod) => {
+    if (nextPeriod === period) return;
+    setPeriod(nextPeriod);
+    void trackEvent('leaderboard_period_changed', { period: nextPeriod });
+  }, [period]);
+
+  const closeInfoModal = useCallback(() => {
+    setInfoVisible(false);
+    setFocusedControl(null);
+  }, []);
+
+  useEffect(() => {
+    if (!infoVisible || Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeInfoModal();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [closeInfoModal, infoVisible]);
+
   const topEntries = useMemo(() => entries.slice(0, 10), [entries]);
   const currentUserIndex = user?.id
     ? entries.findIndex((entry) => entry.userId === user.id)
@@ -103,6 +137,7 @@ export default function RankingScreen() {
   const pinnedCurrentUserRank = currentUserRank !== null && currentUserRank > 10
     ? currentUserRank
     : null;
+  const periodLabel = LEADERBOARD_PERIODS.find((item) => item.id === period)?.label ?? 'Genel';
   const statusLabel = refreshing
     ? 'YENİLENİYOR'
     : loadState === 'error'
@@ -128,7 +163,7 @@ export default function RankingScreen() {
       <View style={styles.topRule} />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <FlatList
-          accessibilityLabel="Global Ship It Ops sıralaması"
+          accessibilityLabel={`${periodLabel} Ship It Ops sıralaması`}
           data={loadState === 'ready' ? topEntries : []}
           keyExtractor={(item) => item.userId}
           renderItem={renderItem}
@@ -141,10 +176,56 @@ export default function RankingScreen() {
             <>
               <View style={styles.pageHeader}>
                 <Text style={styles.eyebrow}>GLOBAL SIRALAMA</Text>
-                <Text accessibilityRole="header" style={styles.title}>Sıralama</Text>
+                <View style={styles.titleRow}>
+                  <Text accessibilityRole="header" style={styles.title}>Sıralama</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Sıralama nasıl hesaplanır?"
+                    accessibilityState={{ expanded: infoVisible }}
+                    onFocus={() => setFocusedControl('info')}
+                    onBlur={() => setFocusedControl(null)}
+                    onPress={() => setInfoVisible(true)}
+                    style={({ pressed }) => [
+                      styles.infoButton,
+                      focusedControl === 'info' && styles.controlFocused,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <AssetIcon
+                      source={UI_ICON_ASSETS.info}
+                      fallbackName="information-outline"
+                      fallbackColor={tokens.colors.secondary}
+                      size={22}
+                    />
+                  </Pressable>
+                </View>
                 <Text style={styles.description}>
                   Kullanıcılar; Sıralama Puanı, Başarı Oranı ve başarılı soru sayısına göre sıralanır.
                 </Text>
+              </View>
+
+              <View accessibilityRole="tablist" accessibilityLabel="Sıralama dönemi" style={styles.periodTabs}>
+                {LEADERBOARD_PERIODS.map((item) => {
+                  const selected = item.id === period;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      onFocus={() => setFocusedControl(`period-${item.id}`)}
+                      onBlur={() => setFocusedControl(null)}
+                      onPress={() => handlePeriodChange(item.id)}
+                      style={({ pressed }) => [
+                        styles.periodTab,
+                        selected && styles.periodTabSelected,
+                        focusedControl === `period-${item.id}` && styles.controlFocused,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={[styles.periodTabText, selected && styles.periodTabTextSelected]}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               {syncError && loadState !== 'error' ? (
@@ -247,8 +328,10 @@ export default function RankingScreen() {
                 : (
                   <LeaderboardMessage
                     icon="podium-outline"
-                    title="Sıralama henüz boş"
-                    description="Henüz yayınlanmış bir sıralama profili yok. Yerel ilerlemen senkronize olduğunda liste burada oluşacak."
+                    title={period === 'all_time' ? 'Sıralama henüz boş' : 'Bu dönem için henüz skor yok.'}
+                    description={period === 'all_time'
+                      ? 'Henüz yayınlanmış bir sıralama profili yok. Yerel ilerlemen senkronize olduğunda liste burada oluşacak.'
+                      : 'Tamamlanan 10 soruluk oturumlardan gelen puanlar burada görünecek.'}
                     styles={styles}
                     tokens={tokens}
                   />
@@ -272,7 +355,7 @@ export default function RankingScreen() {
               <Text style={styles.pinnedDescription}>
                 {pinnedCurrentUserRank === null
                   ? 'Top 50 dışında. Kesin global konum tahmin edilmez.'
-                  : 'İlk 10 dışındaki güncel global konumun.'}
+                  : `İlk 10 dışındaki güncel ${periodLabel.toLocaleLowerCase('tr-TR')} konumun.`}
               </Text>
               <LeaderboardRow
                 entry={pinnedCurrentUser}
@@ -287,7 +370,88 @@ export default function RankingScreen() {
           ) : null}
         />
       </SafeAreaView>
+      <LeaderboardInfoModal
+        visible={infoVisible}
+        focused={focusedControl === 'modal-confirm'}
+        styles={styles}
+        tokens={tokens}
+        onFocus={() => setFocusedControl('modal-confirm')}
+        onBlur={() => setFocusedControl(null)}
+        onClose={closeInfoModal}
+      />
     </View>
+  );
+}
+
+function LeaderboardInfoModal({
+  visible,
+  focused,
+  styles,
+  tokens,
+  onFocus,
+  onBlur,
+  onClose,
+}: {
+  visible: boolean;
+  focused: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  tokens: DashboardTokens;
+  onFocus: () => void;
+  onBlur: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.infoScrim}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sıralama bilgilerini kapat"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+        <SafeAreaView pointerEvents="box-none" style={styles.infoSafeArea}>
+          <View accessibilityViewIsModal style={styles.infoModal}>
+            <View style={styles.infoModalHeader}>
+              <View style={styles.infoModalIcon}>
+                <AssetIcon
+                  source={UI_ICON_ASSETS.info}
+                  fallbackName="information-outline"
+                  fallbackColor={tokens.colors.secondary}
+                  size={24}
+                />
+              </View>
+              <Text accessibilityRole="header" style={styles.infoModalTitle}>Sıralama nasıl hesaplanır?</Text>
+            </View>
+            <View style={styles.infoModalCopy}>
+              <Text style={styles.infoModalText}>Sıralama puanı tamamlanan 10 soruluk oturumlardaki doğru kararlarına göre hesaplanır.</Text>
+              <Text style={styles.infoModalText}>Her doğru cevap +100 puan kazandırır. Yanlış cevap ve süre dolması puan kazandırmaz.</Text>
+              <Text style={styles.infoModalText}>Kısmi doğru eski içeriklerde +50 puan olarak işlenebilir.</Text>
+              <Text style={styles.infoModalText}>Genel sıralama tüm zamanları kapsar. Haftalık ve aylık sıralamalar yalnızca ilgili dönemde tamamlanan oturumlardan gelen puanları gösterir.</Text>
+              <Text style={styles.infoModalText}>Eksik bırakılan oturumlar sıralamaya yazılmaz.</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onFocus={onFocus}
+              onBlur={onBlur}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.infoModalAction,
+                focused && styles.controlFocused,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.infoModalActionText}>Anladım</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -378,10 +542,47 @@ function makeStyles(tokens: DashboardTokens) {
       paddingTop: tokens.layout.pageTop,
       paddingBottom: tokens.layout.pageBottom,
     },
-    pageHeader: { maxWidth: 720, marginBottom: tokens.layout.isCompact ? 18 : 26 },
+    pageHeader: { maxWidth: 720, marginBottom: tokens.layout.isCompact ? 14 : 18 },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 4 },
+    titleRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 },
     title: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
     description: { ...tokens.type.bodySmall, maxWidth: 650, marginTop: 7, fontFamily: fonts.body, color: colors.textMuted },
+    infoButton: {
+      width: 48,
+      height: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.secondarySoft,
+    },
+    controlFocused: { borderColor: colors.secondary, borderWidth: 2 },
+    periodTabs: {
+      width: '100%',
+      flexDirection: 'row',
+      gap: 4,
+      marginBottom: 12,
+      padding: 4,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.secondarySurface,
+    },
+    periodTab: {
+      minWidth: 0,
+      minHeight: 48,
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: tokens.layout.isNarrow ? 5 : 10,
+      borderRadius: Math.max(6, radius.sm - 4),
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    periodTabSelected: { borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
+    periodTabText: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isNarrow ? 11 : 12, lineHeight: 17, color: colors.textMuted },
+    periodTabTextSelected: { color: colors.secondary },
     syncNotice: {
       width: '100%',
       flexDirection: tokens.layout.isCompact ? 'column' : 'row',
@@ -507,5 +708,25 @@ function makeStyles(tokens: DashboardTokens) {
     pinnedEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary },
     pinnedStatus: { fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, letterSpacing: 0.55, color: colors.textMuted },
     pinnedDescription: { ...tokens.type.bodySmall, maxWidth: 620, marginTop: 4, marginBottom: 10, fontFamily: fonts.body, color: colors.textMuted },
+    infoScrim: { flex: 1, justifyContent: 'center', backgroundColor: colors.overlayScrim },
+    infoSafeArea: { width: '100%', alignItems: 'center', justifyContent: 'center', padding: tokens.layout.isNarrow ? 12 : 20 },
+    infoModal: {
+      width: '100%',
+      maxWidth: 520,
+      gap: 18,
+      padding: tokens.layout.isCompact ? 18 : 22,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.floatingSurface,
+      ...tokens.shadow.raised,
+    },
+    infoModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    infoModalIcon: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.secondarySoft },
+    infoModalTitle: { ...tokens.type.title, flex: 1, minWidth: 0, fontFamily: fonts.headingBold, color: colors.text },
+    infoModalCopy: { gap: 10 },
+    infoModalText: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted },
+    infoModalAction: { minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
+    infoModalActionText: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 20, color: colors.secondary },
   });
 }

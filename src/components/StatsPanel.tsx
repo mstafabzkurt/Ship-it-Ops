@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
+import AssetIcon from './AssetIcon';
+import { UI_ICON_ASSETS } from '../config/iconAssets';
 import { useTheme } from '../state/ThemeContext';
 import type { Theme } from '../theme/themes';
 import { fonts, fontSizes } from '../theme/typography';
 import ReputationBar from './ReputationBar';
 import { useReputation } from '../state/ReputationContext';
-import { formatCurrency, formatScore } from '../utils/format';
+import { formatBudget, formatScore } from '../utils/format';
 
 interface StatItemProps {
   label: string;
@@ -14,14 +17,18 @@ interface StatItemProps {
   direction: 'up' | 'down';
   accentPositive: string;
   accentDanger: string;
+  iconSource?: ImageSourcePropType;
 }
 
-function StatItem({ label, value, delta, direction, accentPositive, accentDanger }: StatItemProps) {
+function StatItem({ label, value, delta, direction, accentPositive, accentDanger, iconSource }: StatItemProps) {
   const deltaColor = direction === 'up' ? accentPositive : accentDanger;
   return (
     <View style={statItemStyles.statItem}>
       <Text style={statItemStyles.statLabel}>{label}</Text>
-      <Text style={statItemStyles.statValue}>{value}</Text>
+      <View style={statItemStyles.statValueRow}>
+        {iconSource ? <AssetIcon source={iconSource} fallbackName="wallet-outline" fallbackColor={accentPositive} size={22} /> : null}
+        <Text style={statItemStyles.statValue}>{value}</Text>
+      </View>
       <Text style={[statItemStyles.statDelta, { color: deltaColor }]}>
         {direction === 'up' ? '▲ ' : '▼ '}
         {delta}
@@ -46,6 +53,7 @@ const statItemStyles = StyleSheet.create({
     fontSize: fontSizes['4xl'],
     color: '#E0F7FA',
   },
+  statValueRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statDelta: {
     fontFamily: fonts.mono,
     fontSize: fontSizes.base,
@@ -69,11 +77,12 @@ export default function StatsPanel({ budgetDeltaLabel = 'son olay', scoreDeltaLa
       <View style={styles.row}>
         <StatItem
           label="Şirket Bütçesi"
-          value={formatCurrency(budget)}
+          value={formatBudget(budget)}
           delta={budgetDeltaLabel}
           direction="down"
           accentPositive={colors.accentPositive}
           accentDanger={colors.accentDanger}
+          iconSource={UI_ICON_ASSETS.coin}
         />
         <StatItem
           label="İtibar"

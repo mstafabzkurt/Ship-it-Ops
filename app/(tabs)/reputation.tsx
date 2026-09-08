@@ -131,8 +131,7 @@ export default function ReputationScreen() {
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={[styles.container, isDesktop && styles.containerDesktop]}>
             <View style={styles.pageHeader}>
-              <Text style={styles.eyebrow}>KARİYER İLERLEMESİ</Text>
-              <Text style={styles.header}>Kariyer ve İtibar</Text>
+              <Text style={styles.header}>Kariyer</Text>
             </View>
 
             <View accessibilityRole="tablist" style={styles.tabs}>

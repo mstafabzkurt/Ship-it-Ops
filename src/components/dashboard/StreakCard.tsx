@@ -4,9 +4,11 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { AccessibilityInfo, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { UI_ICON_ASSETS } from '../../config/iconAssets';
 import { STREAK_REWARDS } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
+import AssetIcon from '../AssetIcon';
 import { getDashboardTokens } from './dashboardTokens';
 
 const DAY_LABELS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
@@ -245,7 +247,7 @@ export default function StreakCard({ days, todayIndex, streakCount, onClaim }: S
         ]}
       >
         <View style={styles.triggerIcon} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Ionicons name="flame" size={24} style={styles.triggerIconGlyph} />
+          <AssetIcon source={UI_ICON_ASSETS.flame} fallbackName="flame" fallbackColor={tokens.colors.warning} size={26} />
         </View>
         <View style={styles.triggerCopy}>
           <Text style={styles.triggerEyebrow}>DAILY STREAK</Text>
@@ -359,7 +361,12 @@ export default function StreakCard({ days, todayIndex, streakCount, onClaim }: S
                       colors={[withAlpha(tokens.colors.warning, 0.16), withAlpha(tokens.colors.warning, 0.02)]}
                       style={StyleSheet.absoluteFill}
                     />
-                    <Ionicons name="flame" size={tokens.layout.isCompact ? 66 : 74} color={tokens.colors.warning} />
+                    <AssetIcon
+                      source={UI_ICON_ASSETS.flame}
+                      fallbackName="flame"
+                      fallbackColor={tokens.colors.warning}
+                      size={tokens.layout.isCompact ? 66 : 74}
+                    />
                   </View>
                   <View style={[styles.ringTick, styles.ringTickTop]} />
                   <View style={[styles.ringTick, styles.ringTickBottom]} />
@@ -411,13 +418,17 @@ export default function StreakCard({ days, todayIndex, streakCount, onClaim }: S
                             style={[styles.currentDayWash, { opacity: currentDayWashOpacity }]}
                           />
                         ) : null}
-                        <Ionicons
-                          name={getDayIcon(day.state)}
-                          size={day.state === 'claimed' ? 20 : 16}
-                          color={day.isToday || day.state === 'claimed' ? tokens.colors.warning : tokens.colors.textMuted}
-                          aria-hidden accessibilityElementsHidden
-                          importantForAccessibility="no-hide-descendants"
-                        />
+                        {day.state === 'today' ? (
+                          <AssetIcon source={UI_ICON_ASSETS.flame} fallbackName="flame" fallbackColor={tokens.colors.warning} size={18} />
+                        ) : (
+                          <Ionicons
+                            name={getDayIcon(day.state)}
+                            size={day.state === 'claimed' ? 20 : 16}
+                            color={day.state === 'claimed' ? tokens.colors.warning : tokens.colors.textMuted}
+                            aria-hidden accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                          />
+                        )}
                       </Animated.View>
                       <Text style={[styles.dayCaption, day.isToday && styles.currentDayLabel]}>
                         {day.isToday ? 'Bugün' : day.state === 'claimed' ? 'Alındı' : day.state === 'missed' ? 'Kaçtı' : '—'}
@@ -430,7 +441,11 @@ export default function StreakCard({ days, todayIndex, streakCount, onClaim }: S
               <Animated.View style={{ opacity: footerProgress, transform: [{ translateY: footerTranslateY }] }}>
                 <View style={styles.statusFooter} accessibilityLiveRegion="polite">
                   <View style={styles.statusHeading}>
-                    <Ionicons name={streakCount > 0 ? 'pulse' : 'flame-outline'} size={16} color={tokens.colors.warning} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+                    {streakCount > 0 ? (
+                      <Ionicons name="pulse" size={16} color={tokens.colors.warning} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+                    ) : (
+                      <AssetIcon source={UI_ICON_ASSETS.flame} fallbackName="flame-outline" fallbackColor={tokens.colors.warning} size={17} />
+                    )}
                     <Text style={styles.statusTitle}>{streakCount > 0 ? 'Seri aktif' : 'Ritmi başlat'}</Text>
                   </View>
                   <Text style={styles.statusMessage}>{todayClaimed ? 'Ritmi koru. Yarın tekrar gel.' : 'Bugünkü ödülün hazır. Ritmi yakala.'}</Text>
@@ -438,9 +453,12 @@ export default function StreakCard({ days, todayIndex, streakCount, onClaim }: S
                 <View style={styles.rewardFooter}>
                   <View style={styles.rewardFooterCopy}>
                     <Text style={styles.rewardFooterLabel}>{todayClaimed ? 'BUGÜN' : 'BUGÜNKÜ ÖDÜL'}</Text>
-                    <Text style={[styles.rewardFooterValue, todayClaimed && styles.rewardFooterValueClaimed]}>
-                      {todayClaimed ? 'Ödül alındı' : `+${todayReward.toLocaleString('tr-TR')} Şirket Bütçesi`}
-                    </Text>
+                    <View style={styles.rewardFooterValueRow}>
+                      {!todayClaimed ? <AssetIcon source={UI_ICON_ASSETS.coin} fallbackName="wallet-outline" fallbackColor={tokens.colors.warning} size={18} /> : null}
+                      <Text style={[styles.rewardFooterValue, todayClaimed && styles.rewardFooterValueClaimed]}>
+                        {todayClaimed ? 'Ödül alındı' : `+${todayReward.toLocaleString('tr-TR')} Şirket Bütçesi`}
+                      </Text>
+                    </View>
                   </View>
                   {!todayClaimed ? (
                     <Pressable
@@ -520,7 +538,6 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderRadius: 20,
       backgroundColor: colors.warningSoft,
     },
-    triggerIconGlyph: { color: colors.warning },
     triggerCopy: { flex: 1, minWidth: 0 },
     triggerEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted, marginBottom: 1 },
     triggerTitle: { fontFamily: fonts.headingBold, fontSize: tokens.layout.isCompact ? 16 : 18, lineHeight: tokens.layout.isCompact ? 20 : 23, color: colors.text },
@@ -678,7 +695,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     rewardFooterCopy: { flex: 1, minWidth: 0 },
     rewardFooterLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.55, color: colors.textMuted },
-    rewardFooterValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 13 : 15, lineHeight: tokens.layout.isCompact ? 18 : 20, color: colors.warning, marginTop: 2 },
+    rewardFooterValueRow: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+    rewardFooterValue: { flexShrink: 1, fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 13 : 15, lineHeight: tokens.layout.isCompact ? 18 : 20, color: colors.warning },
     rewardFooterValueClaimed: { color: colors.secondary },
     claimButton: {
       minHeight: tokens.control.height,

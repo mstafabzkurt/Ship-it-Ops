@@ -43,18 +43,26 @@ export default function GameActionButton({
       style={({ pressed }) => [
         styles.button,
         secondary && styles.buttonSecondary,
-        hovered && !disabled && !busy && styles.buttonHovered,
+        hovered && !disabled && !busy && (secondary ? styles.buttonSecondaryHovered : styles.buttonHovered),
         focused && styles.buttonFocused,
+        pressed && !disabled && !busy && (secondary ? styles.buttonSecondaryPressed : styles.buttonPressed),
         pressed && !disabled && !busy && tokens.motion.pressed,
         (disabled || busy) && styles.buttonDisabled,
         style,
       ]}
     >
-      <Text style={[styles.label, secondary && styles.labelSecondary]}>{label}</Text>
+      <Text style={[styles.label, secondary && styles.labelSecondary, (disabled || busy) && styles.labelDisabled]}>{label}</Text>
       {busy ? (
-        <ActivityIndicator size="small" color={secondary ? tokens.colors.text : tokens.colors.onAccent} />
+        <ActivityIndicator
+          size="small"
+          color={secondary
+            ? tokens.colors.text
+            : tokens.effects.decorativeOpacity === 0
+              ? tokens.colors.disabledForeground
+              : tokens.colors.foregroundOnAction}
+        />
       ) : (
-        <Text style={[styles.arrow, secondary && styles.labelSecondary]} accessibilityElementsHidden>→</Text>
+        <Text style={[styles.arrow, secondary && styles.labelSecondary, disabled && styles.labelDisabled]} accessibilityElementsHidden>→</Text>
       )}
     </Pressable>
   );
@@ -62,6 +70,7 @@ export default function GameActionButton({
 
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius } = tokens;
+  const isCalmLightTheme = tokens.effects.decorativeOpacity === 0;
   return StyleSheet.create({
     button: {
       minHeight: tokens.control.heightLarge,
@@ -71,11 +80,11 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       justifyContent: 'space-between',
       gap: 16,
       borderRadius: radius.md,
-      backgroundColor: colors.warning,
+      backgroundColor: colors.action,
       opacity: 0.92,
       borderWidth: 1,
-      borderColor: colors.surfaceHighlightStrong,
-      shadowColor: colors.warning,
+      borderColor: isCalmLightTheme ? colors.actionFocus : colors.surfaceHighlightStrong,
+      shadowColor: colors.action,
       shadowOffset: { width: 0, height: 7 },
       shadowOpacity: 0.12,
       shadowRadius: 9,
@@ -88,11 +97,17 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       shadowOpacity: 0,
       elevation: 0,
     },
-    buttonHovered: { borderColor: colors.text },
-    buttonFocused: { borderColor: colors.text },
-    buttonDisabled: { opacity: 0.58, shadowOpacity: 0, elevation: 0 },
-    label: { fontFamily: fonts.headingBold, fontSize: 16, lineHeight: 20, color: colors.onAccent },
+    buttonHovered: { backgroundColor: colors.actionHover, borderColor: isCalmLightTheme ? colors.actionFocus : colors.selectionBorder },
+    buttonSecondaryHovered: { backgroundColor: colors.surfaceHover, borderColor: colors.borderStrong },
+    buttonFocused: { borderColor: colors.actionFocus, borderWidth: 2 },
+    buttonPressed: { backgroundColor: colors.actionPressed },
+    buttonSecondaryPressed: { backgroundColor: colors.surfacePressed },
+    buttonDisabled: isCalmLightTheme
+      ? { opacity: 1, backgroundColor: colors.disabledBackground, borderColor: colors.disabledBorder, shadowOpacity: 0, elevation: 0 }
+      : { opacity: 0.58, shadowOpacity: 0, elevation: 0 },
+    label: { fontFamily: fonts.headingBold, fontSize: 16, lineHeight: 20, color: colors.foregroundOnAction },
     labelSecondary: { color: colors.text },
-    arrow: { fontFamily: fonts.headingBold, fontSize: 20, lineHeight: 22, color: colors.onAccent },
+    labelDisabled: { color: isCalmLightTheme ? colors.disabledForeground : colors.foregroundOnAction },
+    arrow: { fontFamily: fonts.headingBold, fontSize: 20, lineHeight: 22, color: colors.foregroundOnAction },
   });
 }

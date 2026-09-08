@@ -1,22 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { EvaluationTier } from '../../src/config/gameRewards';
 import { getCategoryChoiceOutcome, getCategoryReward } from '../../src/config/categoryRewards';
+import { JOKER_ICON_ASSETS } from '../../src/config/iconAssets';
+import type { JokerId } from '../../src/config/jokerEconomy';
+import { JOKER_DISPLAY } from '../../src/config/jokers';
 import {
   DIFFICULTY_LABELS,
   QUESTIONS_PER_TIER,
   SESSION_QUESTION_COUNT,
   getGameCategory,
-  isGameCategoryId,
-  parseDifficultyStar,
+  resolveDifficultyStar,
+  resolveGameCategoryId,
   type DifficultyStar,
   type GameCategoryId,
 } from '../../src/config/gameCategories';
-import { getOperationImpact } from '../../src/config/operationImpact';
 import GameAbilityButton from '../../src/components/game/GameAbilityButton';
 import GameActionButton from '../../src/components/game/GameActionButton';
 import GameBackdrop from '../../src/components/game/GameBackdrop';
@@ -25,7 +27,9 @@ import JokerUseOverlay, { type JokerUseActivation } from '../../src/components/g
 import UptimeMilestoneCard from '../../src/components/game/UptimeMilestoneCard';
 import ProgressSweep from '../../src/components/ProgressSweep';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
-import { useReputation, type OutcomeRollbackSnapshot } from '../../src/state/ReputationContext';
+import { createLeaderboardSessionId, writeLeaderboardScoreEvent } from '../../src/services/leaderboard';
+import { useAuth } from '../../src/state/AuthContext';
+import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { supabase } from '../../src/supabase';
 import { fonts } from '../../src/theme/typography';
@@ -38,10 +42,17 @@ import {
   type OperationCheckpointId,
   type OperationSessionCompletion,
 } from '../../src/utils/categoryProgress';
-import { isValidCategoryQuestion, type CategoryQuestionId, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
-import type { RankingOutcome } from '../../src/utils/ranking';
+import { filterCategoryQuestions, type CategoryQuestionId, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
+import { RANKING_SCORE_BY_OUTCOME } from '../../src/utils/ranking';
 import {
-  deriveSessionReputation,
+  deriveGameSessionTotals,
+  canUseRollbackOnResult,
+  isCompleteGameSession,
+  type GameSessionResult,
+  type GameSessionTotals,
+} from '../../src/utils/gameSession';
+import { formatSessionMetric } from '../../src/utils/format';
+import {
   removeSessionResult,
   upsertSessionResult,
 } from '../../src/utils/sessionReputation';
@@ -77,22 +88,11 @@ interface IncidentChoice {
   label: string;
 }
 
-interface SessionReviewEntry {
-  questionId: CategoryQuestionId;
-  questionIndex: number;
-  questionTitle: string;
-  selectedAnswer: string | null;
-  correctAnswer: string;
-  outcome: GameResultTone;
-}
-
-interface SessionResolvedResult extends SessionReviewEntry {
-  reputationDelta: number;
-  rankingOutcome: RankingOutcome;
-  isCorrect: boolean;
-  previousUptimeStreak: number;
-  outcomeRollbackSnapshot: OutcomeRollbackSnapshot;
-}
+type SessionResolvedResult = GameSessionResult;
+type SessionReviewEntry = Pick<
+  GameSessionResult,
+  'questionId' | 'questionIndex' | 'questionTitle' | 'selectedAnswer' | 'correctAnswer' | 'outcome'
+>;
 
 interface AnimatedChoiceItemProps {
   choice: IncidentChoice;
@@ -304,25 +304,16 @@ function getOperationTargetCopy(star: DifficultyStar): string {
 
 export default function GameScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ category?: string; star?: string }>();
-  const categoryId = isGameCategoryId(params.category) ? params.category : null;
-  const difficultyStar = parseDifficultyStar(params.star);
-  const category = categoryId ? getGameCategory(categoryId) : null;
+  const { user } = useAuth();
+  const params = useLocalSearchParams<{ category?: string | string[]; star?: string | string[] }>();
+  const categoryId = resolveGameCategoryId(params.category);
+  const difficultyStar = resolveDifficultyStar(params.star);
+  const category = getGameCategory(categoryId);
   const { width } = useWindowDimensions();
   const {
-    applyOutcome,
-    addBudget,
     isLoaded,
-    setCorrectAnswers,
-    setWrongAnswers,
-    recordRankingOutcome,
-    revertRankingOutcome,
     categoryProgress,
-    recordCategoryQuestionAnswer,
-    revertCategoryQuestionAnswer,
-    completeCategoryOperationSession,
-    getOutcomeRollbackSnapshot,
-    restoreOutcomeRollbackSnapshot,
+    commitGameSession,
     codeReview,
     consumeCodeReview,
     gitRevert,
@@ -332,7 +323,6 @@ export default function GameScreen() {
     snapshotBackup,
     consumeSnapshotBackup,
     uptimeStreak,
-    setUptimeStreak,
   } = useReputation();
   const { theme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
@@ -359,6 +349,8 @@ export default function GameScreen() {
   const [reduceMotion, setReduceMotion] = useState(false);
   const [jokerOverlayQueue, setJokerOverlayQueue] = useState<JokerUseActivation[]>([]);
   const [sessionResults, setSessionResults] = useState<SessionResolvedResult[]>([]);
+  const [sessionUptimeStreak, setSessionUptimeStreak] = useState(uptimeStreak);
+  const [exitConfirmationVisible, setExitConfirmationVisible] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeLeftRef = useRef(TIMER_DURATION);
@@ -377,7 +369,8 @@ export default function GameScreen() {
   const selectedChoiceRef = useRef<IncidentChoice | null>(null);
   const sessionQuestionIdsRef = useRef<CategoryQuestionId[]>([]);
   const sessionResultsRef = useRef<SessionResolvedResult[]>([]);
-  const sessionCorrectCountRef = useRef(0);
+  const sessionInitialUptimeRef = useRef(uptimeStreak);
+  const sessionUptimeStreakRef = useRef(uptimeStreak);
   const sessionCheckpointRef = useRef<OperationCheckpointId | null>(
     categoryId && difficultyStar ? getCurrentOperationCheckpoint(categoryProgress, categoryId, difficultyStar) : null,
   );
@@ -385,21 +378,20 @@ export default function GameScreen() {
   const sessionStartAttemptedCountRef = useRef(
     categoryId && difficultyStar ? categoryProgress[categoryId][difficultyStar].attemptedQuestionIds.length : 0,
   );
-  const uptimeStreakRef = useRef(uptimeStreak);
   const lostStreakRef = useRef(0);
-  const hasInitializedRef = useRef(false);
+  const fetchRequestIdRef = useRef(0);
   const outcomePendingRef = useRef(false);
   const advancingRef = useRef(false);
   const jokerActivationSequenceRef = useRef(0);
   const lifelineUseLocksRef = useRef(new Set<string>());
+  const sessionCommittedRef = useRef(false);
+  const sessionAbandonedRef = useRef(false);
+  const leaderboardSessionIdRef = useRef(createLeaderboardSessionId());
+  const resumeTimerAfterExitPromptRef = useRef(false);
   const attemptedQuestionIdsRef = useRef<CategoryQuestionId[]>(
     categoryId && difficultyStar ? categoryProgress[categoryId][difficultyStar].attemptedQuestionIds : [],
   );
-  const contextActionsRef = useRef({ applyOutcome, addBudget, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, revertRankingOutcome, setUptimeStreak, recordCategoryQuestionAnswer, revertCategoryQuestionAnswer, completeCategoryOperationSession, getOutcomeRollbackSnapshot, restoreOutcomeRollbackSnapshot });
-
-  useEffect(() => {
-    uptimeStreakRef.current = uptimeStreak;
-  }, [uptimeStreak]);
+  const contextActionsRef = useRef({ commitGameSession });
 
   useEffect(() => {
     if (!categoryId || !difficultyStar) return;
@@ -407,8 +399,8 @@ export default function GameScreen() {
   }, [categoryId, categoryProgress, difficultyStar]);
 
   useEffect(() => {
-    contextActionsRef.current = { applyOutcome, addBudget, setCorrectAnswers, setWrongAnswers, recordRankingOutcome, revertRankingOutcome, setUptimeStreak, recordCategoryQuestionAnswer, revertCategoryQuestionAnswer, completeCategoryOperationSession, getOutcomeRollbackSnapshot, restoreOutcomeRollbackSnapshot };
-  }, [addBudget, applyOutcome, completeCategoryOperationSession, getOutcomeRollbackSnapshot, recordCategoryQuestionAnswer, recordRankingOutcome, restoreOutcomeRollbackSnapshot, revertCategoryQuestionAnswer, revertRankingOutcome, setCorrectAnswers, setUptimeStreak, setWrongAnswers]);
+    contextActionsRef.current = { commitGameSession };
+  }, [commitGameSession]);
 
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -423,11 +415,18 @@ export default function GameScreen() {
   useEffect(() => {
     sessionResultsRef.current = [];
     sessionCompletionRef.current = null;
+    sessionCommittedRef.current = false;
+    sessionAbandonedRef.current = false;
+    leaderboardSessionIdRef.current = createLeaderboardSessionId();
     setSessionResults([]);
   }, [categoryId, difficultyStar]);
 
   const hasSelectedChoice = selectedChoice !== null;
-  const sessionReputation = deriveSessionReputation(sessionResults);
+  const sessionTotals = useMemo(
+    () => deriveGameSessionTotals(sessionResults, sessionInitialUptimeRef.current),
+    [sessionResults],
+  );
+  const sessionReputation = sessionTotals.reputationDelta;
 
   useEffect(() => {
     confirmationTransition.stopAnimation();
@@ -459,9 +458,75 @@ export default function GameScreen() {
     const next = upsertSessionResult(sessionResultsRef.current, result);
     sessionResultsRef.current = next;
     setSessionResults(next);
+    return next;
   }, []);
 
-  const resolveTimeout = useCallback(async () => {
+  const commitResolvedSession = useCallback((results: readonly SessionResolvedResult[]) => {
+    if (sessionCommittedRef.current || sessionAbandonedRef.current || !isCompleteGameSession(results)) return null;
+    sessionCommittedRef.current = true;
+    stopTimer();
+    const checkpointId = sessionCheckpointRef.current;
+    const completion = contextActionsRef.current.commitGameSession({
+      categoryId,
+      star: difficultyStar,
+      checkpointId,
+      initialUptimeStreak: sessionInitialUptimeRef.current,
+      results,
+    });
+    if (!completion) {
+      sessionCommittedRef.current = false;
+      return null;
+    }
+
+    sessionCompletionRef.current = completion;
+    const totals = deriveGameSessionTotals(results, sessionInitialUptimeRef.current);
+    if (user?.id && totals.leaderboardDelta > 0) {
+      void writeLeaderboardScoreEvent({
+        userId: user.id,
+        scoreDelta: totals.leaderboardDelta,
+        categoryId,
+        difficultyStar,
+        sessionId: leaderboardSessionIdRef.current,
+      }).catch((error) => {
+        if (__DEV__) console.warn('[Leaderboard] Dönemsel skor olayı yazılamadı.', error);
+      });
+    }
+    const checkpointTarget = getOperationReputationTarget(difficultyStar);
+    void trackEvent('session_completed', {
+      category_id: categoryId,
+      difficulty_star: difficultyStar,
+      checkpoint_index: checkpointId,
+      checkpoint_target: checkpointTarget,
+      session_question_count: totals.answeredCount,
+      session_correct_count: totals.correctCount,
+      session_wrong_count: totals.failCount,
+      session_timeout_count: totals.timeoutCount,
+      session_partial_count: totals.partialCount,
+      session_career_xp: totals.careerXpDelta,
+      session_reputation: totals.reputationDelta,
+      session_budget: totals.budgetDelta,
+      leaderboard_delta: totals.leaderboardDelta,
+      checkpoint_passed: checkpointId !== null && completion.passed,
+    });
+    if (checkpointId !== null) {
+      void trackEvent(completion.passed ? 'checkpoint_passed' : 'checkpoint_failed', {
+        category_id: categoryId,
+        difficulty_star: difficultyStar,
+        checkpoint_index: checkpointId,
+        checkpoint_target: checkpointTarget,
+        session_reputation: totals.reputationDelta,
+      });
+    }
+    if (completion.newlyUnlockedTier) {
+      void trackEvent('tier_unlocked', {
+        category_id: categoryId,
+        unlocked_difficulty_star: completion.newlyUnlockedTier,
+      });
+    }
+    return completion;
+  }, [categoryId, difficultyStar, stopTimer, user?.id]);
+
+  const resolveTimeout = useCallback(() => {
     const currentIncident = incidentRef.current;
     if (resolvingRef.current || !currentIncident) return;
     resolvingRef.current = true;
@@ -472,48 +537,47 @@ export default function GameScreen() {
     setIsAnswered(true);
     setTimedOut(true);
     if (!categoryId || !difficultyStar) return;
-    const outcomeRollbackSnapshot = contextActionsRef.current.getOutcomeRollbackSnapshot();
-    const previousUptimeStreak = uptimeStreakRef.current;
+    const previousUptimeStreak = sessionUptimeStreakRef.current;
     if (!attemptedQuestionIdsRef.current.includes(currentIncident.id)) attemptedQuestionIdsRef.current = [...attemptedQuestionIdsRef.current, currentIncident.id];
-    contextActionsRef.current.recordCategoryQuestionAnswer(categoryId, difficultyStar, currentIncident.id, false);
-    contextActionsRef.current.setWrongAnswers((value) => value + 1);
-    contextActionsRef.current.recordRankingOutcome('timeout');
     const reward = getCategoryReward(difficultyStar, 'timeout');
-    try {
-      await contextActionsRef.current.applyOutcome(reward.careerXpDelta, reward.reputationDelta, reward.budgetDelta);
-      recordResolvedSessionResult({
-        questionId: currentIncident.id,
-        questionIndex: sessionQuestionIdsRef.current.length,
-        questionTitle: currentIncident.title,
-        selectedAnswer: null,
-        correctAnswer: currentIncident.optimal_text,
-        outcome: 'timeout',
-        reputationDelta: reward.reputationDelta,
-        rankingOutcome: 'timeout',
-        isCorrect: false,
-        previousUptimeStreak,
-        outcomeRollbackSnapshot,
-      });
-      void trackEvent('question_answered', {
-        category_id: categoryId,
-        difficulty_star: difficultyStar,
-        question_id: currentIncident.id,
-        result: 'timeout',
-        reputation_delta: reward.reputationDelta,
-        career_xp_delta: reward.careerXpDelta,
-        budget_delta: reward.budgetDelta,
-        remaining_time: 0,
-      });
-    } finally {
-      outcomePendingRef.current = false;
-      setIsOutcomePending(false);
-    }
+    recordResolvedSessionResult({
+      questionId: currentIncident.id,
+      questionIndex: sessionQuestionIdsRef.current.length,
+      questionTitle: currentIncident.title,
+      selectedAnswer: null,
+      correctAnswer: currentIncident.optimal_text,
+      outcome: 'timeout',
+      isCorrect: false,
+      careerXpDelta: reward.careerXpDelta,
+      reputationDelta: reward.reputationDelta,
+      budgetDelta: reward.budgetDelta,
+      milestoneBudgetDelta: 0,
+      leaderboardDelta: RANKING_SCORE_BY_OUTCOME.timeout,
+      uptimeBefore: previousUptimeStreak,
+      uptimeAfter: previousUptimeStreak,
+      resolvedAt: new Date().toISOString(),
+    });
+    void trackEvent('question_answered', {
+      category_id: categoryId,
+      difficulty_star: difficultyStar,
+      question_id: currentIncident.id,
+      result: 'timeout',
+      temporary_result: true,
+      reputation_delta: reward.reputationDelta,
+      career_xp_delta: reward.careerXpDelta,
+      budget_delta: reward.budgetDelta,
+      remaining_time: 0,
+    });
+    outcomePendingRef.current = false;
+    setIsOutcomePending(false);
   }, [categoryId, difficultyStar, recordResolvedSessionResult]);
 
-  const startTimer = useCallback(() => {
+  const startTimer = useCallback((resetDuration = true) => {
     stopTimer();
-    timeLeftRef.current = TIMER_DURATION;
-    setTimeLeft(TIMER_DURATION);
+    if (resetDuration) {
+      timeLeftRef.current = TIMER_DURATION;
+      setTimeLeft(TIMER_DURATION);
+    }
     timerRef.current = setInterval(() => {
       const nextTime = Math.max(0, timeLeftRef.current - 1);
       timeLeftRef.current = nextTime;
@@ -562,6 +626,7 @@ export default function GameScreen() {
   }, [codeReviewEmphasis, snapshotStatusPulse, startTimer]);
 
   const fetchIncidents = useCallback(async () => {
+    const requestId = ++fetchRequestIdRef.current;
     try {
       setIsLoading(true);
       setError(null);
@@ -575,9 +640,13 @@ export default function GameScreen() {
         .eq('category_id', categoryId)
         .eq('difficulty_star', difficultyStar)
         .order('id', { ascending: true });
+      if (requestId !== fetchRequestIdRef.current) return;
       if (fetchError) throw fetchError;
-      const loadedIncidents = (data as CategoryQuestionRow[] | null ?? [])
-        .filter((row) => isValidCategoryQuestion(row, categoryId, difficultyStar)) as GameIncident[];
+      const loadedIncidents = filterCategoryQuestions(
+        data as CategoryQuestionRow[] | null ?? [],
+        categoryId,
+        difficultyStar,
+      ) as GameIncident[];
       if (loadedIncidents.length !== QUESTIONS_PER_TIER) {
         setError(`Bu kademe henüz hazır değil (${loadedIncidents.length}/${QUESTIONS_PER_TIER} geçerli soru).`);
         return;
@@ -585,8 +654,14 @@ export default function GameScreen() {
       incidentsRef.current = loadedIncidents;
       sessionQuestionIdsRef.current = [];
       sessionResultsRef.current = [];
-      sessionCorrectCountRef.current = 0;
       sessionCompletionRef.current = null;
+      sessionCommittedRef.current = false;
+      sessionAbandonedRef.current = false;
+      leaderboardSessionIdRef.current = createLeaderboardSessionId();
+      sessionInitialUptimeRef.current = uptimeStreak;
+      sessionUptimeStreakRef.current = uptimeStreak;
+      setSessionUptimeStreak(uptimeStreak);
+      setExitConfirmationVisible(false);
       const checkpointId = getCurrentOperationCheckpoint(categoryProgress, categoryId, difficultyStar);
       sessionCheckpointRef.current = checkpointId;
       setSessionResults([]);
@@ -599,24 +674,27 @@ export default function GameScreen() {
       });
       chooseIncident(loadedIncidents, []);
     } catch (fetchError: any) {
-      setError(fetchError.message || 'Bir hata oluştu.');
+      if (requestId === fetchRequestIdRef.current) {
+        setError(fetchError.message || 'Bir hata oluştu.');
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === fetchRequestIdRef.current) setIsLoading(false);
     }
-  }, [categoryId, categoryProgress, chooseIncident, difficultyStar]);
+  }, [categoryId, categoryProgress, chooseIncident, difficultyStar, uptimeStreak]);
 
   useEffect(() => {
     if (!isLoaded) return;
-    if (hasInitializedRef.current) return stopTimer;
-    hasInitializedRef.current = true;
     void fetchIncidents();
-    return stopTimer;
-    // Initial Supabase load waits for migrated local progression, but remains
-    // decoupled from changing context action references.
+    return () => {
+      fetchRequestIdRef.current += 1;
+      stopTimer();
+    };
+    // Load once for each resolved route selection. Category progress updates
+    // during a session must not restart the active question pool.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded]);
+  }, [categoryId, difficultyStar, isLoaded]);
 
-  const handleChoice = useCallback(async (choice: IncidentChoice) => {
+  const handleChoice = useCallback((choice: IncidentChoice) => {
     const currentIncident = incidentRef.current;
     if (resolvingRef.current || outcomePendingRef.current || !currentIncident) return;
     stopTimer();
@@ -630,66 +708,51 @@ export default function GameScreen() {
     if (!categoryId || !difficultyStar) return;
     const choiceOutcome = getCategoryChoiceOutcome(choice.tier);
     const isCorrect = choiceOutcome === 'success';
-    const outcomeRollbackSnapshot = contextActionsRef.current.getOutcomeRollbackSnapshot();
-    const previousUptimeStreak = uptimeStreakRef.current;
+    const previousUptimeStreak = sessionUptimeStreakRef.current;
     if (!attemptedQuestionIdsRef.current.includes(currentIncident.id)) attemptedQuestionIdsRef.current = [...attemptedQuestionIdsRef.current, currentIncident.id];
-    contextActionsRef.current.recordCategoryQuestionAnswer(categoryId, difficultyStar, currentIncident.id, isCorrect);
     const reward = getCategoryReward(difficultyStar, choiceOutcome);
-    contextActionsRef.current.recordRankingOutcome(choiceOutcome);
     let milestoneBonus = 0;
+    let nextUptimeStreak = previousUptimeStreak;
     if (reward.isPositive) {
-      sessionCorrectCountRef.current += 1;
-      contextActionsRef.current.setCorrectAnswers((value) => value + 1);
-      const newStreak = uptimeStreakRef.current + 1;
-      uptimeStreakRef.current = newStreak;
-      contextActionsRef.current.setUptimeStreak(newStreak);
-      milestoneBonus = UPTIME_MILESTONE_REWARDS[newStreak] ?? 0;
+      nextUptimeStreak = previousUptimeStreak + 1;
+      milestoneBonus = UPTIME_MILESTONE_REWARDS[nextUptimeStreak] ?? 0;
     } else {
-      contextActionsRef.current.setWrongAnswers((value) => value + 1);
-      const streakBeforeFailure = uptimeStreakRef.current;
-      lostStreakRef.current = streakBeforeFailure;
-      setLostStreak(streakBeforeFailure);
-      if (streakBeforeFailure > 0) {
-        uptimeStreakRef.current = 0;
-        contextActionsRef.current.setUptimeStreak(0);
-      }
+      lostStreakRef.current = previousUptimeStreak;
+      setLostStreak(previousUptimeStreak);
+      nextUptimeStreak = 0;
     }
-    const outcomeUpdate = contextActionsRef.current.applyOutcome(
-      reward.careerXpDelta,
-      reward.reputationDelta,
-      reward.budgetDelta,
-    );
-    const milestoneUpdate = milestoneBonus > 0 ? contextActionsRef.current.addBudget(milestoneBonus) : null;
-    try {
-      await outcomeUpdate;
-      if (milestoneUpdate) await milestoneUpdate;
-      recordResolvedSessionResult({
-        questionId: currentIncident.id,
-        questionIndex: sessionQuestionIdsRef.current.length,
-        questionTitle: currentIncident.title,
-        selectedAnswer: choice.label,
-        correctAnswer: currentIncident.optimal_text,
-        outcome: isCorrect ? 'success' : 'fail',
-        reputationDelta: reward.reputationDelta,
-        rankingOutcome: choiceOutcome,
-        isCorrect,
-        previousUptimeStreak,
-        outcomeRollbackSnapshot,
-      });
-      void trackEvent('question_answered', {
-        category_id: categoryId,
-        difficulty_star: difficultyStar,
-        question_id: currentIncident.id,
-        result: choiceOutcome,
-        reputation_delta: reward.reputationDelta,
-        career_xp_delta: reward.careerXpDelta,
-        budget_delta: reward.budgetDelta + milestoneBonus,
-        remaining_time: timeLeftRef.current,
-      });
-    } finally {
-      outcomePendingRef.current = false;
-      setIsOutcomePending(false);
-    }
+    sessionUptimeStreakRef.current = nextUptimeStreak;
+    setSessionUptimeStreak(nextUptimeStreak);
+    recordResolvedSessionResult({
+      questionId: currentIncident.id,
+      questionIndex: sessionQuestionIdsRef.current.length,
+      questionTitle: currentIncident.title,
+      selectedAnswer: choice.label,
+      correctAnswer: currentIncident.optimal_text,
+      outcome: choiceOutcome,
+      isCorrect,
+      careerXpDelta: reward.careerXpDelta,
+      reputationDelta: reward.reputationDelta,
+      budgetDelta: reward.budgetDelta,
+      milestoneBudgetDelta: milestoneBonus,
+      leaderboardDelta: RANKING_SCORE_BY_OUTCOME[choiceOutcome],
+      uptimeBefore: previousUptimeStreak,
+      uptimeAfter: nextUptimeStreak,
+      resolvedAt: new Date().toISOString(),
+    });
+    void trackEvent('question_answered', {
+      category_id: categoryId,
+      difficulty_star: difficultyStar,
+      question_id: currentIncident.id,
+      result: choiceOutcome,
+      temporary_result: true,
+      reputation_delta: reward.reputationDelta,
+      career_xp_delta: reward.careerXpDelta,
+      budget_delta: reward.budgetDelta + milestoneBonus,
+      remaining_time: timeLeftRef.current,
+    });
+    outcomePendingRef.current = false;
+    setIsOutcomePending(false);
   }, [categoryId, difficultyStar, recordResolvedSessionResult, stopTimer]);
 
   const handleSelectChoice = useCallback((choice: IncidentChoice) => {
@@ -704,59 +767,33 @@ export default function GameScreen() {
     void handleChoice(choice);
   }, [handleChoice, isAnswered, timeLeft]);
 
-  const handleNextScenario = useCallback(() => {
+  const handleCompleteSession = useCallback(() => {
     if (outcomePendingRef.current || advancingRef.current) return;
     const currentIncident = incidentRef.current;
     if (!currentIncident) return;
+    if (!isCompleteGameSession(sessionResultsRef.current)) return;
 
     advancingRef.current = true;
-    if (sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT) {
-      stopTimer();
-      if (categoryId && difficultyStar) {
-        const finalResults = sessionResultsRef.current;
-        const finalSessionReputation = deriveSessionReputation(finalResults);
-        const checkpointId = sessionCheckpointRef.current;
-        const completion = contextActionsRef.current.completeCategoryOperationSession(
-          categoryId,
-          difficultyStar,
-          checkpointId,
-          finalSessionReputation,
-        );
-        sessionCompletionRef.current = completion;
-        const checkpointTarget = getOperationReputationTarget(difficultyStar);
-        void trackEvent('session_completed', {
-          category_id: categoryId,
-          difficulty_star: difficultyStar,
-          checkpoint_index: checkpointId,
-          checkpoint_target: checkpointTarget,
-          session_question_count: finalResults.length,
-          session_correct_count: finalResults.filter((result) => result.outcome === 'success').length,
-          session_wrong_count: finalResults.filter((result) => result.outcome === 'fail').length,
-          session_timeout_count: finalResults.filter((result) => result.outcome === 'timeout').length,
-          session_reputation: finalSessionReputation,
-          checkpoint_passed: checkpointId !== null && completion.passed,
-        });
-        if (checkpointId !== null) {
-          void trackEvent(completion.passed ? 'checkpoint_passed' : 'checkpoint_failed', {
-            category_id: categoryId,
-            difficulty_star: difficultyStar,
-            checkpoint_index: checkpointId,
-            checkpoint_target: checkpointTarget,
-            session_reputation: finalSessionReputation,
-          });
-        }
-        if (completion.newlyUnlockedTier) {
-          void trackEvent('tier_unlocked', {
-            category_id: categoryId,
-            unlocked_difficulty_star: completion.newlyUnlockedTier,
-          });
-        }
-      }
-      incidentRef.current = null;
-      setIncident(null);
-      setChoices([]);
+    stopTimer();
+    if (!sessionCompletionRef.current) {
+      commitResolvedSession(sessionResultsRef.current);
+    }
+    if (!sessionCompletionRef.current) {
+      advancingRef.current = false;
       return;
     }
+
+    incidentRef.current = null;
+    setIncident(null);
+    setChoices([]);
+  }, [commitResolvedSession, stopTimer]);
+
+  const handleNextScenario = useCallback(() => {
+    if (outcomePendingRef.current || advancingRef.current) return;
+    const currentIncident = incidentRef.current;
+    if (!currentIncident || sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT) return;
+
+    advancingRef.current = true;
     questionTransition.stopAnimation();
     questionTransition.setValue(reduceMotion ? 1 : 0);
     chooseIncident(incidentsRef.current, sessionQuestionIdsRef.current);
@@ -769,42 +806,78 @@ export default function GameScreen() {
         useNativeDriver: true,
       }).start();
     }
-  }, [categoryId, chooseIncident, difficultyStar, questionTransition, reduceMotion, stopTimer]);
-
-  const handleRestart = useCallback(() => {
-    stopTimer();
-    sessionQuestionIdsRef.current = [];
-    sessionResultsRef.current = [];
-    sessionCorrectCountRef.current = 0;
-    sessionCompletionRef.current = null;
-    const checkpointId = categoryId && difficultyStar
-      ? getCurrentOperationCheckpoint(categoryProgress, categoryId, difficultyStar)
-      : null;
-    sessionCheckpointRef.current = checkpointId;
-    setSessionResults([]);
-    sessionStartAttemptedCountRef.current = attemptedQuestionIdsRef.current.length;
-    if (categoryId && difficultyStar) {
-      void trackEvent('session_started', {
-        category_id: categoryId,
-        difficulty_star: difficultyStar,
-        checkpoint_index: checkpointId,
-        checkpoint_target: getOperationReputationTarget(difficultyStar),
-      });
-    }
-    chooseIncident(incidentsRef.current, []);
-  }, [categoryId, categoryProgress, chooseIncident, difficultyStar, stopTimer]);
+  }, [chooseIncident, questionTransition, reduceMotion]);
 
   const handleExit = useCallback(() => {
+    if (!incidentRef.current || sessionCommittedRef.current) {
+      stopTimer();
+      router.replace('/(tabs)/play');
+      return;
+    }
+    resumeTimerAfterExitPromptRef.current = Boolean(timerRef.current) && !isAnswered && timeLeftRef.current > 0;
     stopTimer();
+    setExitConfirmationVisible(true);
+  }, [isAnswered, router, stopTimer]);
+
+  const handleCancelExit = useCallback(() => {
+    setExitConfirmationVisible(false);
+    if (resumeTimerAfterExitPromptRef.current) startTimer(false);
+    resumeTimerAfterExitPromptRef.current = false;
+  }, [startTimer]);
+
+  const abandonSession = useCallback((reason: 'manual_exit' | 'app_background') => {
+    if (sessionAbandonedRef.current || sessionCommittedRef.current) return;
+    sessionAbandonedRef.current = true;
+    stopTimer();
+    setExitConfirmationVisible(false);
+    const totals = deriveGameSessionTotals(sessionResultsRef.current, sessionInitialUptimeRef.current);
+    void trackEvent('session_abandoned', {
+      category_id: categoryId,
+      difficulty_star: difficultyStar,
+      question_index: totals.answeredCount,
+      temporary_session_reputation: totals.reputationDelta,
+      checkpoint_index: sessionCheckpointRef.current,
+      reason,
+    });
     sessionResultsRef.current = [];
     router.replace('/(tabs)/play');
-  }, [router, stopTimer]);
+  }, [categoryId, difficultyStar, router, stopTimer]);
 
-  const queueJokerOverlay = useCallback((icon: JokerUseActivation['icon'], name: string, countBefore: number) => {
+  const handleConfirmExit = useCallback(() => {
+    abandonSession('manual_exit');
+  }, [abandonSession]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' && incidentRef.current) abandonSession('app_background');
+    });
+    return () => subscription.remove();
+  }, [abandonSession]);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'web'
+      || typeof window === 'undefined'
+      || !incident
+      || sessionCommittedRef.current
+      || sessionAbandonedRef.current
+    ) return undefined;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [incident, sessionResults.length]);
+
+  const queueJokerOverlay = useCallback((jokerId: JokerId, fallbackIcon: JokerUseActivation['fallbackIcon'], name: string, countBefore: number) => {
     jokerActivationSequenceRef.current += 1;
     const activation: JokerUseActivation = {
       activationId: jokerActivationSequenceRef.current,
-      icon,
+      iconSource: JOKER_ICON_ASSETS[jokerId],
+      fallbackIcon,
       name,
       countBefore,
     };
@@ -830,7 +903,7 @@ export default function GameScreen() {
       selectedChoiceRef.current = null;
       setSelectedChoice(null);
     }
-    queueJokerOverlay('scan-outline', 'Code Review', codeReview);
+    queueJokerOverlay('codeReview', 'scan-outline', JOKER_DISPLAY.codeReview.name, codeReview);
     setIsCodeReviewActive(true);
     setCodeReviewEliminatedIds(eliminatedIds);
     consumeCodeReview();
@@ -855,7 +928,7 @@ export default function GameScreen() {
   const handleServerScaleUp = useCallback(() => {
     if (isAnswered || isScaleUpUsed || serverScaleUp <= 0 || lifelineUseLocksRef.current.has('serverScaleUp')) return;
     lifelineUseLocksRef.current.add('serverScaleUp');
-    queueJokerOverlay('flash', 'Scale Up', serverScaleUp);
+    queueJokerOverlay('serverScaleUp', 'flash', JOKER_DISPLAY.serverScaleUp.name, serverScaleUp);
     setIsScaleUpUsed(true);
     consumeServerScaleUp();
     if (categoryId && difficultyStar) {
@@ -875,14 +948,19 @@ export default function GameScreen() {
   const currentResolvedResult = incident
     ? sessionResults.find((result) => result.questionId === incident.id)
     : undefined;
-  const canUseGitRevert = isAnswered && !isOutcomePending && Boolean(currentResolvedResult) && gitRevert > 0 && !isReverted;
-  const canUseSnapshotBackup = isAnswered && failedChoiceSelected && lostStreak > 0 && snapshotBackup > 0;
+  const canUseGitRevert = isAnswered
+    && !isOutcomePending
+    && !sessionCommittedRef.current
+    && canUseRollbackOnResult(gitRevert, currentResolvedResult)
+    && !isReverted;
+  const shouldPulseGitRevert = canUseGitRevert;
+  const canUseSnapshotBackup = isAnswered && !sessionCommittedRef.current && failedChoiceSelected && lostStreak > 0 && snapshotBackup > 0;
 
   const handleGitRevert = useCallback(() => {
     const currentIncident = incidentRef.current;
     if (!canUseGitRevert || !currentIncident || !currentResolvedResult || !categoryId || !difficultyStar || !resolvingRef.current || lifelineUseLocksRef.current.has('gitRevert')) return;
     lifelineUseLocksRef.current.add('gitRevert');
-    queueJokerOverlay('arrow-undo', 'Git Revert', gitRevert);
+    queueJokerOverlay('gitRevert', 'arrow-undo', JOKER_DISPLAY.gitRevert.name, gitRevert);
     consumeGitRevert();
     void trackEvent('joker_used', {
       joker_type: 'gitRevert',
@@ -890,17 +968,8 @@ export default function GameScreen() {
       difficulty_star: difficultyStar,
       question_id: currentIncident.id,
     });
-    contextActionsRef.current.restoreOutcomeRollbackSnapshot(currentResolvedResult.outcomeRollbackSnapshot);
-    contextActionsRef.current.revertCategoryQuestionAnswer(categoryId, difficultyStar, currentResolvedResult.isCorrect);
-    contextActionsRef.current.revertRankingOutcome(currentResolvedResult.rankingOutcome);
-    if (currentResolvedResult.isCorrect) {
-      sessionCorrectCountRef.current = Math.max(0, sessionCorrectCountRef.current - 1);
-      contextActionsRef.current.setCorrectAnswers((value) => Math.max(0, value - 1));
-    } else {
-      contextActionsRef.current.setWrongAnswers((value) => Math.max(0, value - 1));
-    }
-    uptimeStreakRef.current = currentResolvedResult.previousUptimeStreak;
-    contextActionsRef.current.setUptimeStreak(currentResolvedResult.previousUptimeStreak);
+    sessionUptimeStreakRef.current = currentResolvedResult.uptimeBefore;
+    setSessionUptimeStreak(currentResolvedResult.uptimeBefore);
     lostStreakRef.current = 0;
     setLostStreak(0);
     const nextSessionResults = removeSessionResult(sessionResultsRef.current, currentIncident.id);
@@ -928,10 +997,13 @@ export default function GameScreen() {
   const handleSnapshotBackup = useCallback(() => {
     if (!canUseSnapshotBackup || lostStreakRef.current <= 0 || lifelineUseLocksRef.current.has('snapshotBackup')) return;
     lifelineUseLocksRef.current.add('snapshotBackup');
-    queueJokerOverlay('camera-outline', 'Snapshot', snapshotBackup);
-    const restoredStreak = lostStreakRef.current;
+    queueJokerOverlay('snapshotBackup', 'camera-outline', JOKER_DISPLAY.snapshotBackup.name, snapshotBackup);
+    const currentResult = currentResolvedResult;
+    if (!currentResult) return;
+    const restoredStreak = currentResult.uptimeBefore;
     lostStreakRef.current = 0;
-    uptimeStreakRef.current = restoredStreak;
+    sessionUptimeStreakRef.current = restoredStreak;
+    setSessionUptimeStreak(restoredStreak);
     consumeSnapshotBackup();
     if (categoryId && difficultyStar) {
       void trackEvent('joker_used', {
@@ -941,7 +1013,7 @@ export default function GameScreen() {
         question_id: incidentRef.current?.id,
       });
     }
-    contextActionsRef.current.setUptimeStreak(restoredStreak);
+    recordResolvedSessionResult({ ...currentResult, uptimeAfter: restoredStreak });
     setLostStreak(0);
     snapshotRestoreFlash.setValue(0);
     Animated.sequence([
@@ -956,11 +1028,11 @@ export default function GameScreen() {
         Animated.timing(snapshotStatusPulse, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
     }
-  }, [canUseSnapshotBackup, categoryId, consumeSnapshotBackup, difficultyStar, queueJokerOverlay, reduceMotion, snapshotBackup, snapshotRestoreFlash, snapshotStatusPulse]);
+  }, [canUseSnapshotBackup, categoryId, consumeSnapshotBackup, currentResolvedResult, difficultyStar, queueJokerOverlay, recordResolvedSessionResult, reduceMotion, snapshotBackup, snapshotRestoreFlash, snapshotStatusPulse]);
 
   useEffect(() => {
     gitRevertPulse.setValue(1);
-    if (!canUseGitRevert) return;
+    if (!shouldPulseGitRevert || reduceMotion) return;
 
     const pulse = Animated.loop(
       Animated.sequence([
@@ -974,7 +1046,7 @@ export default function GameScreen() {
       pulse.stop();
       gitRevertPulse.setValue(1);
     };
-  }, [canUseGitRevert, gitRevertPulse]);
+  }, [gitRevertPulse, reduceMotion, shouldPulseGitRevert]);
 
   useEffect(() => {
     snapshotBackupPulse.setValue(1);
@@ -1036,17 +1108,17 @@ export default function GameScreen() {
       styles={styles}
       tokens={tokens}
       reduceMotion={reduceMotion}
-      onRestart={handleRestart}
       onExit={handleExit}
       categoryName={category.name}
       operationTitle={category.operation.title}
       star={difficultyStar}
       difficultyLabel={DIFFICULTY_LABELS[difficultyStar]}
       answeredCount={Math.min(sessionQuestionIdsRef.current.length, SESSION_QUESTION_COUNT)}
-      correctCount={sessionCorrectCountRef.current}
+      correctCount={sessionTotals.correctCount}
       attemptedCount={Math.min(QUESTIONS_PER_TIER, attemptedQuestionIdsRef.current.length)}
       progressGained={Math.max(0, attemptedQuestionIdsRef.current.length - sessionStartAttemptedCountRef.current)}
       operationCompletion={sessionCompletionRef.current}
+      sessionTotals={sessionTotals}
       reviewEntries={[...sessionResultsRef.current].sort((left, right) => left.questionIndex - right.questionIndex)}
     />
   );
@@ -1057,18 +1129,17 @@ export default function GameScreen() {
   const feedbackReward = timedOut ? timeoutReward : selectedReward;
   const timerColor = timerColorProgress.interpolate({
     inputRange: [0, 1],
-    outputRange: [timeLeft <= 5 ? colors.danger : colors.warning, colors.secondary],
+    outputRange: [timeLeft <= 5 ? colors.danger : colors.gameUrgency, colors.gameTimerBoost],
   });
   const snapshotBackupColor = snapshotRestoreFlash.interpolate({
     inputRange: [0, 1],
     outputRange: ['rgba(0,0,0,0)', colors.secondary],
   });
-  const nextUptimeMilestone = getNextUptimeMilestone(uptimeStreak);
+  const nextUptimeMilestone = getNextUptimeMilestone(sessionUptimeStreak);
   const operationTarget = getOperationReputationTarget(difficultyStar);
   const operationProgress = getOperationReputationProgress(sessionReputation, operationTarget);
   const uptimeMilestoneReached = isAnswered
-    && Boolean(feedbackReward?.isPositive)
-    && (UPTIME_MILESTONE_REWARDS[uptimeStreak] ?? 0) > 0;
+    && Boolean(currentResolvedResult?.milestoneBudgetDelta);
   const resultTone: GameResultTone | null = timedOut
     ? 'timeout'
     : activeChoice && getCategoryChoiceOutcome(activeChoice.tier) === 'success'
@@ -1076,13 +1147,15 @@ export default function GameScreen() {
       : activeChoice
         ? 'fail'
         : null;
+  const isFinalQuestion = sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT;
+  const isCompletionReady = !isFinalQuestion || isCompleteGameSession(sessionResults);
   const questionTranslateY = questionTransition.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
   const confirmationTranslateY = confirmationTransition.interpolate({ inputRange: [0, 1], outputRange: [5, 0] });
   const lifelines = [
-    { id: 'codeReview', name: 'Code Review', icon: 'scan-outline' as const, count: codeReview, enabled: !isAnswered && !isCodeReviewActive && codeReview > 0, onPress: handleCodeReview },
-    { id: 'gitRevert', name: 'Git Revert', icon: 'arrow-undo' as const, count: gitRevert, enabled: canUseGitRevert, onPress: handleGitRevert },
-    { id: 'serverScaleUp', name: 'Scale Up', icon: 'flash' as const, count: serverScaleUp, enabled: !isAnswered && !isScaleUpUsed && serverScaleUp > 0, onPress: handleServerScaleUp },
-    { id: 'snapshotBackup', name: 'Snapshot', icon: 'camera-outline' as const, count: snapshotBackup, enabled: canUseSnapshotBackup, onPress: handleSnapshotBackup },
+    { id: 'codeReview', name: JOKER_DISPLAY.codeReview.name, iconSource: JOKER_ICON_ASSETS.codeReview, fallbackIcon: 'scan-outline' as const, count: codeReview, enabled: !isAnswered && !isCodeReviewActive && codeReview > 0, onPress: handleCodeReview },
+    { id: 'gitRevert', name: JOKER_DISPLAY.gitRevert.name, iconSource: JOKER_ICON_ASSETS.gitRevert, fallbackIcon: 'arrow-undo' as const, count: gitRevert, enabled: canUseGitRevert, onPress: handleGitRevert },
+    { id: 'serverScaleUp', name: JOKER_DISPLAY.serverScaleUp.name, iconSource: JOKER_ICON_ASSETS.serverScaleUp, fallbackIcon: 'flash' as const, count: serverScaleUp, enabled: !isAnswered && !isScaleUpUsed && serverScaleUp > 0, onPress: handleServerScaleUp },
+    { id: 'snapshotBackup', name: JOKER_DISPLAY.snapshotBackup.name, iconSource: JOKER_ICON_ASSETS.snapshotBackup, fallbackIcon: 'camera-outline' as const, count: snapshotBackup, enabled: canUseSnapshotBackup, onPress: handleSnapshotBackup },
   ] as const;
 
   return (
@@ -1154,7 +1227,7 @@ export default function GameScreen() {
                 <View style={styles.statusCard}>
                   <Animated.View style={[styles.uptimeWrap, { transform: [{ scale: snapshotStatusPulse }] }]}>
                     <UptimeMilestoneCard
-                      currentUptime={uptimeStreak}
+                      currentUptime={sessionUptimeStreak}
                       nextMilestone={nextUptimeMilestone}
                       milestoneReached={uptimeMilestoneReached}
                       reduceMotion={reduceMotion}
@@ -1167,7 +1240,7 @@ export default function GameScreen() {
                         <Ionicons
                           name="timer-outline"
                           size={tokens.layout.isCompact ? 17 : 20}
-                          color={timeLeft <= 5 ? colors.danger : colors.warning}
+                          color={timeLeft <= 5 ? colors.danger : colors.gameUrgency}
                           accessibilityElementsHidden
                           importantForAccessibility="no-hide-descendants"
                         />
@@ -1204,7 +1277,8 @@ export default function GameScreen() {
                     >
                       <GameAbilityButton
                         name={lifeline.name}
-                        icon={lifeline.icon}
+                        iconSource={lifeline.iconSource}
+                        fallbackIcon={lifeline.fallbackIcon}
                         count={lifeline.count}
                         enabled={lifeline.enabled}
                         onPress={lifeline.onPress}
@@ -1246,17 +1320,10 @@ export default function GameScreen() {
                       careerXpDelta={feedbackReward.careerXpDelta}
                       reputationDelta={feedbackReward.reputationDelta}
                       budgetDelta={feedbackReward.budgetDelta}
-                      impactText={getOperationImpact({
-                        categoryId: category.id,
-                        tag: incident.tag,
-                        title: incident.title,
-                        resultStatus: resultTone,
-                      })}
-                      rewardLabel={`${DIFFICULTY_LABELS[difficultyStar].toLocaleUpperCase('tr-TR')} KADEME ETKİSİ`}
                       bestAnswer={!feedbackReward.isPositive ? incident.optimal_text : undefined}
-                      isProcessing={isOutcomePending}
-                      onNext={handleNextScenario}
-                      nextLabel={sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT ? 'Oturumu Tamamla' : 'Sonraki Soru'}
+                      isProcessing={isOutcomePending || !isCompletionReady}
+                      onNext={isFinalQuestion ? handleCompleteSession : handleNextScenario}
+                      nextLabel={isFinalQuestion ? 'Oturumu Tamamla' : 'Sonraki Soru'}
                       reduceMotion={reduceMotion}
                     />
                   ) : (
@@ -1309,6 +1376,13 @@ export default function GameScreen() {
           onFinished={handleJokerOverlayFinished}
         />
       ) : null}
+      <ExitConfirmationModal
+        visible={exitConfirmationVisible}
+        reduceMotion={reduceMotion}
+        styles={styles}
+        onCancel={handleCancelExit}
+        onConfirm={handleConfirmExit}
+      />
     </GameBackdrop>
   );
 }
@@ -1339,11 +1413,78 @@ function ErrorScreen({ styles, message, onRetry }: { styles: ReturnType<typeof m
   );
 }
 
+function ExitConfirmationModal({
+  visible,
+  reduceMotion,
+  styles,
+  onCancel,
+  onConfirm,
+}: {
+  visible: boolean;
+  reduceMotion: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [exitFocused, setExitFocused] = useState(false);
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType={reduceMotion ? 'none' : 'fade'}
+      statusBarTranslucent
+      onRequestClose={onCancel}
+    >
+      <View style={styles.exitModalScrim}>
+        <SafeAreaView style={styles.exitModalSafeArea}>
+          <View
+            accessibilityRole="alert"
+            accessibilityViewIsModal
+            style={styles.exitModalPanel}
+          >
+            <View style={styles.exitModalIcon}>
+              <Ionicons
+                name="exit-outline"
+                size={25}
+                style={styles.exitModalIconGlyph}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
+            </View>
+            <Text accessibilityRole="header" style={styles.exitModalTitle}>Oturumdan çıkılsın mı?</Text>
+            <Text style={styles.exitModalBody}>Bu oyun oturumundan çıkmak istediğinize emin misiniz? İlerlemeniz kaydedilmeyecektir.</Text>
+            <View style={styles.exitModalActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Evet, çıkmak istiyorum"
+                onPress={onConfirm}
+                onFocus={() => setExitFocused(true)}
+                onBlur={() => setExitFocused(false)}
+                style={({ pressed }) => [
+                  styles.exitModalDestructive,
+                  exitFocused && styles.exitModalActionFocused,
+                  pressed && styles.controlPressed,
+                ]}
+              >
+                <Text style={styles.exitModalDestructiveText}>Evet, çıkmak istiyorum</Text>
+              </Pressable>
+              <GameActionButton
+                label="Hayır, devam edelim"
+                onPress={onCancel}
+                style={styles.exitModalContinue}
+              />
+            </View>
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
 function CompleteScreen({
   styles,
   tokens,
   reduceMotion,
-  onRestart,
   onExit,
   categoryName,
   operationTitle,
@@ -1354,12 +1495,12 @@ function CompleteScreen({
   attemptedCount,
   progressGained,
   operationCompletion,
+  sessionTotals,
   reviewEntries,
 }: {
   styles: ReturnType<typeof makeStyles>;
   tokens: DashboardTokens;
   reduceMotion: boolean;
-  onRestart: () => void;
   onExit: () => void;
   categoryName: string;
   operationTitle: string;
@@ -1370,6 +1511,7 @@ function CompleteScreen({
   attemptedCount: number;
   progressGained: number;
   operationCompletion: OperationSessionCompletion | null;
+  sessionTotals: GameSessionTotals;
   reviewEntries: SessionReviewEntry[];
 }) {
   const [reviewVisible, setReviewVisible] = useState(false);
@@ -1438,12 +1580,20 @@ function CompleteScreen({
               sweepColor={tokens.colors.text}
               markers={[0.5]}
             />
+            <View style={styles.completeRewardSummary}>
+              <View style={styles.completeRewardCopy}>
+                <Text style={styles.completeRewardLabel}>OTURUM KAZANCI</Text>
+                <Text style={styles.completeRewardText}>
+                  {formatSessionMetric(sessionTotals.careerXpDelta, 'Kariyer XP')} · {formatSessionMetric(sessionTotals.reputationDelta, 'İtibar')} · {formatSessionMetric(sessionTotals.budgetDelta, 'Şirket Bütçesi')}
+                </Text>
+              </View>
+            </View>
             <View style={[styles.qualificationResult, targetPassed ? styles.qualificationResultPassed : styles.qualificationResultFailed]}>
               <View style={styles.qualificationResultHeader}>
                 <Ionicons
                   name={targetPassed ? 'checkmark-circle-outline' : 'refresh-circle-outline'}
                   size={20}
-                  color={targetPassed ? tokens.colors.secondary : tokens.colors.warning}
+                  color={targetPassed ? tokens.colors.reputation : tokens.colors.warning}
                 />
                 <View style={styles.qualificationResultCopy}>
                   <Text style={styles.qualificationResultEyebrow}>KADEME YETERLİLİĞİ</Text>
@@ -1465,7 +1615,6 @@ function CompleteScreen({
             <View style={styles.completeActions}>
               <GameActionButton label="Oyun Merkezine Dön" onPress={onExit} style={styles.completeAction} />
               <GameActionButton label="Cevapları İncele" onPress={() => setReviewVisible(true)} variant="secondary" style={styles.completeAction} />
-              <GameActionButton label="Yeni Oturum Başlat" onPress={onRestart} variant="secondary" style={styles.completeAction} />
             </View>
           </View>
         </ScrollView>
@@ -1577,12 +1726,12 @@ function SessionReviewItem({
   const isTimeout = entry.outcome === 'timeout';
   const statusLabel = isCorrect ? 'Doğru' : isPartial ? 'Kısmi Doğru' : isTimeout ? 'Süre Doldu' : 'Yanlış';
   const statusColor = isCorrect
-    ? tokens.colors.secondary
+    ? tokens.colors.success
     : isPartial
       ? tokens.colors.warning
       : tokens.colors.danger;
   const statusBackground = isCorrect
-    ? tokens.colors.secondarySoft
+    ? tokens.colors.successSoft
     : isPartial
       ? tokens.colors.warningSoft
       : tokens.colors.dangerSoft;
@@ -1620,6 +1769,7 @@ function SessionReviewItem({
 
 function makeStyles(tokens: DashboardTokens) {
   const { colors, radius, shadow } = tokens;
+  const isCalmLightTheme = tokens.effects.decorativeOpacity === 0;
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: 'transparent' },
     content: { paddingBottom: tokens.layout.pageBottom },
@@ -1628,6 +1778,34 @@ function makeStyles(tokens: DashboardTokens) {
     loadingText: { ...tokens.type.body, fontFamily: fonts.body, color: colors.textMuted },
     errorText: { ...tokens.type.body, maxWidth: 520, fontFamily: fonts.bodySemiBold, color: colors.danger, textAlign: 'center' },
     stateAction: { minWidth: 180 },
+    exitModalScrim: {
+      flex: 1,
+      backgroundColor: isCalmLightTheme ? colors.overlayScrim : 'rgba(5, 6, 18, 0.84)',
+      padding: tokens.layout.pageGutter,
+    },
+    exitModalSafeArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    exitModalPanel: {
+      width: '100%',
+      maxWidth: 460,
+      alignItems: 'center',
+      gap: tokens.layout.isCompact ? 12 : 16,
+      padding: tokens.layout.isCompact ? 18 : 24,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: radius.lg,
+      backgroundColor: colors.floatingSurface,
+      ...shadow.raised,
+      shadowColor: colors.shadowNeutral,
+    },
+    exitModalIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft },
+    exitModalIconGlyph: { color: colors.danger },
+    exitModalTitle: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text, textAlign: 'center' },
+    exitModalBody: { ...tokens.type.body, maxWidth: 390, fontFamily: fonts.bodyMedium, color: colors.textMuted, textAlign: 'center' },
+    exitModalActions: { width: '100%', gap: 10, marginTop: 2 },
+    exitModalDestructive: { minHeight: tokens.control.heightLarge, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, backgroundColor: colors.dangerSoft },
+    exitModalDestructiveText: { fontFamily: fonts.headingBold, fontSize: 15, lineHeight: 20, color: colors.danger, textAlign: 'center' },
+    exitModalActionFocused: { borderWidth: 2, borderColor: colors.text },
+    exitModalContinue: { width: '100%' },
     completeContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16 },
     completeCard: {
       width: '100%',
@@ -1657,6 +1835,10 @@ function makeStyles(tokens: DashboardTokens) {
     completeEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.monoMedium, color: colors.warning, textAlign: 'center' },
     completeProgressTrack: { width: '100%', height: 7, borderRadius: 3, backgroundColor: colors.borderSubtle, overflow: 'hidden' },
     completeProgressFill: { borderRadius: 3, backgroundColor: colors.warning },
+    completeRewardSummary: { width: '100%', padding: tokens.layout.isCompact ? 10 : 12, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurfaceRaised },
+    completeRewardCopy: { width: '100%', minWidth: 0, gap: 3 },
+    completeRewardLabel: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, letterSpacing: 0.55, color: colors.textMuted },
+    completeRewardText: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 11 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.text },
     completeTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, textAlign: 'center' },
     completeMessage: { ...tokens.type.body, fontFamily: fonts.bodyMedium, color: colors.textMuted, textAlign: 'center', marginBottom: tokens.layout.isCompact ? 4 : 8 },
     completeMetrics: {
@@ -1684,21 +1866,21 @@ function makeStyles(tokens: DashboardTokens) {
     completeMetricValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 18 : 21, lineHeight: tokens.layout.isCompact ? 23 : 27, color: colors.text, marginTop: 2 },
     completeMetricHint: { fontFamily: fonts.bodyMedium, fontSize: 10, lineHeight: 14, color: colors.secondary, marginTop: 1 },
     qualificationResult: { width: '100%', gap: 8, padding: tokens.layout.isCompact ? 11 : 14, borderRadius: radius.md, borderWidth: 1, backgroundColor: colors.secondarySurfaceRaised },
-    qualificationResultPassed: { borderColor: colors.secondary },
+    qualificationResultPassed: { borderColor: colors.reputation },
     qualificationResultFailed: { borderColor: colors.warning },
     qualificationResultHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
     qualificationResultCopy: { flex: 1, minWidth: 0, gap: 2 },
     qualificationResultEyebrow: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, letterSpacing: 0.55, color: colors.textMuted },
     qualificationResultTitle: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: colors.text },
-    qualificationResultTrack: { width: '100%', height: 6, overflow: 'hidden', borderRadius: radius.pill, backgroundColor: colors.borderSubtle },
-    qualificationResultFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.secondary },
+    qualificationResultTrack: { width: '100%', height: 6, overflow: 'hidden', borderRadius: radius.pill, backgroundColor: colors.progressTrack },
+    qualificationResultFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.reputation },
     qualificationResultStatus: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.text },
     qualificationResultHint: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted },
     unlockNotice: { width: '100%', minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 10, borderRadius: radius.sm, backgroundColor: colors.secondarySoft, borderWidth: 1, borderColor: colors.secondary },
     unlockNoticeText: { ...tokens.type.bodySmall, flexShrink: 1, fontFamily: fonts.bodySemiBold, color: colors.text, textAlign: 'center' },
     completeActions: { width: '100%', gap: 10, marginTop: 4 },
     completeAction: { width: '100%' },
-    reviewScrim: { flex: 1, backgroundColor: 'rgba(5, 6, 18, 0.82)', padding: tokens.layout.isCompact ? 10 : 24 },
+    reviewScrim: { flex: 1, backgroundColor: colors.overlayScrim, padding: tokens.layout.isCompact ? 10 : 24 },
     reviewSafeArea: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     reviewPanel: {
       width: '100%',
@@ -1754,9 +1936,9 @@ function makeStyles(tokens: DashboardTokens) {
     reviewQuestionTitle: { ...tokens.type.body, fontFamily: fonts.headingMedium, color: colors.text },
     reviewComparison: { gap: 8 },
     reviewAnswerBlock: { gap: 4, padding: 10, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised },
-    reviewCorrectAnswerBlock: { borderLeftWidth: 2, borderLeftColor: colors.secondary },
+    reviewCorrectAnswerBlock: { borderLeftWidth: 2, borderLeftColor: colors.success },
     reviewAnswerLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.55, color: colors.textMuted },
-    reviewCorrectAnswerLabel: { color: colors.secondary },
+    reviewCorrectAnswerLabel: { color: colors.success },
     reviewAnswerText: { ...tokens.type.bodySmall, fontFamily: fonts.bodyMedium, color: colors.text },
     headerRow: {
       position: 'relative',
@@ -1784,13 +1966,13 @@ function makeStyles(tokens: DashboardTokens) {
     controlPressed: tokens.motion.pressed,
     exitText: { fontFamily: fonts.headingMedium, color: colors.textMuted, fontSize: 28, lineHeight: 30 },
     headerCopy: { flex: 1, minWidth: 0 },
-    headerEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 2 },
+    headerEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.gameLabelAccent, marginBottom: 2 },
     header: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
     sessionMetrics: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7, marginTop: 4 },
     sessionMetric: { ...tokens.type.bodySmall, fontFamily: fonts.bodyMedium, color: colors.textMuted },
     sessionMetricValue: { fontFamily: fonts.monoBold, color: colors.text },
-    sessionMetricDivider: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.borderStrong },
-    headerSignal: { width: tokens.layout.isCompact ? 34 : 70, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    sessionMetricDivider: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.gameDivider },
+    headerSignal: { width: tokens.layout.isCompact ? 34 : 70, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: tokens.effects.decorativeOpacity },
     headerSignalDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.secondary },
     headerSignalLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
     qualificationBar: {
@@ -1799,29 +1981,29 @@ function makeStyles(tokens: DashboardTokens) {
       paddingHorizontal: tokens.layout.isCompact ? 11 : 14,
       paddingVertical: tokens.layout.isCompact ? 9 : 11,
       borderWidth: 1,
-      borderColor: colors.borderSubtle,
+      borderColor: isCalmLightTheme ? colors.gameDivider : colors.borderSubtle,
       borderRadius: radius.md,
-      backgroundColor: colors.secondarySurfaceRaised,
+      backgroundColor: colors.gameSupportRaisedSurface,
     },
     qualificationTopline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     qualificationCopy: { flex: 1, minWidth: 0, gap: 1 },
-    qualificationEyebrow: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.55, color: colors.secondary },
+    qualificationEyebrow: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.55, color: colors.gameProgress },
     qualificationTarget: { fontFamily: fonts.bodyMedium, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },
     qualificationReadout: { flexShrink: 0, alignItems: 'flex-end' },
     qualificationValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 12 : 14, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.text },
-    qualificationTrack: { height: tokens.layout.isCompact ? 5 : 6, overflow: 'hidden', borderRadius: radius.pill, backgroundColor: colors.dividerSubtle },
-    qualificationFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.secondary },
+    qualificationTrack: { height: tokens.layout.isCompact ? 5 : 6, overflow: 'hidden', borderRadius: radius.pill, backgroundColor: colors.progressTrack },
+    qualificationFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.gameProgress },
     playArea: { gap: tokens.layout.isCompact ? 10 : 18 },
     playAreaWide: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 26 },
     sideColumn: {
       overflow: 'hidden',
       borderRadius: radius.md,
-      backgroundColor: colors.secondarySurface,
+      backgroundColor: colors.gameSupportSurface,
       borderWidth: 1,
-      borderColor: colors.borderSubtle,
+      borderColor: isCalmLightTheme ? colors.gameDivider : colors.borderSubtle,
       ...shadow.raised,
       shadowColor: colors.shadowNeutral,
-      shadowOpacity: 0.32,
+      shadowOpacity: tokens.effects.decorativeOpacity === 0 ? 0.08 : 0.32,
     },
     sideColumnWide: { width: 390, flexShrink: 0 },
     consoleRail: {
@@ -1833,6 +2015,7 @@ function makeStyles(tokens: DashboardTokens) {
       borderBottomWidth: 1,
       borderBottomColor: colors.dividerSubtle,
       backgroundColor: colors.floatingSurfaceRaised,
+      opacity: tokens.effects.decorativeOpacity,
     },
     consoleNode: {
       width: 4,
@@ -1859,20 +2042,20 @@ function makeStyles(tokens: DashboardTokens) {
       paddingTop: tokens.layout.isCompact ? 0 : 12,
       borderLeftWidth: tokens.layout.isCompact ? 1 : 0,
       borderTopWidth: tokens.layout.isCompact ? 0 : 1,
-      borderColor: colors.dividerSubtle,
+      borderColor: colors.gameDivider,
     },
     timerReadout: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     timerText: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 19 : 27, lineHeight: tokens.layout.isCompact ? 24 : 32 },
-    timerTrack: { height: tokens.layout.isCompact ? 4 : 5, borderRadius: radius.pill, backgroundColor: colors.dividerSubtle, overflow: 'hidden' },
-    timerFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.warning },
+    timerTrack: { height: tokens.layout.isCompact ? 4 : 5, borderRadius: radius.pill, backgroundColor: colors.gameDivider, overflow: 'hidden' },
+    timerFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.gameUrgency },
     lifelineBar: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       alignItems: 'stretch',
       padding: 4,
-      backgroundColor: colors.secondarySurfaceRaised,
+      backgroundColor: colors.gameSupportRaisedSurface,
       borderTopWidth: 1,
-      borderTopColor: colors.dividerSubtle,
+      borderTopColor: colors.gameDivider,
     },
     abilityAnimationWrap: {
       flexGrow: 1,
@@ -1884,28 +2067,28 @@ function makeStyles(tokens: DashboardTokens) {
     incidentCard: {
       overflow: 'hidden',
       borderRadius: radius.md,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.gameQuestionSurface,
       borderWidth: 1,
-      borderColor: colors.borderSubtle,
+      borderColor: isCalmLightTheme ? colors.gameDivider : colors.borderSubtle,
       borderLeftWidth: 3,
-      borderLeftColor: colors.warning,
+      borderLeftColor: colors.gameStructureAccent,
       ...shadow.card,
       shadowColor: colors.shadowNeutral,
-      shadowOpacity: 0.22,
+      shadowOpacity: tokens.effects.decorativeOpacity === 0 ? 0.08 : 0.22,
     },
     deskStrip: {
       gap: 2,
       paddingVertical: tokens.layout.isCompact ? 8 : 10,
       paddingHorizontal: tokens.layout.isCompact ? 12 : 16,
-      backgroundColor: colors.secondarySurfaceRaised,
+      backgroundColor: colors.gameQuestionHeaderSurface,
       borderBottomWidth: 1,
-      borderBottomColor: colors.dividerSubtle,
+      borderBottomColor: colors.gameDivider,
     },
-    deskEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.monoMedium, color: colors.secondary },
+    deskEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.monoMedium, color: colors.gameLabelAccent },
     deskIdentity: { ...tokens.type.bodySmall, flexShrink: 1, fontFamily: fonts.bodyMedium, color: colors.textMuted },
     deskTitle: { fontFamily: fonts.headingBold, color: colors.text },
     incidentGradient: { minHeight: tokens.layout.isCompact ? 104 : 142, justifyContent: 'center', padding: tokens.layout.isCompact ? 14 : 22 },
-    tag: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.warning, marginBottom: tokens.layout.isCompact ? 7 : 12 },
+    tag: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.gameStructureAccent, marginBottom: tokens.layout.isCompact ? 7 : 12 },
     title: { ...tokens.type.question, fontFamily: fonts.headingBold, color: colors.text, maxWidth: 800 },
     sectionHeading: {
       flexDirection: 'row',
@@ -1917,10 +2100,10 @@ function makeStyles(tokens: DashboardTokens) {
     sectionLabel: {
       ...tokens.type.eyebrow,
       fontFamily: fonts.bodySemiBold,
-      color: colors.textMuted,
+      color: isCalmLightTheme ? colors.gameLabelAccent : colors.textMuted,
       textTransform: 'uppercase',
     },
-    sectionLine: { flex: 1, height: 1, backgroundColor: colors.dividerSubtle },
+    sectionLine: { flex: 1, height: 1, backgroundColor: colors.gameDivider },
     choices: { gap: tokens.layout.isCompact ? 9 : 12 },
     choiceBtn: {
       minHeight: tokens.layout.isCompact ? 60 : 72,
@@ -1931,23 +2114,23 @@ function makeStyles(tokens: DashboardTokens) {
       paddingVertical: tokens.layout.isCompact ? 12 : 18,
       paddingHorizontal: tokens.layout.isCompact ? 14 : 20,
       borderRadius: radius.sm,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.gameAnswerSurface,
       borderWidth: 1,
-      borderColor: colors.borderSubtle,
+      borderColor: isCalmLightTheme ? colors.gameDivider : colors.borderSubtle,
       ...shadow.card,
       shadowColor: colors.shadowNeutral,
-      shadowOpacity: 0.16,
+      shadowOpacity: tokens.effects.decorativeOpacity === 0 ? 0 : 0.16,
     },
     choiceBtnHovered: {
-      backgroundColor: colors.surfaceRaised,
-      borderColor: colors.borderStrong,
+      backgroundColor: colors.gameAnswerHover,
+      borderColor: isCalmLightTheme ? colors.gameSelectionBorder : colors.borderStrong,
     },
-    choiceBtnFocused: { borderColor: colors.text, borderWidth: 2 },
-    choiceBtnSelected: { backgroundColor: colors.surfaceRaised, borderColor: colors.primary },
+    choiceBtnFocused: { borderColor: isCalmLightTheme ? colors.gameSelectionBorder : colors.text, borderWidth: 2 },
+    choiceBtnSelected: { backgroundColor: isCalmLightTheme ? colors.gameAnswerSurface : colors.surfaceRaised, borderColor: colors.gameSelectionBorder },
     choiceSelectionWash: {
       ...StyleSheet.absoluteFillObject,
       borderRadius: radius.sm,
-      backgroundColor: colors.primarySoft,
+      backgroundColor: colors.gameSelectionBackground,
     },
     choiceSelectionRail: {
       position: 'absolute',
@@ -1957,13 +2140,15 @@ function makeStyles(tokens: DashboardTokens) {
       width: 3,
       borderTopLeftRadius: radius.sm,
       borderBottomLeftRadius: radius.sm,
-      backgroundColor: colors.primary,
+      backgroundColor: colors.gameSelectionBorder,
     },
-    choiceBtnLocked: { opacity: 0.52 },
+    choiceBtnLocked: isCalmLightTheme
+      ? { opacity: 1, backgroundColor: colors.disabledBackground, borderColor: colors.disabledBorder }
+      : { opacity: 0.52 },
     choiceBtnPressed: {
       opacity: 1,
-      backgroundColor: colors.surfaceRaised,
-      borderColor: colors.primary,
+      backgroundColor: colors.gameAnswerPressed,
+      borderColor: colors.gameSelectionBorder,
       transform: [{ scale: 0.99 }],
     },
     choiceIndex: {
@@ -1973,11 +2158,14 @@ function makeStyles(tokens: DashboardTokens) {
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: radius.sm,
-      backgroundColor: colors.secondarySurfaceRaised,
+      backgroundColor: colors.gameQuestionHeaderSurface,
       borderWidth: 1,
-      borderColor: colors.dividerSubtle,
+      borderColor: colors.gameDivider,
     },
-    choiceIndexActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    choiceIndexActive: {
+      backgroundColor: isCalmLightTheme ? colors.gameSelectionBorder : colors.primary,
+      borderColor: isCalmLightTheme ? colors.gameSelectionBorder : colors.primary,
+    },
     choiceIndexText: { fontFamily: fonts.monoBold, fontSize: 12, lineHeight: 16, color: colors.textMuted },
     choiceIndexTextActive: { color: colors.onAccent },
     choiceTextContainer: { position: 'relative', flex: 1, minWidth: 0 },
@@ -1992,7 +2180,7 @@ function makeStyles(tokens: DashboardTokens) {
       borderRadius: radius.sm,
       backgroundColor: 'transparent',
     },
-    choiceStateMarkActive: { backgroundColor: colors.primary },
+    choiceStateMarkActive: { backgroundColor: isCalmLightTheme ? colors.gameSelectionBorder : colors.primary },
     choiceStateMarkSelected: { width: 56, paddingHorizontal: 8 },
     choiceStateIcon: { color: colors.textMuted },
     choiceStateIconActive: { color: colors.onAccent },

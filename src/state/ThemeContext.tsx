@@ -21,6 +21,8 @@ interface ThemeContextValue {
   theme: Theme;
   /** ID string of the currently active theme */
   themeId: Theme['id'];
+  /** True after the locally persisted preference has been resolved. */
+  isHydrated: boolean;
   /** Switch to a different theme and persist the choice */
   setThemeId: (id: Theme['id']) => Promise<void>;
   /**
@@ -39,6 +41,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // store and then equipped. Persisted value loaded from AsyncStorage on mount
   // will override this (so an equipped theme survives restarts).
   const [themeId, setThemeIdState] = useState<Theme['id']>('default');
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // Load persisted preference on startup
   useEffect(() => {
@@ -50,6 +53,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (_) {
         // Silently fall back to default
+      } finally {
+        setIsHydrated(true);
       }
     };
     load();
@@ -76,7 +81,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = THEMES[themeId] ?? defaultTheme;
 
   return (
-    <ThemeContext.Provider value={{ theme, themeId, setThemeId, resetTheme }}>
+    <ThemeContext.Provider value={{ theme, themeId, isHydrated, setThemeId, resetTheme }}>
       {children}
     </ThemeContext.Provider>
   );

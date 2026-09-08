@@ -18,18 +18,66 @@ export interface DashboardTokens {
     dividerSubtle: string;
     primary: string;
     primarySoft: string;
+    action: string;
+    actionHover: string;
+    actionPressed: string;
+    actionFocus: string;
+    actionSubSurface: string;
+    actionSubSurfaceForeground: string;
+    decision: string;
     secondary: string;
     secondarySoft: string;
+    success: string;
+    successSoft: string;
+    successBorder: string;
+    info: string;
+    infoSoft: string;
+    infoBorder: string;
+    budget: string;
+    budgetSoft: string;
+    xp: string;
+    xpSoft: string;
+    reputation: string;
+    reputationSoft: string;
+    rankCurrent?: string;
+    rankCurrentSoft?: string;
+    currentUserBackground?: string;
     warning: string;
     warningSoft: string;
     danger: string;
     dangerSoft: string;
     text: string;
+    textSecondary: string;
     textMuted: string;
     onAccent: string;
+    foregroundOnAction: string;
     surfaceHighlight: string;
     surfaceHighlightStrong: string;
+    surfaceHover: string;
+    surfacePressed: string;
+    selectionBackground: string;
+    selectionBorder: string;
+    progressTrack: string;
+    disabledBackground: string;
+    disabledForeground: string;
+    disabledBorder: string;
     shadowNeutral: string;
+    overlayScrim: string;
+    gameQuestionSurface: string;
+    gameQuestionHeaderSurface: string;
+    gameSupportSurface: string;
+    gameSupportRaisedSurface: string;
+    gameAnswerSurface: string;
+    gameAnswerHover: string;
+    gameAnswerPressed: string;
+    gameSelectionBackground: string;
+    gameSelectionBorder: string;
+    gameStructureAccent: string;
+    gameLabelAccent: string;
+    gameDivider: string;
+    gameProgress: string;
+    gameUrgency: string;
+    gameTimerBoost: string;
   };
   radius: {
     sm: number;
@@ -81,16 +129,20 @@ export interface DashboardTokens {
   motion: {
     pressed: ViewStyle;
   };
+  effects: {
+    decorativeOpacity: number;
+  };
 }
 
 export function getDashboardTokens(theme: Theme, viewportWidth = 1024): DashboardTokens {
+  const semantic = theme.semantic;
   const defaultClay = theme.id === 'default';
   const isCompact = viewportWidth < 600;
   const isNarrow = viewportWidth < 380;
-  const canvas = defaultClay ? '#111229' : theme.colors.bgBase;
-  const surface = defaultClay ? '#1A1C3D' : theme.colors.panel;
-  const surfaceRaised = defaultClay ? '#242750' : theme.colors.panelAlt;
-  const textMuted = defaultClay ? '#BBBBD3' : theme.colors.textMuted;
+  const canvas = semantic?.canvas ?? (defaultClay ? '#111229' : theme.colors.bgBase);
+  const surface = semantic?.surface ?? (defaultClay ? '#1A1C3D' : theme.colors.panel);
+  const surfaceRaised = semantic?.surfaceRaised ?? (defaultClay ? '#242750' : theme.colors.panelAlt);
+  const textMuted = semantic?.textMuted ?? (defaultClay ? '#BBBBD3' : theme.colors.textMuted);
   const secondarySurfaceBase = defaultClay
     ? mixHex(canvas, '#070B12', 0.52)
     : mixHex(surface, canvas, 0.42);
@@ -107,32 +159,80 @@ export function getDashboardTokens(theme: Theme, viewportWidth = 1024): Dashboar
   return {
     colors: {
       canvas,
-      canvasGlow: defaultClay ? '#252052' : theme.colors.panelAlt,
+      canvasGlow: semantic?.canvasGlow ?? (defaultClay ? '#252052' : theme.colors.panelAlt),
       surface,
       surfaceRaised,
-      surfaceSoft: defaultClay ? '#202247' : theme.colors.panelAlt,
-      secondarySurface: withAlpha(secondarySurfaceBase, 0.94),
-      secondarySurfaceRaised: withAlpha(secondarySurfaceRaisedBase, 0.92),
-      floatingSurface: withAlpha(floatingSurfaceBase, 0.96),
-      floatingSurfaceRaised: withAlpha(floatingSurfaceRaisedBase, 0.92),
-      border: defaultClay ? 'rgba(218, 216, 255, 0.13)' : theme.colors.border,
-      borderStrong: defaultClay ? 'rgba(218, 216, 255, 0.24)' : theme.colors.positiveBorder,
-      borderSubtle: withAlpha(textMuted, 0.16),
-      dividerSubtle: withAlpha(textMuted, 0.11),
-      primary: defaultClay ? '#8B7CF6' : theme.colors.accentPositive,
-      primarySoft: defaultClay ? 'rgba(139, 124, 246, 0.18)' : theme.colors.positiveBg,
-      secondary: defaultClay ? '#49D7C5' : theme.colors.accentPositive,
-      secondarySoft: defaultClay ? 'rgba(73, 215, 197, 0.15)' : theme.colors.positiveBg,
-      warning: defaultClay ? '#FFC857' : theme.colors.accentAlert,
-      warningSoft: defaultClay ? 'rgba(255, 200, 87, 0.15)' : theme.colors.alertBg,
-      danger: defaultClay ? '#FF7185' : theme.colors.accentDanger,
-      dangerSoft: defaultClay ? 'rgba(255, 113, 133, 0.16)' : theme.colors.dangerBg,
-      text: defaultClay ? '#F8F7FF' : theme.colors.textPrimary,
+      surfaceSoft: semantic?.surfaceSoft ?? (defaultClay ? '#202247' : theme.colors.panelAlt),
+      secondarySurface: semantic?.secondarySurface ?? withAlpha(secondarySurfaceBase, 0.94),
+      secondarySurfaceRaised: semantic?.secondarySurfaceRaised ?? withAlpha(secondarySurfaceRaisedBase, 0.92),
+      floatingSurface: semantic?.floatingSurface ?? withAlpha(floatingSurfaceBase, 0.96),
+      floatingSurfaceRaised: semantic?.floatingSurfaceRaised ?? withAlpha(floatingSurfaceRaisedBase, 0.92),
+      border: semantic?.border ?? (defaultClay ? 'rgba(218, 216, 255, 0.13)' : theme.colors.border),
+      borderStrong: semantic?.borderStrong ?? (defaultClay ? 'rgba(218, 216, 255, 0.24)' : theme.colors.positiveBorder),
+      borderSubtle: semantic?.borderSubtle ?? withAlpha(textMuted, 0.16),
+      dividerSubtle: semantic?.dividerSubtle ?? withAlpha(textMuted, 0.11),
+      primary: semantic?.primary ?? (defaultClay ? '#8B7CF6' : theme.colors.accentPositive),
+      primarySoft: semantic?.primarySoft ?? (defaultClay ? 'rgba(139, 124, 246, 0.18)' : theme.colors.positiveBg),
+      action: semantic?.action ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert),
+      actionHover: semantic?.actionHover ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert),
+      actionPressed: semantic?.actionPressed ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert),
+      actionFocus: semantic?.actionFocus ?? (defaultClay ? '#F8F7FF' : theme.colors.textPrimary),
+      actionSubSurface: semantic?.actionSubSurface ?? (defaultClay ? 'rgba(255, 255, 255, 0.16)' : theme.colors.positiveBg),
+      actionSubSurfaceForeground: semantic?.actionSubSurfaceForeground ?? (defaultClay ? '#251B05' : theme.colors.bgBase),
+      decision: semantic?.decision ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert),
+      secondary: semantic?.info ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive),
+      secondarySoft: semantic?.infoSoft ?? (defaultClay ? 'rgba(73, 215, 197, 0.15)' : theme.colors.positiveBg),
+      success: semantic?.success ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive),
+      successSoft: semantic?.successSoft ?? (defaultClay ? 'rgba(73, 215, 197, 0.15)' : theme.colors.positiveBg),
+      successBorder: semantic?.successBorder ?? (defaultClay ? '#49D7C5' : theme.colors.positiveBorder),
+      info: semantic?.info ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive),
+      infoSoft: semantic?.infoSoft ?? (defaultClay ? 'rgba(73, 215, 197, 0.15)' : theme.colors.positiveBg),
+      infoBorder: semantic?.infoBorder ?? (defaultClay ? '#49D7C5' : theme.colors.positiveBorder),
+      budget: semantic?.budget ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert),
+      budgetSoft: semantic?.budgetSoft ?? (defaultClay ? 'rgba(255, 200, 87, 0.15)' : theme.colors.alertBg),
+      xp: semantic?.xp ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive),
+      xpSoft: semantic?.xpSoft ?? (defaultClay ? 'rgba(73, 215, 197, 0.15)' : theme.colors.positiveBg),
+      reputation: semantic?.reputation ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive),
+      reputationSoft: semantic?.reputationSoft ?? (defaultClay ? 'rgba(73, 215, 197, 0.15)' : theme.colors.positiveBg),
+      rankCurrent: semantic?.xp,
+      rankCurrentSoft: semantic?.xpSoft,
+      currentUserBackground: semantic?.selectionBackground,
+      warning: semantic?.warning ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert),
+      warningSoft: semantic?.warningSoft ?? (defaultClay ? 'rgba(255, 200, 87, 0.15)' : theme.colors.alertBg),
+      danger: semantic?.danger ?? (defaultClay ? '#FF7185' : theme.colors.accentDanger),
+      dangerSoft: semantic?.dangerSoft ?? (defaultClay ? 'rgba(255, 113, 133, 0.16)' : theme.colors.dangerBg),
+      text: semantic?.text ?? (defaultClay ? '#F8F7FF' : theme.colors.textPrimary),
+      textSecondary: semantic?.textSecondary ?? textMuted,
       textMuted,
-      onAccent: defaultClay ? '#251B05' : theme.colors.bgBase,
-      surfaceHighlight: defaultClay ? 'rgba(255, 255, 255, 0.16)' : theme.colors.positiveBg,
-      surfaceHighlightStrong: defaultClay ? 'rgba(255, 255, 255, 0.32)' : theme.colors.positiveBorder,
-      shadowNeutral: mixHex(canvas, '#000000', defaultClay ? 0.86 : 0.72),
+      onAccent: semantic?.foregroundOnAction ?? (defaultClay ? '#251B05' : theme.colors.bgBase),
+      foregroundOnAction: semantic?.foregroundOnAction ?? (defaultClay ? '#251B05' : theme.colors.bgBase),
+      surfaceHighlight: semantic?.selectionBackground ?? (defaultClay ? 'rgba(255, 255, 255, 0.16)' : theme.colors.positiveBg),
+      surfaceHighlightStrong: semantic?.selectionBorder ?? (defaultClay ? 'rgba(255, 255, 255, 0.32)' : theme.colors.positiveBorder),
+      surfaceHover: semantic?.surfaceHover ?? surfaceRaised,
+      surfacePressed: semantic?.surfacePressed ?? surfaceRaised,
+      selectionBackground: semantic?.selectionBackground ?? (defaultClay ? 'rgba(139, 124, 246, 0.18)' : theme.colors.positiveBg),
+      selectionBorder: semantic?.selectionBorder ?? (defaultClay ? '#8B7CF6' : theme.colors.positiveBorder),
+      progressTrack: semantic?.progressTrack ?? withAlpha(textMuted, 0.16),
+      disabledBackground: semantic?.disabledBackground ?? surfaceRaised,
+      disabledForeground: semantic?.disabledForeground ?? textMuted,
+      disabledBorder: semantic?.disabledBorder ?? (defaultClay ? 'rgba(218, 216, 255, 0.13)' : theme.colors.border),
+      shadowNeutral: semantic?.shadowNeutral ?? mixHex(canvas, '#000000', defaultClay ? 0.86 : 0.72),
+      overlayScrim: semantic?.overlayScrim ?? 'rgba(5, 6, 18, 0.82)',
+      gameQuestionSurface: semantic?.gameQuestionSurface ?? surface,
+      gameQuestionHeaderSurface: semantic?.gameQuestionHeaderSurface ?? (semantic?.secondarySurfaceRaised ?? withAlpha(secondarySurfaceRaisedBase, 0.92)),
+      gameSupportSurface: semantic?.gameSupportSurface ?? (semantic?.secondarySurface ?? withAlpha(secondarySurfaceBase, 0.94)),
+      gameSupportRaisedSurface: semantic?.gameSupportRaisedSurface ?? (semantic?.secondarySurfaceRaised ?? withAlpha(secondarySurfaceRaisedBase, 0.92)),
+      gameAnswerSurface: semantic?.gameAnswerSurface ?? surface,
+      gameAnswerHover: semantic?.gameAnswerHover ?? (semantic?.surfaceHover ?? surfaceRaised),
+      gameAnswerPressed: semantic?.gameAnswerPressed ?? (semantic?.surfacePressed ?? surfaceRaised),
+      gameSelectionBackground: semantic?.gameSelectionBackground ?? (semantic?.primarySoft ?? (defaultClay ? 'rgba(139, 124, 246, 0.18)' : theme.colors.positiveBg)),
+      gameSelectionBorder: semantic?.gameSelectionBorder ?? (semantic?.selectionBorder ?? (defaultClay ? '#8B7CF6' : theme.colors.positiveBorder)),
+      gameStructureAccent: semantic?.gameStructureAccent ?? (semantic?.decision ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert)),
+      gameLabelAccent: semantic?.gameLabelAccent ?? (semantic?.info ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive)),
+      gameDivider: semantic?.gameDivider ?? (semantic?.dividerSubtle ?? withAlpha(textMuted, 0.11)),
+      gameProgress: semantic?.gameProgress ?? (semantic?.reputation ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive)),
+      gameUrgency: semantic?.gameUrgency ?? (semantic?.warning ?? (defaultClay ? '#FFC857' : theme.colors.accentAlert)),
+      gameTimerBoost: semantic?.gameTimerBoost ?? (semantic?.info ?? (defaultClay ? '#49D7C5' : theme.colors.accentPositive)),
     },
     radius: defaultClay
       ? { sm: 12, md: 18, lg: 24, xl: 30, pill: 999 }
@@ -195,6 +295,9 @@ export function getDashboardTokens(theme: Theme, viewportWidth = 1024): Dashboar
     },
     motion: {
       pressed: { opacity: 0.88, transform: [{ scale: 0.98 }] },
+    },
+    effects: {
+      decorativeOpacity: semantic?.decorativeOpacity ?? 1,
     },
   };
 }

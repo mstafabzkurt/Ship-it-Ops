@@ -113,7 +113,7 @@ export default function RegisterScreen() {
     <AuthScreenShell
       eyebrow="YENİ OPERATÖR"
       title="Hesabını oluştur"
-      description="Kimliğini oluştur; cihazındaki mevcut oyun ilerlemesi değişmeden kalır."
+      description="Yeni hesabın temiz ilerlemeyle başlar; cihazdaki eski ilerleme otomatik aktarılmaz."
     >
       <View style={styles.form}>
         <AuthField

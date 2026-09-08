@@ -34,7 +34,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       bottom: 0,
       right: '12%',
       backgroundColor: tokens.colors.dividerSubtle,
-      opacity: 0.34,
+      opacity: 0.34 * tokens.effects.decorativeOpacity,
     },
     gridLineHorizontal: {
       position: 'absolute',
@@ -43,7 +43,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       left: 0,
       right: 0,
       backgroundColor: tokens.colors.dividerSubtle,
-      opacity: 0.28,
+      opacity: 0.28 * tokens.effects.decorativeOpacity,
     },
   });
 }

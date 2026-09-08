@@ -30,7 +30,7 @@ Unauthenticated clients skip remote telemetry. Insert and authentication errors 
 | `career_opened` / `badges_opened` | Empty metadata | When the Career screen/tab or Badges tab is opened |
 | `daily_reward_claimed` | Streak count and budget reward | After a successful daily claim |
 
-Git Revert does not mutate prior telemetry rows: those rows describe actions that occurred. The final `session_completed` and checkpoint event are produced from the current resolved-results list, so reverted results cannot remain in the final totals or be double-counted after re-answering.
+Rollback does not mutate prior telemetry rows: those rows describe actions that occurred. The final `session_completed` and checkpoint event are produced from the current resolved-results list, so reverted results cannot remain in the final totals or be double-counted after re-answering.
 
 ## Privacy rules
 

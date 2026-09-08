@@ -7,6 +7,7 @@ import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import RankProgressRail from '../RankProgressRail';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import RankIcon from '../rank/RankIcon';
 
 interface ReputationSummaryCardProps {
   careerXp: number;
@@ -37,7 +38,12 @@ export default function ReputationSummaryCard({
       <View style={styles.heroRow}>
         <View style={[styles.rankMark, { borderColor: accentColor }]} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <View style={[styles.rankCore, { backgroundColor: accentSoftColor }]}>
-            <Ionicons name={rankIcon} size={tokens.layout.isCompact ? 26 : 30} color={accentColor} />
+            <RankIcon
+              rank={currentRank}
+              size={tokens.layout.isCompact ? 54 : 66}
+              fallbackName={rankIcon}
+              fallbackColor={accentColor}
+            />
           </View>
         </View>
         <View style={styles.heroCopy}>
@@ -85,8 +91,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     accentRail: { position: 'absolute', top: 0, left: 24, right: 24, height: 1, backgroundColor: colors.warning, opacity: 0.5 },
     terminalEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.monoMedium, color: colors.warning, marginBottom: 16, letterSpacing: 1.4 },
     heroRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 10 : 14 },
-    rankMark: { width: tokens.layout.isCompact ? 64 : 76, height: tokens.layout.isCompact ? 64 : 76, alignItems: 'center', justifyContent: 'center', borderRadius: 40, borderWidth: 1 },
-    rankCore: { width: tokens.layout.isCompact ? 50 : 60, height: tokens.layout.isCompact ? 50 : 60, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+    rankMark: { width: tokens.layout.isCompact ? 66 : 80, height: tokens.layout.isCompact ? 66 : 80, alignItems: 'center', justifyContent: 'center', borderRadius: 40, borderWidth: 1 },
+    rankCore: { width: tokens.layout.isCompact ? 58 : 70, height: tokens.layout.isCompact ? 58 : 70, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
     heroCopy: { flex: 1, minWidth: tokens.layout.isCompact ? 150 : 180 },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted, marginBottom: 3 },
     rankName: { ...tokens.type.display, fontFamily: fonts.headingBold },

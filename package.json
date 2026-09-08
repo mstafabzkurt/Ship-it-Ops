@@ -7,7 +7,13 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test:production-readiness": "node tests/production-readiness-invariants.cjs",
+    "test:onboarding": "node tests/onboarding-invariants.cjs",
+    "test:themes": "node tests/theme-invariants.cjs",
+    "test:rank-icons": "node tests/rank-icon-invariants.cjs",
+    "test:tour": "node tests/guided-tour-invariants.cjs",
+    "test:company-names": "node tests/company-name-validation-invariants.cjs"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",

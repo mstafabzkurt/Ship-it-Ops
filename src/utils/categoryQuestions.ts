@@ -33,3 +33,11 @@ export function isValidCategoryQuestion(
   return choices.every((choice) => typeof choice === 'string' && choice.trim().length > 0)
     && new Set(choices.map((choice) => choice.trim())).size === 4;
 }
+
+export function filterCategoryQuestions(
+  rows: readonly CategoryQuestionRow[],
+  categoryId: GameCategoryId,
+  star: DifficultyStar,
+): CategoryQuestion[] {
+  return rows.filter((row) => isValidCategoryQuestion(row, categoryId, star));
+}

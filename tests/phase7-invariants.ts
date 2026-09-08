@@ -1,8 +1,24 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { getCategoryChoiceOutcome, getCategoryReward } from '../src/config/categoryRewards';
 import { ACHIEVEMENTS } from '../src/config/achievements';
-import { DIFFICULTY_STARS, GAME_CATEGORIES, QUESTIONS_PER_TIER } from '../src/config/gameCategories';
+import {
+  DIFFICULTY_STARS,
+  GAME_CATEGORIES,
+  QUESTIONS_PER_TIER,
+  buildGameSessionRoute,
+  resolveGameCategoryId,
+} from '../src/config/gameCategories';
 import { getOperationImpact } from '../src/config/operationImpact';
-import { getJokerPrice, planJokerPurchase, type JokerInventory } from '../src/config/jokerEconomy';
+import {
+  JOKER_BASE_PRICES,
+  JOKER_STORE_ORDER,
+  getJokerPrice,
+  planJokerPurchase,
+  type JokerInventory,
+} from '../src/config/jokerEconomy';
+import { JOKER_DISPLAY } from '../src/config/jokers';
 import { RANKS } from '../src/config/progression';
 import {
   completeOperationSession,
@@ -22,8 +38,9 @@ import {
   selectCategoryQuestion,
 } from '../src/utils/categoryProgress';
 import { deriveAchievements } from '../src/utils/achievements';
-import { isValidCategoryQuestion, type CategoryQuestionRow } from '../src/utils/categoryQuestions';
+import { filterCategoryQuestions, isValidCategoryQuestion, type CategoryQuestionRow } from '../src/utils/categoryQuestions';
 import { calculateRankingScore, recordRankingOutcome, revertRankingOutcome } from '../src/utils/ranking';
+import { canUseRollbackOnResult } from '../src/utils/gameSession';
 import { deriveSessionReputation, removeSessionResult, upsertSessionResult } from '../src/utils/sessionReputation';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -55,6 +72,13 @@ assert(
   GAME_CATEGORIES.map((category) => category.id).join(',') === 'web_programming,operating_systems,database_systems',
   'Active category IDs must match the Phase 7 catalog',
 );
+assert(buildGameSessionRoute('web_programming', 1) === '/(tabs)/game?category=web_programming&star=1', 'Web card route must include its category ID');
+assert(buildGameSessionRoute('operating_systems', 1) === '/(tabs)/game?category=operating_systems&star=1', 'Operating Systems card route must include its category ID');
+assert(buildGameSessionRoute('database_systems', 1) === '/(tabs)/game?category=database_systems&star=1', 'Database Systems card route must include its category ID');
+assert(resolveGameCategoryId('operating_systems') === 'operating_systems', 'Operating Systems route param must resolve without fallback');
+assert(resolveGameCategoryId('database_systems') === 'database_systems', 'Database Systems route param must resolve without fallback');
+assert(resolveGameCategoryId(['operating_systems']) === 'operating_systems', 'Array route params must preserve a valid category ID');
+assert(resolveGameCategoryId('invalid_category') === 'web_programming', 'Invalid category route params must safely fallback to Web');
 const databaseCategory = GAME_CATEGORIES.find((category) => category.id === 'database_systems');
 assert(databaseCategory?.name === 'Veritabanı Sistemleri', 'Database category label mismatch');
 assert(DIFFICULTY_STARS.length === 3, 'Database category must use the shared three-star ladder');
@@ -189,10 +213,81 @@ assert(
   'Missing impact metadata must safely use the category fallback',
 );
 
-assert(getJokerPrice('serverScaleUp', 'junior') === 200, 'Junior Scale Up price mismatch');
-assert(getJokerPrice('codeReview', 'engineer') === 300, 'Engineer Code Review price mismatch');
+assert(getJokerPrice('serverScaleUp', 'junior') === 200, 'Junior Overclock price mismatch');
+assert(getJokerPrice('codeReview', 'engineer') === 300, 'Engineer Debug Lens price mismatch');
 assert(getJokerPrice('snapshotBackup', 'senior') === 420, 'Senior Snapshot price mismatch');
-assert(getJokerPrice('gitRevert', 'cto') === 880, 'CTO Git Revert price mismatch');
+assert(getJokerPrice('gitRevert', 'cto') === 880, 'CTO Rollback price mismatch');
+
+assert(JOKER_DISPLAY.codeReview.name === 'Debug Lens', 'codeReview display label must be Debug Lens');
+assert(JOKER_DISPLAY.gitRevert.name === 'Rollback', 'gitRevert display label must be Rollback');
+assert(JOKER_DISPLAY.serverScaleUp.name === 'Overclock', 'serverScaleUp display label must be Overclock');
+assert(JOKER_DISPLAY.snapshotBackup.name === 'Snapshot', 'snapshotBackup display label must remain Snapshot');
+assert(JOKER_DISPLAY.codeReview.description === 'İki hatalı seçeneği eler.', 'Debug Lens description mismatch');
+assert(JOKER_DISPLAY.gitRevert.description === 'Son kararı geri alır.', 'Rollback description mismatch');
+assert(JOKER_DISPLAY.serverScaleUp.description === 'Bu soru için süre kazandırır.', 'Overclock description mismatch');
+assert(
+  JOKER_DISPLAY.snapshotBackup.description === 'Kaybedilen seriyi geri getirir.',
+  'Snapshot description must accurately describe its uptime restore effect',
+);
+assert(
+  JOKER_STORE_ORDER.join(',') === 'serverScaleUp,codeReview,snapshotBackup,gitRevert',
+  'Internal joker IDs and store order must remain stable',
+);
+assert(
+  JSON.stringify(JOKER_BASE_PRICES) === JSON.stringify({ serverScaleUp: 200, codeReview: 250, snapshotBackup: 300, gitRevert: 400 }),
+  'Joker base prices must remain unchanged',
+);
+const repositoryRoot = process.cwd();
+const dashboardResourceSource = readFileSync(resolve(repositoryRoot, 'src/components/dashboard/ResourceDock.tsx'), 'utf8');
+const gameSource = readFileSync(resolve(repositoryRoot, 'app/(tabs)/game.tsx'), 'utf8');
+const storeSource = readFileSync(resolve(repositoryRoot, 'app/(tabs)/store.tsx'), 'utf8');
+const resultPanelSource = readFileSync(resolve(repositoryRoot, 'src/components/game/GameResultPanel.tsx'), 'utf8');
+const iconAssetsSource = readFileSync(resolve(repositoryRoot, 'src/config/iconAssets.ts'), 'utf8');
+const assetIconSource = readFileSync(resolve(repositoryRoot, 'src/components/AssetIcon.tsx'), 'utf8');
+const playerSaveSource = readFileSync(resolve(repositoryRoot, 'src/utils/playerSave.ts'), 'utf8');
+assert(dashboardResourceSource.includes('Teknik Destek Paketi'), 'Dashboard must render Teknik Destek Paketi');
+assert(dashboardResourceSource.includes('Mağazadan alınabilir'), 'Dashboard must mention store availability');
+assert(!dashboardResourceSource.includes('Pressable'), 'Dashboard joker card must not render a purchase CTA');
+assert(!dashboardResourceSource.includes('onPress'), 'Dashboard joker card must not expose a purchase action');
+assert(
+  [
+    'debuglens.png',
+    'rollback.png',
+    'overclock.png',
+    'snapshot.png',
+    'correctanswer.png',
+    'wronganswer.png',
+    'flame.png',
+    'xpup.png',
+    'xploss.png',
+    'info.png',
+    'coin.png',
+  ].every((asset) => iconAssetsSource.includes(asset)),
+  'Joker, feedback, streak, info, XP, and economy assets must remain registered in the central icon map',
+);
+assert(dashboardResourceSource.includes('JOKER_ICON_ASSETS'), 'Dashboard joker cards must use the registered joker assets');
+assert(storeSource.includes('JOKER_ICON_ASSETS') && storeSource.includes('ECONOMY_ICON_ASSETS.coin'), 'Store must use registered joker and coin assets');
+assert(gameSource.includes('JOKER_ICON_ASSETS'), 'Game HUD must use registered joker assets');
+assert(!gameSource.includes('ECONOMY_ICON_ASSETS.coin'), 'The combined completion reward summary must not imply that every metric is budget');
+assert(resultPanelSource.includes('ECONOMY_ICON_ASSETS.coin'), 'Per-question budget result must use the registered coin asset');
+assert(
+  resultPanelSource.includes('UI_ICON_ASSETS.correctAnswer')
+    && resultPanelSource.includes('UI_ICON_ASSETS.wrongAnswer')
+    && resultPanelSource.includes('UI_ICON_ASSETS.xpUp')
+    && resultPanelSource.includes('UI_ICON_ASSETS.xpLoss'),
+  'Question results and Career XP deltas must use the registered feedback assets',
+);
+assert(!resultPanelSource.includes("'}$${Math.abs(value)"), 'Per-question budget results must not render a dollar prefix');
+assert(assetIconSource.includes('onError') && assetIconSource.includes('fallbackName'), 'Asset icons must retain a runtime vector fallback');
+assert(playerSaveSource.includes("jokerInventory: '@shipit_lifeline_inventory'"), 'Legacy joker inventory storage key must remain stable');
+assert(
+  ['codeReview: 3', 'gitRevert: 3', 'serverScaleUp: 3', 'snapshotBackup: 3'].every((entry) => playerSaveSource.includes(entry)),
+  'Inventory persistence keys and defaults must remain stable',
+);
+assert(gameSource.includes('slice(0, 2)'), 'Debug Lens must continue eliminating two incorrect choices');
+assert(gameSource.includes('timeLeftRef.current + 15'), 'Overclock must continue adding 15 seconds');
+assert(gameSource.includes('removeSessionResult(sessionResultsRef.current, currentIncident.id)'), 'Rollback must continue removing the last resolved decision');
+assert(gameSource.includes('const restoredStreak = currentResult.uptimeBefore'), 'Snapshot must continue restoring the lost uptime streak');
 
 const inventory: JokerInventory = { serverScaleUp: 0, codeReview: 0, snapshotBackup: 0, gitRevert: 0 };
 const purchase = planJokerPurchase(1_000, inventory, 'gitRevert', 'cto');
@@ -238,17 +333,18 @@ sessionResults = upsertSessionResult(sessionResults, { questionId: 2, reputation
 sessionResults = upsertSessionResult(sessionResults, { questionId: 3, reputationDelta: -10 });
 assert(deriveSessionReputation(sessionResults) === 10, 'A wrong answer must reduce derived session reputation');
 sessionResults = removeSessionResult(sessionResults, 3);
-assert(deriveSessionReputation(sessionResults) === 20, 'Git Revert must remove a wrong answer penalty');
+assert(deriveSessionReputation(sessionResults) === 20, 'Rollback must remove a wrong answer penalty');
 sessionResults = upsertSessionResult(sessionResults, { questionId: 3, reputationDelta: 10 });
-assert(deriveSessionReputation(sessionResults) === 30, 'Re-answering after Git Revert must apply the replacement result once');
+assert(deriveSessionReputation(sessionResults) === 30, 'Re-answering after Rollback must apply the replacement result once');
 sessionResults = upsertSessionResult(sessionResults, { questionId: 3, reputationDelta: 10 });
 assert(deriveSessionReputation(sessionResults) === 30, 'Upserting the same resolved question must not double-count reputation');
+assert(!canUseRollbackOnResult(1, { outcome: 'success' }), 'Rollback must reject a correct answer');
+// Reset the focused result to exercise the timeout rollback path independently.
 sessionResults = removeSessionResult(sessionResults, 3);
-assert(deriveSessionReputation(sessionResults) === 20, 'Git Revert must also remove a correct answer reward');
 sessionResults = upsertSessionResult(sessionResults, { questionId: 3, reputationDelta: -15 });
 assert(deriveSessionReputation(sessionResults) === 5, 'A timeout must apply its exact session penalty');
 sessionResults = removeSessionResult(sessionResults, 3);
-assert(deriveSessionReputation(sessionResults) === 20, 'Git Revert must restore a reverted timeout penalty');
+assert(deriveSessionReputation(sessionResults) === 20, 'Rollback must restore a reverted timeout penalty');
 const correctedPostRevertCompletion = completeOperationSession(
   createDefaultCategoryProgress(),
   'web_programming',
@@ -261,15 +357,15 @@ assert(!correctedPostRevertCompletion.passed && correctedPostRevertCompletion.pr
 
 let revertedAnswerProgress = recordCategoryAttempt(createDefaultCategoryProgress(), 'web_programming', 1, 'reverted-question', true);
 revertedAnswerProgress = revertCategoryAttemptOutcome(revertedAnswerProgress, 'web_programming', 1, true);
-assert(getTierAttemptedCount(revertedAnswerProgress, 'web_programming', 1) === 1, 'Git Revert must keep the question visible as attempted');
-assert(revertedAnswerProgress.web_programming[1].correctCount === 0, 'Git Revert must remove the reverted category answer result');
+assert(getTierAttemptedCount(revertedAnswerProgress, 'web_programming', 1) === 1, 'Rollback must keep the question visible as attempted');
+assert(revertedAnswerProgress.web_programming[1].correctCount === 0, 'Rollback must remove the reverted category answer result');
 const emptyRankingStats = { successCount: 0, partialCount: 0, failCount: 0, timeoutCount: 0, legacyPositiveCount: 0 };
 for (const outcome of ['success', 'partial', 'fail', 'timeout'] as const) {
   const rankingAfterAnswer = recordRankingOutcome(emptyRankingStats, outcome);
   const rankingAfterRevert = revertRankingOutcome(rankingAfterAnswer, outcome);
   assert(
     JSON.stringify(rankingAfterRevert) === JSON.stringify(emptyRankingStats),
-    `Git Revert must remove the reverted ${outcome} ranking outcome`,
+    `Rollback must remove the reverted ${outcome} ranking outcome`,
   );
 }
 
@@ -449,6 +545,36 @@ assert(
   databaseStarOneRows.filter((row) => isValidCategoryQuestion(row, 'database_systems', 1)).length === QUESTIONS_PER_TIER,
   'Database star content must count through the shared validator',
 );
+
+const mixedCategoryRows: CategoryQuestionRow[] = [
+  validQuestion,
+  { ...validQuestion, id: 'os-route-question', category_id: 'operating_systems', tag: 'Process', title: 'OS sorusu' },
+  { ...validQuestion, id: 'db-route-question', category_id: 'database_systems', tag: 'SQL', title: 'DB sorusu' },
+];
+const resolvedOperatingSystemQuestions = filterCategoryQuestions(
+  mixedCategoryRows,
+  resolveGameCategoryId('operating_systems'),
+  1,
+);
+assert(
+  resolvedOperatingSystemQuestions.length === 1 && resolvedOperatingSystemQuestions[0].category_id === 'operating_systems',
+  'Question filtering must use the resolved route category and exclude Web/Database rows',
+);
+
+let scopedCategoryProgress = createDefaultCategoryProgress();
+scopedCategoryProgress = recordCategoryAttempt(scopedCategoryProgress, 'operating_systems', 1, 'os-only-question', true);
+const scopedCompletion = completeOperationSession(
+  scopedCategoryProgress,
+  'database_systems',
+  1,
+  1,
+  40,
+  '2026-09-02T10:00:00.000Z',
+);
+assert(scopedCompletion.progress.operating_systems[1].attemptedQuestionIds.length === 1, 'OS attempts must stay in OS progress');
+assert(scopedCompletion.progress.database_systems[1].operationCheckpoints[1].passed, 'Database checkpoint must write to Database progress');
+assert(scopedCompletion.progress.web_programming[1].attemptedQuestionIds.length === 0, 'Non-Web sessions must not write attempts to Web progress');
+assert(!scopedCompletion.progress.web_programming[1].operationCheckpoints[1].attempted, 'Non-Web checkpoints must not write to Web progress');
 
 const normalizedRemovedCategoryProgress = normalizeCategoryProgress({
   system_programming: {

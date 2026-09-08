@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
+import { ECONOMY_ICON_ASSETS, UI_ICON_ASSETS } from '../../config/iconAssets';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import AssetIcon from '../AssetIcon';
 import GameActionButton from './GameActionButton';
 
 export type GameResultTone = 'success' | 'partial' | 'fail' | 'timeout';
@@ -14,20 +16,22 @@ interface GameResultPanelProps {
   careerXpDelta: number;
   reputationDelta: number;
   budgetDelta: number;
-  impactText: string;
   bestAnswer?: string;
   isProcessing: boolean;
   onNext: () => void;
   nextLabel?: string;
-  rewardLabel?: string;
   reduceMotion: boolean;
 }
 
-const RESULT_COPY: Record<GameResultTone, { label: string; subtitle: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = {
-  success: { label: 'Doğru Cevap', subtitle: 'Doğru seçeneği onayladın.', icon: 'checkmark-circle' },
-  partial: { label: 'Kısmi Doğru', subtitle: 'Bu cevap kısmen doğru olarak değerlendirildi.', icon: 'alert-circle' },
-  fail: { label: 'Yanlış Cevap', subtitle: 'Doğru cevabı inceleyip sonraki soruya geçebilirsin.', icon: 'close-circle' },
-  timeout: { label: 'Süre Doldu', subtitle: 'Bu soru için cevap onaylanmadı.', icon: 'timer' },
+const RESULT_COPY: Record<GameResultTone, {
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  iconSource?: React.ComponentProps<typeof AssetIcon>['source'];
+}> = {
+  success: { label: 'Doğru Cevap', icon: 'checkmark-circle', iconSource: UI_ICON_ASSETS.correctAnswer },
+  partial: { label: 'Kısmi Doğru', icon: 'alert-circle' },
+  fail: { label: 'Yanlış Cevap', icon: 'close-circle', iconSource: UI_ICON_ASSETS.wrongAnswer },
+  timeout: { label: 'Süre Doldu', icon: 'timer' },
 };
 
 function formatSignedValue(value: number) {
@@ -35,7 +39,7 @@ function formatSignedValue(value: number) {
 }
 
 function formatSignedBudget(value: number) {
-  return `${value >= 0 ? '+' : '−'}$${Math.abs(value).toLocaleString('tr-TR')}`;
+  return `${value >= 0 ? '+' : '−'}${Math.abs(value).toLocaleString('tr-TR')}`;
 }
 
 export default function GameResultPanel({
@@ -43,12 +47,10 @@ export default function GameResultPanel({
   careerXpDelta,
   reputationDelta,
   budgetDelta,
-  impactText,
   bestAnswer,
   isProcessing,
   onNext,
   nextLabel = 'Sonraki Soru',
-  rewardLabel,
   reduceMotion,
 }: GameResultPanelProps) {
   const { theme } = useTheme();
@@ -70,14 +72,14 @@ export default function GameResultPanel({
     cta: new Animated.Value(reduceMotion ? 1 : 0),
   }).current;
   const toneColor = tone === 'success'
-    ? tokens.colors.secondary
+    ? tokens.colors.success
     : tone === 'partial'
       ? tokens.colors.primary
       : tone === 'timeout'
         ? tokens.colors.warning
         : tokens.colors.danger;
   const toneBackground = tone === 'success'
-    ? tokens.colors.secondarySoft
+    ? tokens.colors.successSoft
     : tone === 'partial'
       ? tokens.colors.primarySoft
       : tone === 'timeout'
@@ -218,13 +220,17 @@ export default function GameResultPanel({
           style={[styles.statusFlash, { backgroundColor: toneBackground, opacity: flashOpacity, transform: [{ scaleX: flashScaleX }] }]}
         />
         <View style={[styles.outcomeIcon, { backgroundColor: toneBackground }]}>
-          <Ionicons
-            name={result.icon}
-            size={28}
-            color={toneColor}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-          />
+          {result.iconSource ? (
+            <AssetIcon source={result.iconSource} fallbackName={result.icon} fallbackColor={toneColor} size={tokens.layout.isCompact ? 31 : 36} />
+          ) : (
+            <Ionicons
+              name={result.icon}
+              size={28}
+              color={toneColor}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
+          )}
         </View>
         <View style={styles.outcomeCopy}>
           <Animated.Text
@@ -235,24 +241,22 @@ export default function GameResultPanel({
           >
             {result.label}
           </Animated.Text>
-          <Text style={styles.feedback}>{result.subtitle}</Text>
         </View>
       </View>
 
       <View style={styles.resultDetails}>
-        <View style={[styles.operationImpact, { borderLeftColor: toneColor }]}>
-          <Text style={styles.operationImpactLabel}>ETKİ</Text>
-          <Text style={styles.operationImpactText}>{impactText}</Text>
-        </View>
-        {rewardLabel ? <Text style={styles.rewardLabel}>{rewardLabel}</Text> : null}
         <View style={styles.impactGrid}>
           <ImpactCard
             label="Kariyer XP"
             value={formatSignedValue(careerXpDelta)}
             delta={careerXpDelta}
+            iconSource={careerXpDelta < 0 ? UI_ICON_ASSETS.xpLoss : UI_ICON_ASSETS.xpUp}
+            fallbackIcon={careerXpDelta < 0 ? 'trending-down' : 'trending-up'}
+            iconSize={tokens.layout.isCompact ? 28 : 34}
             progress={animationValues.metrics[0]}
             styles={styles}
             tokens={tokens}
+            metricTone="xp"
           />
           <ImpactCard
             label="İtibar"
@@ -261,14 +265,18 @@ export default function GameResultPanel({
             progress={animationValues.metrics[1]}
             styles={styles}
             tokens={tokens}
+            metricTone="reputation"
           />
           <ImpactCard
             label="Şirket Bütçesi"
             value={formatSignedBudget(budgetDelta)}
             delta={budgetDelta}
+            iconSource={ECONOMY_ICON_ASSETS.coin}
+            fallbackIcon="wallet-outline"
             progress={animationValues.metrics[2]}
             styles={styles}
             tokens={tokens}
+            metricTone="budget"
           />
         </View>
 
@@ -288,7 +296,7 @@ export default function GameResultPanel({
                 <Ionicons
                   name="bulb"
                   size={17}
-                  color={tokens.colors.secondary}
+                  color={tokens.colors.success}
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
                 />
@@ -318,30 +326,52 @@ function ImpactCard({
   value,
   delta,
   progress,
+  iconSource,
+  fallbackIcon,
+  iconSize,
   styles,
   tokens,
+  metricTone,
 }: {
   label: string;
   value: string;
   delta: number;
   progress: Animated.Value;
+  iconSource?: React.ComponentProps<typeof AssetIcon>['source'];
+  fallbackIcon?: React.ComponentProps<typeof AssetIcon>['fallbackName'];
+  iconSize?: number;
   styles: ReturnType<typeof makeStyles>;
   tokens: ReturnType<typeof getDashboardTokens>;
+  metricTone: 'xp' | 'reputation' | 'budget';
 }) {
   const positive = delta >= 0;
-  const color = positive ? tokens.colors.secondary : tokens.colors.danger;
+  const positiveColor = metricTone === 'xp'
+    ? tokens.colors.xp
+    : metricTone === 'budget'
+      ? tokens.colors.budget
+      : tokens.colors.reputation;
+  const positiveBackground = metricTone === 'xp'
+    ? tokens.colors.xpSoft
+    : metricTone === 'budget'
+      ? tokens.colors.budgetSoft
+      : tokens.colors.reputationSoft;
+  const color = positive ? positiveColor : tokens.colors.danger;
   const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
 
   return (
     <Animated.View style={[styles.impactCard, { borderLeftColor: color, opacity: progress, transform: [{ translateY }] }]}>
-      <View style={[styles.impactIcon, { backgroundColor: positive ? tokens.colors.secondarySoft : tokens.colors.dangerSoft }]}>
-        <Ionicons
-          name={positive ? 'trending-up' : 'trending-down'}
-          size={17}
-          color={color}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
+      <View style={[styles.impactIcon, { backgroundColor: positive ? positiveBackground : tokens.colors.dangerSoft }]}>
+        {iconSource && fallbackIcon ? (
+          <AssetIcon source={iconSource} fallbackName={fallbackIcon} fallbackColor={color} size={iconSize ?? (tokens.layout.isCompact ? 22 : 26)} />
+        ) : (
+          <Ionicons
+            name={positive ? 'trending-up' : 'trending-down'}
+            size={17}
+            color={color}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
+        )}
       </View>
       <View style={styles.impactCopy}>
         <Text style={styles.impactLabel}>{label}</Text>
@@ -390,24 +420,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     outcomeCopy: { flex: 1, minWidth: 0 },
     outcomeLabel: { ...tokens.type.title, fontFamily: fonts.headingBold, marginBottom: 2 },
-    feedback: { ...tokens.type.bodySmall, fontFamily: fonts.bodyMedium, color: colors.textMuted },
     resultDetails: { gap: tokens.layout.isCompact ? 11 : 16 },
-    operationImpact: {
-      gap: 3,
-      paddingLeft: tokens.layout.isCompact ? 10 : 12,
-      borderLeftWidth: 2,
-    },
-    operationImpactLabel: {
-      ...tokens.type.eyebrow,
-      fontFamily: fonts.bodySemiBold,
-      color: colors.textMuted,
-    },
-    operationImpactText: {
-      ...tokens.type.bodySmall,
-      fontFamily: fonts.bodyMedium,
-      color: colors.text,
-    },
-    rewardLabel: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted },
     impactGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -445,10 +458,10 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       borderRadius: radius.sm,
       backgroundColor: colors.secondarySurfaceRaised,
     },
-    bestAnswerRail: { position: 'absolute', top: 0, bottom: 0, left: 0, width: 2, backgroundColor: colors.secondary },
+    bestAnswerRail: { position: 'absolute', top: 0, bottom: 0, left: 0, width: 2, backgroundColor: colors.success },
     bestAnswerHeading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    bestAnswerIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySoft },
-    bestAnswerLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 15, color: colors.secondary, letterSpacing: 0.55 },
+    bestAnswerIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.successSoft },
+    bestAnswerLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 15, color: colors.success, letterSpacing: 0.55 },
     bestAnswerText: { ...tokens.type.body, fontFamily: fonts.bodyMedium, color: colors.text },
     nextButton: { minWidth: tokens.layout.isCompact ? 0 : 210, width: tokens.layout.isCompact ? '100%' : undefined, alignSelf: 'flex-start' },
   });

@@ -7,6 +7,7 @@ import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import CosmeticPreview from '../cosmetics/CosmeticPreview';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
+import RankIcon from '../rank/RankIcon';
 
 interface ProfileSummaryCardProps {
   companyName: string;
@@ -48,7 +49,9 @@ export default function ProfileSummaryCard({
         <Text style={styles.eyebrow}>ŞİRKET PROFİLİ</Text>
         <Text style={styles.companyName}>{companyName}</Text>
         <View style={styles.rankLine}>
-          <View style={styles.rankDot} />
+          <View style={styles.rankIconTile}>
+            <RankIcon rank={currentRank} size={tokens.layout.isCompact ? 36 : 42} fallbackColor={tokens.colors.primary} />
+          </View>
           <Text style={styles.rankText}>{currentRank.name}</Text>
         </View>
       </View>
@@ -94,8 +97,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     profileCopy: { flex: 1, minWidth: tokens.layout.isCompact ? 160 : 210 },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 4 },
     companyName: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, marginBottom: tokens.layout.isCompact ? 6 : 9 },
-    rankLine: { alignSelf: 'flex-start', minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 7 },
-    rankDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary },
+    rankLine: { alignSelf: 'flex-start', minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8 },
+    rankIconTile: { width: tokens.layout.isCompact ? 42 : 48, height: tokens.layout.isCompact ? 42 : 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     rankText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.primary, textTransform: 'uppercase' },
     progressMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 14 : 20 },
     careerBlock: { flexGrow: 1, minWidth: tokens.layout.isCompact ? 118 : 140, paddingLeft: tokens.layout.isCompact ? 11 : 15, borderLeftWidth: 1, borderLeftColor: colors.primary },

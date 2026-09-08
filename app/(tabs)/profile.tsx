@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import AssetIcon from '../../src/components/AssetIcon';
+import CompanyNameStatus from '../../src/components/company/CompanyNameStatus';
 import ProfileCosmetics from '../../src/components/profile/ProfileCosmetics';
 import ProfileButton from '../../src/components/profile/ProfileButton';
 import ProfileStatCard from '../../src/components/profile/ProfileStatCard';
@@ -24,10 +27,15 @@ import { useAuth } from '../../src/state/AuthContext';
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
-import { MAX_COMPANY_NAME_LENGTH } from '../../src/config/company';
-import { formatCurrency } from '../../src/utils/format';
+import { THEME_METADATA } from '../../src/theme/themes';
+import { useCompanyNameAvailability } from '../../src/hooks/useCompanyNameAvailability';
+import type { CompanyNameAvailabilityStatus } from '../../src/services/companyName';
+import { UI_ICON_ASSETS } from '../../src/config/iconAssets';
+import { formatBudget } from '../../src/utils/format';
 import { calculateSuccessRate } from '../../src/utils/ranking';
 import { trackEvent } from '../../src/utils/telemetry';
+import { INTEREST_AREA_OPTIONS, type InterestAreaId } from '../../src/utils/onboarding';
+import { COMPANY_NAME_MAX_LENGTH } from '../../src/utils/companyNameValidation';
 
 export default function ProfileScreen() {
   const { width } = useWindowDimensions();
@@ -48,9 +56,11 @@ export default function ProfileScreen() {
     equippedAvatar,
     equippedAvatarFrame,
     flushPlayerSave,
+    selectedInterestAreas,
+    setInterestAreas,
   } = useReputation();
   const { user, signOut } = useAuth();
-  const { theme, resetTheme } = useTheme();
+  const { theme, themeId, setThemeId, resetTheme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const isWide = width >= 900;
@@ -62,12 +72,23 @@ export default function ProfileScreen() {
   );
 
   const [companyInput, setCompanyInput] = useState(companyName);
-  const [companyError, setCompanyError] = useState('');
+  const [companySaveFeedback, setCompanySaveFeedback] = useState<{
+    status: CompanyNameAvailabilityStatus;
+    message: string;
+  } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [accountError, setAccountError] = useState('');
+  const [interestInput, setInterestInput] = useState<InterestAreaId[]>(selectedInterestAreas);
+  const [interestMessage, setInterestMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
   const toastAnim = useRef(new Animated.Value(0)).current;
+  const companyAvailability = useCompanyNameAvailability(companyInput, {
+    currentCompanyName: companyName,
+  });
+  const companyStatus = companySaveFeedback?.status ?? companyAvailability.status;
+  const companyMessage = companySaveFeedback?.message ?? companyAvailability.message;
 
   useFocusEffect(useCallback(() => {
     void trackEvent('profile_opened');
@@ -77,24 +98,34 @@ export default function ProfileScreen() {
     setCompanyInput(companyName);
   }, [companyName]);
 
-  const validateCompany = () => {
-    const isEmpty = !companyInput.trim();
-    setCompanyError(isEmpty ? 'Şirket adı boş bırakılamaz.' : '');
-    return !isEmpty;
-  };
+  useEffect(() => {
+    setInterestInput(selectedInterestAreas);
+  }, [selectedInterestAreas]);
 
   const handleCompanyChange = (value: string) => {
     setCompanyInput(value);
-    if (value.trim()) setCompanyError('');
+    setCompanySaveFeedback(null);
   };
 
   const handleSaveCompany = async () => {
-    const trimmed = companyInput.trim();
-    if (!validateCompany()) {
-      Alert.alert('Uyarı', 'Şirket adı boş bırakılamaz.');
+    if (!companyAvailability.canSave || isSavingCompany) {
+      setCompanySaveFeedback({
+        status: companyAvailability.status,
+        message: companyAvailability.message,
+      });
       return;
     }
-    await setCompanyName(trimmed);
+    setIsSavingCompany(true);
+    const result = await setCompanyName(companyAvailability.displayName);
+    setIsSavingCompany(false);
+    if (result.status !== 'saved') {
+      setCompanySaveFeedback({ status: result.status, message: result.message });
+      return;
+    }
+
+    setCompanyInput(result.displayName);
+    companyAvailability.markSaved(result.displayName);
+    setCompanySaveFeedback({ status: 'saved', message: 'Şirket adı kaydedildi.' });
     setShowToast(true);
     toastAnim.setValue(0);
     Animated.sequence([
@@ -102,6 +133,16 @@ export default function ProfileScreen() {
       Animated.delay(2200),
       Animated.timing(toastAnim, { toValue: 0, duration: 200, easing: Easing.in(Easing.ease), useNativeDriver: true }),
     ]).start(() => setShowToast(false));
+  };
+
+  const handleSaveInterests = () => {
+    setInterestAreas(interestInput);
+    setInterestMessage('İlgi alanları kaydedildi.');
+    void trackEvent('interest_areas_selected', {
+      selected_interest_areas: interestInput,
+      selected_count: interestInput.length,
+      source: 'profile',
+    });
   };
 
   const handleResetProgress = async () => {
@@ -200,32 +241,116 @@ export default function ProfileScreen() {
                   <View style={styles.companyInputRow}>
                     <TextInput
                       accessibilityLabel="Şirket adı"
-                      accessibilityHint="Şirket adını değiştirir"
+                      accessibilityHint={`Şirket adını değiştirir. ${companyMessage}`}
                       value={companyInput}
                       onChangeText={handleCompanyChange}
                       onFocus={() => setInputFocused(true)}
                       onBlur={() => {
                         setInputFocused(false);
-                        validateCompany();
                       }}
                       placeholder="Şirket adını giriniz..."
                       placeholderTextColor={tokens.colors.textMuted}
                       autoCapitalize="words"
-                      maxLength={MAX_COMPANY_NAME_LENGTH}
+                      maxLength={COMPANY_NAME_MAX_LENGTH}
                       style={[
                         styles.textInput,
                         inputFocused && styles.textInputFocused,
-                        !!companyError && styles.textInputError,
+                        (companyStatus === 'available' || companyStatus === 'saved') && styles.textInputAvailable,
+                        (companyStatus === 'invalid' || companyStatus === 'unavailable' || companyStatus === 'error') && styles.textInputError,
                       ]}
                     />
-                    <ProfileButton label="Kaydet" onPress={() => void handleSaveCompany()} style={styles.saveButton} />
+                    <ProfileButton
+                      disabled={!companyAvailability.canSave || isSavingCompany}
+                      label={isSavingCompany ? 'Kaydediliyor...' : 'Kaydet'}
+                      onPress={() => void handleSaveCompany()}
+                      style={styles.saveButton}
+                      variant={!companyAvailability.canSave || isSavingCompany ? 'disabled' : 'primary'}
+                    />
                   </View>
                   <View style={styles.validationSlot}>
-                    {companyError ? (
-                      <Text accessibilityLiveRegion="polite" style={styles.validationError}>{companyError}</Text>
-                    ) : (
-                      <Text style={styles.validationHint}>Değişiklikler cihazında kalıcı olarak saklanır.</Text>
-                    )}
+                    <CompanyNameStatus
+                      message={companyMessage}
+                      onRetry={() => {
+                        setCompanySaveFeedback(null);
+                        companyAvailability.retry();
+                      }}
+                      status={companyStatus}
+                    />
+                  </View>
+                  <View style={styles.settingsDivider} />
+                  <Text style={styles.inputLabel}>Görünüm</Text>
+                  <Text style={styles.inputHint}>Ücretsiz operasyon alanını seç. Ücretli temaları Mağaza’dan yönetebilirsin.</Text>
+                  <View style={styles.themePreferenceList}>
+                    {(['default', 'daylight'] as const).map((id) => {
+                      const selected = themeId === id;
+                      const metadata = THEME_METADATA[id];
+                      return (
+                        <Pressable
+                          key={id}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected }}
+                          accessibilityLabel={`${metadata.title}. ${metadata.description}`}
+                          onPress={() => {
+                            if (selected) return;
+                            void setThemeId(id).then(() => {
+                              void trackEvent('theme_equipped', { theme_id: id });
+                            });
+                          }}
+                          style={({ pressed }) => [styles.themePreference, selected && styles.themePreferenceSelected, pressed && styles.pressed]}
+                        >
+                          <View style={[styles.themePreferenceIcon, selected && styles.themePreferenceIconSelected]}>
+                            <Ionicons
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              name={id === 'daylight' ? 'sunny-outline' : 'moon-outline'}
+                              size={20}
+                              color={selected ? tokens.colors.primary : tokens.colors.textMuted}
+                            />
+                          </View>
+                          <View style={styles.themePreferenceCopy}>
+                            <Text style={[styles.themePreferenceTitle, selected && styles.themePreferenceTitleSelected]}>{metadata.title}</Text>
+                            <Text style={styles.themePreferenceDescription}>{metadata.description}</Text>
+                          </View>
+                          <Ionicons
+                            accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                            size={21}
+                            color={selected ? tokens.colors.primary : tokens.colors.textMuted}
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.settingsDivider} />
+                  <Text style={styles.inputLabel}>İlgi Alanları</Text>
+                  <Text style={styles.inputHint}>Gelecek içerik önerileri için bir veya daha fazla alan seçebilirsin.</Text>
+                  <View style={styles.interestList}>
+                    {INTEREST_AREA_OPTIONS.map((option) => {
+                      const selected = interestInput.includes(option.id);
+                      return (
+                        <Pressable
+                          key={option.id}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: selected }}
+                          onPress={() => {
+                            setInterestMessage('');
+                            setInterestInput((current) => current.includes(option.id)
+                              ? current.filter((id) => id !== option.id)
+                              : [...current, option.id]);
+                          }}
+                          style={({ pressed }) => [styles.interestOption, selected && styles.interestOptionSelected, pressed && styles.pressed]}
+                        >
+                          <Ionicons accessibilityElementsHidden importantForAccessibility="no-hide-descendants" name={option.icon} size={19} color={selected ? tokens.colors.primary : tokens.colors.textMuted} />
+                          <Text style={[styles.interestOptionText, selected && styles.interestOptionTextSelected]}>{option.label}</Text>
+                          <Ionicons accessibilityElementsHidden importantForAccessibility="no-hide-descendants" name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={selected ? tokens.colors.primary : tokens.colors.textMuted} />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.interestFooter}>
+                    <Text accessibilityLiveRegion="polite" style={styles.validationHint}>{interestMessage}</Text>
+                    <ProfileButton label="İlgi Alanlarını Kaydet" onPress={handleSaveInterests} style={styles.interestSaveButton} />
                   </View>
                 </View>
               </View>
@@ -263,7 +388,10 @@ export default function ProfileScreen() {
                       <View style={styles.developerHeader}>
                         <View>
                           <Text style={styles.developerLabel}>ŞİRKET BÜTÇESİ</Text>
-                          <Text style={styles.developerBudget}>{formatCurrency(budget)}</Text>
+                          <View style={styles.developerBudgetRow}>
+                            <AssetIcon source={UI_ICON_ASSETS.coin} fallbackName="wallet-outline" fallbackColor={tokens.colors.warning} size={22} />
+                            <Text style={styles.developerBudget}>{formatBudget(budget)}</Text>
+                          </View>
                         </View>
                         <View style={styles.testPill}><Text style={styles.testPillText}>TEST</Text></View>
                       </View>
@@ -297,8 +425,8 @@ export default function ProfileScreen() {
               },
             ]}
           >
-            <Text style={styles.toastIcon}>✓</Text>
-            <Text style={styles.toastText}>Şirket adı başarıyla güncellendi!</Text>
+            <Ionicons accessibilityElementsHidden importantForAccessibility="no-hide-descendants" name="checkmark-circle" size={19} color={tokens.colors.success} />
+            <Text style={styles.toastText}>Şirket adı kaydedildi.</Text>
           </Animated.View>
         ) : null}
       </SafeAreaView>
@@ -361,11 +489,29 @@ function makeStyles(tokens: DashboardTokens) {
     companyInputRow: { flexDirection: 'row', alignItems: 'stretch', flexWrap: 'wrap', gap: 10 },
     textInput: { flex: 1, minWidth: 210, minHeight: tokens.control.height, paddingHorizontal: 14, paddingVertical: 11, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderStrong, fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.text },
     textInputFocused: { borderColor: colors.primary },
+    textInputAvailable: { borderColor: colors.success, backgroundColor: colors.successSoft },
     textInputError: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
     saveButton: { minWidth: 116 },
     validationSlot: { minHeight: 21, justifyContent: 'flex-end', marginTop: 7 },
-    validationError: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.danger },
     validationHint: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
+    settingsDivider: { height: 1, marginVertical: 16, backgroundColor: colors.dividerSubtle },
+    themePreferenceList: { gap: 8 },
+    themePreference: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 11, paddingVertical: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurfaceRaised },
+    themePreferenceSelected: { borderColor: colors.selectionBorder, backgroundColor: colors.selectionBackground },
+    themePreferenceIcon: { width: 38, height: 38, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.surfaceSoft },
+    themePreferenceIconSelected: { backgroundColor: colors.primarySoft },
+    themePreferenceCopy: { flex: 1, minWidth: 0 },
+    themePreferenceTitle: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: colors.text },
+    themePreferenceTitleSelected: { color: colors.primary },
+    themePreferenceDescription: { marginTop: 2, fontFamily: fonts.body, fontSize: 11, lineHeight: 16, color: colors.textMuted },
+    interestList: { gap: 8 },
+    interestOption: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurfaceRaised },
+    interestOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+    interestOptionText: { flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 18 },
+    interestOptionTextSelected: { color: colors.primary },
+    interestFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 10 },
+    interestSaveButton: { minWidth: 178 },
+    pressed: { opacity: 0.72 },
     accountRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: tokens.layout.isCompact ? 11 : 15 },
     accountMark: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     accountCopy: { flex: 1, minWidth: 0 },
@@ -379,7 +525,8 @@ function makeStyles(tokens: DashboardTokens) {
     developerCard: { padding: tokens.layout.isCompact ? 14 : 18, borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle, borderLeftWidth: 3, borderLeftColor: colors.warning },
     developerHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
     developerLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.65, color: colors.warning },
-    developerBudget: { fontFamily: fonts.monoBold, fontSize: 23, lineHeight: 29, color: colors.text, marginTop: 2 },
+    developerBudgetRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+    developerBudget: { fontFamily: fonts.monoBold, fontSize: 23, lineHeight: 29, color: colors.text },
     testPill: { minHeight: 29, justifyContent: 'center', paddingHorizontal: 9, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.warning },
     testPillText: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.6, color: colors.warning },
     developerDescription: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted, marginTop: 7, marginBottom: 11 },

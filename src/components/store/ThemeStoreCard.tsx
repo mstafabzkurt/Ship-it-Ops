@@ -14,6 +14,7 @@ interface ThemeStoreCardProps {
   description: string;
   features: string[];
   previewColors: [string, string, string];
+  previewScheme?: { surface: string; border: string; text: string };
   price?: number;
   owned: boolean;
   active: boolean;
@@ -32,6 +33,7 @@ export default function ThemeStoreCard({
   description,
   features,
   previewColors,
+  previewScheme,
   price,
   owned,
   active,
@@ -66,12 +68,16 @@ export default function ThemeStoreCard({
       <View style={[styles.preview, { backgroundColor: previewColors[0] }]}>
         <View style={[styles.previewOrbLarge, { backgroundColor: previewColors[1] }]} />
         <View style={[styles.previewOrbSmall, { backgroundColor: previewColors[2] }]} />
-        <Animated.View style={[styles.previewPanel, pulseStyle]}>
+        <Animated.View style={[
+          styles.previewPanel,
+          previewScheme && { backgroundColor: previewScheme.surface, borderColor: previewScheme.border },
+          pulseStyle,
+        ]}>
           <View style={[styles.previewIcon, { borderColor: previewColors[1] }]} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <Ionicons name={icon} size={28} color={previewColors[1]} />
           </View>
           <View style={styles.previewLines}>
-            <View style={[styles.previewLineLong, { backgroundColor: previewColors[1] }]} />
+            <View style={[styles.previewLineLong, { backgroundColor: previewScheme?.text ?? previewColors[1] }]} />
             <View style={[styles.previewLineShort, { backgroundColor: previewColors[2] }]} />
           </View>
         </Animated.View>
