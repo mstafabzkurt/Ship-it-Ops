@@ -105,7 +105,7 @@ export default function PrivacyConsentExperience() {
                 value={analytics}
               />
               <ConsentRow
-                description="Reklam gösterimi ve reklam performansı için kullanılabilir."
+                description="Reklam teknolojileri şu anda aktif değildir. İleride reklam gösterimi eklenirse bu tercih dikkate alınacaktır."
                 label="Reklam"
                 onValueChange={setAdvertising}
                 styles={styles}
@@ -236,4 +236,3 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     pressed: { opacity: 0.72 },
   });
 }
-

@@ -14,7 +14,7 @@ export const LEGAL_DRAFTS = {
   privacy: {
     title: 'Gizlilik Politikası',
     paragraphs: [
-      'İlk taslak · Yayın öncesinde gözden geçirilecektir.',
+      'Bu metin, Ship It Ops\'un mevcut web sürümü için hazırlanmıştır. Ürün geliştikçe güncellenebilir.',
       'Ship It Ops eğitim amaçlı bir oyun ve üründür. Hesap verileri; hesap kimliği, varsa e-posta ve giriş sağlayıcısı, şirket adı, avatar ve çerçeve seçimleri, ilerleme, puanlar ve sıralama verilerini içerebilir. E-posta gönderirsen geri bildirim içeriğin de destek kapsamında işlenebilir.',
       'Bu veriler giriş, kayıt eşitleme, oyun ilerlemesi, sıralama, geri bildirim ve ürün iyileştirme amaçlarıyla kullanılır.',
       'Zorunlu tarayıcı depolama teknolojileri; oturum ve kimlik doğrulama, kayıt eşitleme, tema ve profil tercihleri, onboarding seçimleri ile oyun ilerlemesini korumak için kullanılır.',
@@ -27,7 +27,7 @@ export const LEGAL_DRAFTS = {
   terms: {
     title: 'Kullanım Koşulları',
     paragraphs: [
-      'İlk taslak · Yayın öncesinde gözden geçirilecektir.',
+      'Bu metin, Ship It Ops\'un mevcut web sürümü için hazırlanmıştır. Ürün geliştikçe güncellenebilir.',
       'Ship It Ops eğitim amaçlıdır. Sorular ve yanıtlar hata içerebilir. Uygulama profesyonel, akademik, hukuki, finansal veya kariyer tavsiyesi sağlamaz.',
       'Hizmeti kötüye kullanma, spam gönderme, tersine mühendislik yapma veya hizmete saldırıda bulunma.',
       'Ürün kuralları doğrultusunda hesap ve ilerleme değiştirilebilir veya silinebilir. İçerikler zaman içinde değişebilir.',
