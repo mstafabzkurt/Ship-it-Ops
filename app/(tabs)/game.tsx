@@ -651,6 +651,10 @@ export default function GameScreen() {
         setError('Geçerli bir alan ve kademe seçmelisin.');
         return;
       }
+      console.info('[game_incidents] session fetch started', {
+        category_id: categoryId,
+        difficulty_star: difficultyStar,
+      });
       const { data, error: fetchError } = await supabase
         .from('game_incidents')
         .select('id, rank_level, category_id, difficulty_star, tag, title, optimal_text, acceptable_text, wrong_text, fatal_text')
@@ -664,6 +668,11 @@ export default function GameScreen() {
         categoryId,
         difficultyStar,
       ) as GameIncident[];
+      console.info('[game_incidents] session fetch completed', {
+        category_id: categoryId,
+        difficulty_star: difficultyStar,
+        fetched_question_count: loadedIncidents.length,
+      });
       if (!hasEnoughCategoryQuestions(loadedIncidents.length)) {
         setError(`Bu kademe henüz hazır değil (${loadedIncidents.length}/${QUESTIONS_PER_TIER} geçerli soru).`);
         return;
@@ -692,6 +701,14 @@ export default function GameScreen() {
       chooseIncident(loadedIncidents, []);
     } catch (fetchError: any) {
       if (requestId === fetchRequestIdRef.current) {
+        console.warn('[game_incidents] session fetch failed', {
+          category_id: categoryId,
+          difficulty_star: difficultyStar,
+          code: typeof fetchError?.code === 'string' ? fetchError.code : 'unknown',
+          message: typeof fetchError?.message === 'string'
+            ? fetchError.message.slice(0, 240)
+            : 'Unknown game_incidents error',
+        });
         setError(fetchError.message || 'Bir hata oluştu.');
       }
     } finally {

@@ -28,7 +28,6 @@ import {
   isTierUnlocked,
 } from '../../src/utils/categoryProgress';
 import {
-  filterCategoryQuestions,
   hasEnoughCategoryQuestions,
   type CategoryQuestionRow,
 } from '../../src/utils/categoryQuestions';
@@ -36,6 +35,7 @@ import { trackEvent } from '../../src/utils/telemetry';
 import { trackAnalyticsEvent } from '../../src/lib/analytics';
 
 type Availability = Record<GameCategoryId, Record<DifficultyStar, number>>;
+type AvailabilityQuestionRow = Pick<CategoryQuestionRow, 'id' | 'category_id' | 'difficulty_star'>;
 type LockedTierFeedback = {
   categoryId: GameCategoryId;
   star: DifficultyStar;
@@ -106,23 +106,29 @@ export default function PlayHubScreen() {
     setError(null);
     const { data, error: queryError } = await supabase
       .from('game_incidents')
-      .select('id, rank_level, category_id, difficulty_star, tag, title, optimal_text, acceptable_text, wrong_text, fatal_text')
+      .select('id, category_id, difficulty_star')
       .not('category_id', 'is', null)
       .not('difficulty_star', 'is', null);
     if (queryError) {
+      console.warn('[game_incidents] availability fetch failed', {
+        code: queryError.code || 'unknown',
+        message: queryError.message.slice(0, 240),
+      });
       setError('Kategori içeriği okunamadı. Phase 7 migration uygulandıktan sonra tekrar dene.');
       setAvailability(createEmptyAvailability());
       setLoading(false);
       return;
     }
+    const availabilityRows = data as AvailabilityQuestionRow[] | null ?? [];
+    console.info('[game_incidents] availability fetch completed', {
+      fetched_question_count: availabilityRows.length,
+    });
     const next = createEmptyAvailability();
     for (const category of GAME_CATEGORIES) {
       for (const star of DIFFICULTY_STARS) {
-        next[category.id][star] = filterCategoryQuestions(
-          data as CategoryQuestionRow[] | null ?? [],
-          category.id,
-          star,
-        ).length;
+        next[category.id][star] = availabilityRows.filter((row) => (
+          row.category_id === category.id && row.difficulty_star === star
+        )).length;
       }
     }
     setAvailability(next);
