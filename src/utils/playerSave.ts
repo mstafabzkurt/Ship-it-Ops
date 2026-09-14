@@ -8,14 +8,22 @@ import {
   type CosmeticId,
 } from '../config/cosmetics';
 import { DEFAULT_COMPANY_NAME, normalizeCompanyName } from '../config/company';
+import { ACHIEVEMENTS, type AchievementId } from '../config/achievements';
 import type { JokerInventory } from '../config/jokerEconomy';
 import { RECENT_QUESTION_HISTORY_LIMIT } from '../config/progression';
 import { appendRecentQuestionId } from './questionSelection';
-import { normalizeRankingOutcomeStats, type RankingOutcomeStats } from './ranking';
-import { createDefaultCategoryProgress, normalizeCategoryProgress, type CategoryProgress } from './categoryProgress';
+import { calculateRankingScore, normalizeRankingOutcomeStats, type RankingOutcomeStats } from './ranking';
+import {
+  addCategoryLeaderboardScore,
+  createDefaultCategoryProgress,
+  hasStoredCategoryLeaderboardScore,
+  normalizeCategoryProgress,
+  type CategoryProgress,
+} from './categoryProgress';
 import { normalizeInterestAreas, type InterestAreaId } from './onboarding';
+import { deriveAchievements } from './achievements';
 
-export const PLAYER_SAVE_VERSION = 3;
+export const PLAYER_SAVE_VERSION = 4;
 const DEFAULT_PLAYER_BUDGET = 1_000;
 export const LEGACY_SAVE_CLAIM_VERSION = 1;
 export const PLAYER_SAVE_CACHE_PREFIX = '@shipit_account_save:';
@@ -60,6 +68,8 @@ export interface PlayerSaveSnapshot {
   onboardingCompleted: boolean;
   tutorialCompleted: boolean;
   selectedInterestAreas: InterestAreaId[];
+  claimedBadgeRewardIds: AchievementId[];
+  unseenBadgeIds: AchievementId[];
 }
 
 export interface LegacySaveClaim {
@@ -96,6 +106,12 @@ const normalizeStringIds = (value: unknown): string[] => {
     typeof item === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(item)
   )))].slice(0, 256);
 };
+
+const ACHIEVEMENT_ID_SET = new Set<string>(ACHIEVEMENTS.map((achievement) => achievement.id));
+
+const normalizeAchievementIds = (value: unknown): AchievementId[] => (
+  normalizeStringIds(value).filter((id): id is AchievementId => ACHIEVEMENT_ID_SET.has(id))
+);
 
 export const normalizeJokerInventory = (value: unknown): JokerInventory => {
   const defaults = createDefaultJokerInventory();
@@ -149,6 +165,8 @@ export function createDefaultPlayerSave(): PlayerSaveSnapshot {
     onboardingCompleted: false,
     tutorialCompleted: false,
     selectedInterestAreas: [],
+    claimedBadgeRewardIds: [],
+    unseenBadgeIds: [],
   };
 }
 
@@ -160,6 +178,8 @@ export function hasMeaningfulPlayerProgress(value: unknown): boolean {
   const hasCategoryActivity = Object.values(categoryProgress).some((tiers) => (
     Object.values(tiers).some((tier) => (
       tier.attemptedQuestionIds.length > 0
+      || tier.solvedCorrectQuestionIds.length > 0
+      || tier.leaderboardScore > 0
       || tier.correctCount > 0
       || tier.incorrectCount > 0
       || Object.values(tier.operationCheckpoints).some((checkpoint) => checkpoint.attempted)
@@ -192,6 +212,21 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
     ? value as Partial<Record<keyof PlayerSaveSnapshot, unknown>>
     : {};
   const correctAnswers = normalizeNonNegativeInteger(input.correctAnswers);
+  const careerXp = normalizeNonNegativeInteger(input.careerXp);
+  const wrongAnswers = normalizeNonNegativeInteger(input.wrongAnswers);
+  const rankingOutcomeStats = normalizeRankingOutcomeStats(input.rankingOutcomeStats, correctAnswers);
+  let categoryProgress = normalizeCategoryProgress(input.categoryProgress);
+  // Saves created before repeat-aware scoring have no category leaderboard
+  // totals. Preserve their historical all-time score once, then accumulate
+  // every future completed-session delta in the existing JSON progress field.
+  if (!hasStoredCategoryLeaderboardScore(input.categoryProgress)) {
+    categoryProgress = addCategoryLeaderboardScore(
+      categoryProgress,
+      'web_programming',
+      1,
+      calculateRankingScore(rankingOutcomeStats),
+    );
+  }
   const cosmeticState = normalizeCosmeticPlayerState(
     input.ownedCosmeticIds,
     input.equippedAvatarId,
@@ -203,17 +238,30 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
   // be mistaken for an established player after completing that first session.
   const storedVersion = Number(input.saveVersion);
   const predatesOnboardingSchema = !Number.isFinite(storedVersion) || storedVersion < 3;
+  const predatesBadgeRewardSchema = !Number.isFinite(storedVersion) || storedVersion < 4;
   const legacyPlayer = predatesOnboardingSchema && hasMeaningfulPlayerProgress(input);
+  // Existing v1-v3 players keep their historical economy unchanged. Badges
+  // already earned from their persisted progression become claimed silently,
+  // while badges earned after this migration receive the new reward once.
+  const claimedBadgeRewardIds = predatesBadgeRewardSchema
+    ? deriveAchievements({ careerXp, correctAnswers, wrongAnswers, categoryProgress })
+      .filter((badge) => badge.earned)
+      .map((badge) => badge.id)
+    : normalizeAchievementIds(input.claimedBadgeRewardIds);
+  const unseenBadgeIds = predatesBadgeRewardSchema
+    ? []
+    : normalizeAchievementIds(input.unseenBadgeIds)
+      .filter((id) => claimedBadgeRewardIds.includes(id));
 
   return {
     saveVersion: PLAYER_SAVE_VERSION,
-    careerXp: normalizeNonNegativeInteger(input.careerXp),
+    careerXp,
     reputation: normalizeNonNegativeInteger(input.reputation),
     companyBudget: normalizeNonNegativeInteger(input.companyBudget, defaults.companyBudget),
     companyName: normalizeCompanyName(input.companyName),
     correctAnswers,
-    wrongAnswers: normalizeNonNegativeInteger(input.wrongAnswers),
-    rankingOutcomeStats: normalizeRankingOutcomeStats(input.rankingOutcomeStats, correctAnswers),
+    wrongAnswers,
+    rankingOutcomeStats,
     jokerInventory: normalizeJokerInventory(input.jokerInventory),
     ownedItemIds: normalizeStringIds(input.ownedItemIds),
     ownedCosmeticIds: cosmeticState.ownedCosmeticIds,
@@ -222,10 +270,12 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
     streakDays: normalizeStreakDays(input.streakDays),
     streakLastDate: normalizeDate(input.streakLastDate),
     recentQuestionIds: normalizeRecentQuestionIds(input.recentQuestionIds),
-    categoryProgress: normalizeCategoryProgress(input.categoryProgress),
+    categoryProgress,
     onboardingCompleted: input.onboardingCompleted === true || legacyPlayer,
     tutorialCompleted: input.tutorialCompleted === true || legacyPlayer,
     selectedInterestAreas: normalizeInterestAreas(input.selectedInterestAreas),
+    claimedBadgeRewardIds,
+    unseenBadgeIds,
   };
 }
 

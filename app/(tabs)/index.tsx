@@ -17,6 +17,8 @@ import { trackEvent } from '../../src/utils/telemetry';
 export default function DashboardScreen() {
   const { width } = useWindowDimensions();
   const {
+    correctAnswers,
+    wrongAnswers,
     budget,
     careerXp,
     codeReview,
@@ -126,6 +128,8 @@ export default function DashboardScreen() {
             <CareerSummaryCard
               budget={budget}
               careerXp={careerXp}
+              correctAnswers={correctAnswers}
+              wrongAnswers={wrongAnswers}
               uptimeStreak={uptimeStreak}
               currentRank={currentRank}
               nextRank={nextRank}

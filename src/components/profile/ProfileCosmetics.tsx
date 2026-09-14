@@ -15,9 +15,10 @@ interface ProfileCosmeticsProps {
   frame: AvatarFrameCosmetic;
   onEquipAvatar: (id: CosmeticId) => Promise<string>;
   onEquipFrame: (id: CosmeticId) => Promise<string>;
+  compact?: boolean;
 }
 
-export default function ProfileCosmetics({ ownedCosmeticIds, avatar, frame, onEquipAvatar, onEquipFrame }: ProfileCosmeticsProps) {
+export default function ProfileCosmetics({ ownedCosmeticIds, avatar, frame, onEquipAvatar, onEquipFrame, compact = false }: ProfileCosmeticsProps) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(getDashboardTokens(theme, width)), [theme, width]);
@@ -52,12 +53,12 @@ export default function ProfileCosmetics({ ownedCosmeticIds, avatar, frame, onEq
   };
 
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, compact && styles.panelCompact]}>
       <Pressable accessibilityRole="button" accessibilityLabel="Kozmetik envanterim" accessibilityState={{ expanded }}
-        onPress={() => setExpanded(value => !value)} style={({ pressed }) => [styles.heading, pressed && styles.pressed]}>
+        onPress={() => setExpanded(value => !value)} style={({ pressed }) => [styles.heading, compact && styles.headingCompact, pressed && styles.pressed]}>
         <View style={styles.headingCopy}>
-          <Text style={styles.title}>Kozmetik Envanterim</Text>
-          <Text style={styles.hint}>{owned.length} sahip olunan · Avatarını ve çerçeveni kuşan</Text>
+          <Text style={styles.title}>Avatar ve Çerçeve</Text>
+          <Text style={styles.hint}>{owned.length} sahip olunan kozmetik</Text>
         </View>
         <Text style={styles.toggle}>{expanded ? '−' : '+'}</Text>
       </Pressable>
@@ -87,7 +88,9 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   const { colors, radius } = tokens;
   return StyleSheet.create({
     panel: { marginTop: 16 },
+    panelCompact: { marginTop: 0 },
     heading: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurface },
+    headingCompact: { minHeight: 52, paddingHorizontal: 0, paddingVertical: 6, borderWidth: 0, borderRadius: 0, backgroundColor: 'transparent' },
     headingCopy: { flex: 1, minWidth: 0 },
     title: { fontFamily: fonts.headingBold, fontSize: 16, lineHeight: 22, color: colors.text },
     hint: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: colors.textMuted },

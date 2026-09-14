@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { getCategoryChoiceOutcome, getCategoryReward } from '../src/config/categoryRewards';
+import {
+  REPEAT_QUESTION_REWARD_SCALE,
+  getCategoryChoiceOutcome,
+  getCategoryReward,
+} from '../src/config/categoryRewards';
 import { ACHIEVEMENTS } from '../src/config/achievements';
 import {
   DIFFICULTY_STARS,
@@ -26,11 +30,13 @@ import {
   formatSignedReputation,
   getCategoryAttemptedCount,
   getCategoryPassedOperationCount,
+  getCategoryTierProgress,
   getCurrentOperationCheckpoint,
   getOperationReputationProgress,
   getOperationReputationTarget,
   getPassedOperationCount,
   getTierAttemptedCount,
+  getTotalCategoryLeaderboardScore,
   isTierUnlocked,
   normalizeCategoryProgress,
   recordCategoryAttempt,
@@ -38,10 +44,23 @@ import {
   selectCategoryQuestion,
 } from '../src/utils/categoryProgress';
 import { deriveAchievements } from '../src/utils/achievements';
-import { filterCategoryQuestions, isValidCategoryQuestion, type CategoryQuestionRow } from '../src/utils/categoryQuestions';
-import { calculateRankingScore, recordRankingOutcome, revertRankingOutcome } from '../src/utils/ranking';
+import {
+  filterCategoryQuestions,
+  hasEnoughCategoryQuestions,
+  isValidCategoryQuestion,
+  type CategoryQuestionRow,
+} from '../src/utils/categoryQuestions';
+import {
+  REPEAT_RANKING_SCORE_BY_OUTCOME,
+  calculateRankingScore,
+  getRankingScoreForOutcome,
+  recordRankingOutcome,
+  revertRankingOutcome,
+} from '../src/utils/ranking';
 import { canUseRollbackOnResult } from '../src/utils/gameSession';
+import { normalizePlayerSave } from '../src/utils/playerSave';
 import { deriveSessionReputation, removeSessionResult, upsertSessionResult } from '../src/utils/sessionReputation';
+import { sanitizeTelemetryMetadata } from '../src/utils/telemetryCore';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -63,18 +82,82 @@ for (const star of [1, 2, 3] as const) {
   }
 }
 
+assert(getRankingScoreForOutcome('success') === 100, 'A first-time correct answer must award 100 leaderboard points');
+assert(getRankingScoreForOutcome('success', true) === 25, 'A repeated correct answer must award 25 leaderboard points');
+assert(getRankingScoreForOutcome('partial', true) === 15, 'A repeated legacy partial answer must award 15 leaderboard points');
+assert(REPEAT_RANKING_SCORE_BY_OUTCOME.fail === 0, 'Repeated wrong answers must award no leaderboard points');
+assert(REPEAT_RANKING_SCORE_BY_OUTCOME.timeout === 0, 'Repeated timeouts must award no leaderboard points');
+
+assert(REPEAT_QUESTION_REWARD_SCALE.careerXp === 0.35, 'Repeated correct answers must award 35% Career XP');
+assert(REPEAT_QUESTION_REWARD_SCALE.reputation === 0.4, 'Repeated correct answers must award 40% reputation');
+assert(REPEAT_QUESTION_REWARD_SCALE.budget === 0.35, 'Repeated correct answers must award 35% budget');
+const expectedRepeatRewards = {
+  1: [35, 4, 105],
+  2: [44, 5, 140],
+  3: [53, 6, 175],
+} as const;
+for (const star of [1, 2, 3] as const) {
+  const repeatReward = getCategoryReward(star, 'success', true);
+  const expected = expectedRepeatRewards[star];
+  assert(repeatReward.careerXpDelta === expected[0], `Star ${star} repeated success XP must use rounded 35% scaling`);
+  assert(repeatReward.reputationDelta === expected[1], `Star ${star} repeated success reputation must use rounded 40% scaling`);
+  assert(repeatReward.budgetDelta === expected[2], `Star ${star} repeated success budget must use rounded 35% scaling`);
+  for (const outcome of ['fail', 'timeout'] as const) {
+    assert(
+      JSON.stringify(getCategoryReward(star, outcome, true)) === JSON.stringify(getCategoryReward(star, outcome)),
+      `Star ${star} ${outcome} penalties must not be scaled for repeated questions`,
+    );
+  }
+}
+
 assert(getCategoryChoiceOutcome('optimal') === 'success', 'optimal_text must resolve success');
 assert(getCategoryChoiceOutcome('acceptable') === 'fail', 'acceptable_text must be a fail distractor');
 assert(getCategoryChoiceOutcome('wrong') === 'fail', 'wrong_text must resolve fail');
 assert(getCategoryChoiceOutcome('fatal') === 'fail', 'fatal_text must resolve fail');
 
+const expectedCategoryCatalog = [
+  ['web_programming', 'Web Programlama'],
+  ['operating_systems', 'İşletim Sistemleri'],
+  ['database_systems', 'Veritabanı Sistemleri'],
+  ['algorithm', 'Algoritma'],
+  ['data_structures', 'Veri Yapıları'],
+  ['java', 'Java'],
+  ['programming_2', 'Programlamaya Giriş 2'],
+  ['object_oriented_programming', 'Nesne Yönelimli Programlama'],
+  ['computer_networks', 'Bilgisayar Ağları'],
+  ['computer_architecture', 'Bilgisayar Mimarisi'],
+  ['microprocessors', 'Mikroişlemciler'],
+  ['graph_theory', 'Çizge Kuramı'],
+  ['automata_theory', 'Özdevinirler'],
+  ['software_engineering', 'Yazılım Mühendisliği'],
+  ['engineering_economics', 'Mühendislik Ekonomisi'],
+] as const;
+assert(GAME_CATEGORIES.length === 15, 'The gameplay catalog must expose 15 course categories');
 assert(
-  GAME_CATEGORIES.map((category) => category.id).join(',') === 'web_programming,operating_systems,database_systems',
-  'Active category IDs must match the Phase 7 catalog',
+  JSON.stringify(GAME_CATEGORIES.map(({ id, name }) => [id, name])) === JSON.stringify(expectedCategoryCatalog),
+  'Category IDs, Turkish labels, and stable order must match the 15-category catalog',
+);
+assert(
+  GAME_CATEGORIES.slice(0, 3).map((category) => category.id).join(',')
+    === 'web_programming,operating_systems,database_systems',
+  'The original three category IDs and their order must remain unchanged',
+);
+assert(
+  GAME_CATEGORIES.every((category, index) => category.order === index + 1),
+  'Category order values must be unique and sequential',
+);
+assert(
+  GAME_CATEGORIES.every((category) => category.description.trim().length > 0),
+  'Every category must expose concise Turkish card copy',
 );
 assert(buildGameSessionRoute('web_programming', 1) === '/(tabs)/game?category=web_programming&star=1', 'Web card route must include its category ID');
 assert(buildGameSessionRoute('operating_systems', 1) === '/(tabs)/game?category=operating_systems&star=1', 'Operating Systems card route must include its category ID');
 assert(buildGameSessionRoute('database_systems', 1) === '/(tabs)/game?category=database_systems&star=1', 'Database Systems card route must include its category ID');
+assert(buildGameSessionRoute('engineering_economics', 3) === '/(tabs)/game?category=engineering_economics&star=3', 'New category routes must preserve their stable category ID');
+assert(
+  expectedCategoryCatalog.every(([id]) => resolveGameCategoryId(id) === id),
+  'Every registered category ID must resolve without fallback',
+);
 assert(resolveGameCategoryId('operating_systems') === 'operating_systems', 'Operating Systems route param must resolve without fallback');
 assert(resolveGameCategoryId('database_systems') === 'database_systems', 'Database Systems route param must resolve without fallback');
 assert(resolveGameCategoryId(['operating_systems']) === 'operating_systems', 'Array route params must preserve a valid category ID');
@@ -83,7 +166,12 @@ const databaseCategory = GAME_CATEGORIES.find((category) => category.id === 'dat
 assert(databaseCategory?.name === 'Veritabanı Sistemleri', 'Database category label mismatch');
 assert(DIFFICULTY_STARS.length === 3, 'Database category must use the shared three-star ladder');
 assert(
-  GAME_CATEGORIES.map((category) => category.operation.title).join(',') === 'Client & API Desk,Runtime Stability Desk,Data Integrity Desk',
+  GAME_CATEGORIES.slice(0, 3).map((category) => category.operation.title).join(',')
+    === 'Client & API Desk,Runtime Stability Desk,Data Integrity Desk',
+  'The original operation desk identities must remain unchanged',
+);
+assert(
+  GAME_CATEGORIES.every((category) => category.operation.title.length > 0),
   'Each active category must expose its operation desk identity',
 );
 assert(
@@ -93,9 +181,22 @@ assert(
   'Each operation desk must define impact copy for every result tone',
 );
 assert(
-  GAME_CATEGORIES.map((category) => category.operation.activeSubtitle).join(',')
+  GAME_CATEGORIES.slice(0, 3).map((category) => category.operation.activeSubtitle).join(',')
     === 'İstemci ve web arayüzü kararı,Süreç ve kaynak yönetimi kararı,Veri ve sorgu hattı kararı',
-  'Each operation desk must expose compact active gameplay copy',
+  'The original operation desks must preserve their compact active gameplay copy',
+);
+assert(GAME_CATEGORIES.every((category) => category.operation.activeSubtitle.length > 0), 'New operation desks must expose compact active gameplay copy');
+assert(!hasEnoughCategoryQuestions(0), 'An empty category must not start a broken session');
+assert(!hasEnoughCategoryQuestions(QUESTIONS_PER_TIER - 1), 'A partially populated tier must remain unavailable');
+assert(hasEnoughCategoryQuestions(QUESTIONS_PER_TIER), 'A complete tier must remain playable');
+assert(hasEnoughCategoryQuestions(QUESTIONS_PER_TIER + 1), 'A tier with extra valid questions must remain playable');
+assert(
+  sanitizeTelemetryMetadata({ category_id: 'engineering_economics' }).category_id === 'engineering_economics',
+  'Telemetry metadata must preserve newly registered category IDs',
+);
+assert(
+  GAME_CATEGORIES.every((category) => /^[a-z0-9_]{1,64}$/.test(category.id)),
+  'Every category ID must fit the existing leaderboard metadata constraint',
 );
 
 const impactCases = [
@@ -240,6 +341,11 @@ assert(
 const repositoryRoot = process.cwd();
 const dashboardResourceSource = readFileSync(resolve(repositoryRoot, 'src/components/dashboard/ResourceDock.tsx'), 'utf8');
 const gameSource = readFileSync(resolve(repositoryRoot, 'app/(tabs)/game.tsx'), 'utf8');
+const playSource = readFileSync(resolve(repositoryRoot, 'app/(tabs)/play.tsx'), 'utf8');
+const leaderboardEventMigrationSource = readFileSync(
+  resolve(repositoryRoot, 'supabase/migrations/20260903100000_create_leaderboard_score_events.sql'),
+  'utf8',
+);
 const storeSource = readFileSync(resolve(repositoryRoot, 'app/(tabs)/store.tsx'), 'utf8');
 const resultPanelSource = readFileSync(resolve(repositoryRoot, 'src/components/game/GameResultPanel.tsx'), 'utf8');
 const iconAssetsSource = readFileSync(resolve(repositoryRoot, 'src/config/iconAssets.ts'), 'utf8');
@@ -268,6 +374,15 @@ assert(
 assert(dashboardResourceSource.includes('JOKER_ICON_ASSETS'), 'Dashboard joker cards must use the registered joker assets');
 assert(storeSource.includes('JOKER_ICON_ASSETS') && storeSource.includes('ECONOMY_ICON_ASSETS.coin'), 'Store must use registered joker and coin assets');
 assert(gameSource.includes('JOKER_ICON_ASSETS'), 'Game HUD must use registered joker assets');
+assert(
+  playSource.includes('hasEnoughCategoryQuestions(contentCount)')
+    && gameSource.includes('hasEnoughCategoryQuestions(loadedIncidents.length)'),
+  'Hub and direct game routes must share the safe minimum-content gate',
+);
+assert(
+  leaderboardEventMigrationSource.includes("category_id ~ '^[a-z0-9_]{1,64}$'"),
+  'Leaderboard event metadata must retain its category-ID-compatible schema constraint',
+);
 assert(!gameSource.includes('ECONOMY_ICON_ASSETS.coin'), 'The combined completion reward summary must not imply that every metric is budget');
 assert(resultPanelSource.includes('ECONOMY_ICON_ASSETS.coin'), 'Per-question budget result must use the registered coin asset');
 assert(
@@ -299,6 +414,45 @@ assert(
 );
 
 let progress = createDefaultCategoryProgress();
+assert(
+  GAME_CATEGORIES.every((category) => DIFFICULTY_STARS.every((star) => (
+    progress[category.id][star].attemptedQuestionIds.length === 0
+    && progress[category.id][star].solvedCorrectQuestionIds.length === 0
+  ))),
+  'Every category must receive safe empty progress and repeat-question state',
+);
+const newCategorySolvedProgress = recordCategoryAttempt(
+  progress,
+  'algorithm',
+  1,
+  'algorithm-repeat-state',
+  true,
+  true,
+);
+assert(
+  newCategorySolvedProgress.algorithm[1].solvedCorrectQuestionIds.includes('algorithm-repeat-state'),
+  'Repeat-question solved state must work for newly registered categories',
+);
+const legacyThreeCategoryProgress = {
+  web_programming: {
+    1: { attemptedQuestionIds: ['legacy-web-question'], correctCount: 1, incorrectCount: 0 },
+  },
+  operating_systems: {},
+  database_systems: {},
+};
+const legacyProgressBeforeRead = JSON.stringify(legacyThreeCategoryProgress);
+assert(getTierAttemptedCount(legacyThreeCategoryProgress, 'algorithm', 1) === 0, 'A missing category must read as zero attempts');
+assert(getTierAttemptedCount(legacyThreeCategoryProgress, 'web_programming', 2) === 0, 'A missing difficulty key must read as zero attempts');
+assert(getCategoryAttemptedCount(legacyThreeCategoryProgress, 'web_programming') === 1, 'A legacy three-category save must retain existing attempts');
+const emptyNewCategoryTier = getCategoryTierProgress(legacyThreeCategoryProgress, 'algorithm', 1);
+assert(
+  emptyNewCategoryTier.attemptedQuestionIds.length === 0
+    && emptyNewCategoryTier.solvedCorrectQuestionIds.length === 0
+    && emptyNewCategoryTier.operationCheckpoints[1].attempted === false
+    && emptyNewCategoryTier.operationCheckpoints[2].passed === false,
+  'A newly rendered category must receive safe, empty read defaults',
+);
+assert(JSON.stringify(legacyThreeCategoryProgress) === legacyProgressBeforeRead, 'Safe progress reads must not mutate legacy save data');
 assert(isTierUnlocked(progress, 'web_programming', 1), 'Star 1 must start unlocked');
 assert(!isTierUnlocked(progress, 'web_programming', 2), 'Star 2 must start locked');
 for (let id = 1; id <= QUESTIONS_PER_TIER; id += 1) {
@@ -307,8 +461,27 @@ for (let id = 1; id <= QUESTIONS_PER_TIER; id += 1) {
 assert(getTierAttemptedCount(progress, 'web_programming', 1) === 20, 'Unique attempted count must reach 20');
 assert(getCategoryAttemptedCount(progress, 'web_programming') === 20, 'Category progress must sum the three tier counts');
 assert(!isTierUnlocked(progress, 'web_programming', 2), 'Star 2 must remain locked when only attempts exist');
+assert(progress.web_programming[1].solvedCorrectQuestionIds.length === 0, 'Attempts outside a completed session must not mark questions as permanently solved');
 progress = recordCategoryAttempt(progress, 'web_programming', 1, 20, true);
 assert(getTierAttemptedCount(progress, 'web_programming', 1) === 20, 'Replay must not inflate unique progress');
+const completedCorrectProgress = recordCategoryAttempt(
+  createDefaultCategoryProgress(),
+  'web_programming',
+  1,
+  'completed-correct',
+  true,
+  true,
+);
+assert(completedCorrectProgress.web_programming[1].solvedCorrectQuestionIds.includes('completed-correct'), 'A correct answer in a completed session must persist its stable question ID');
+const completedWrongProgress = recordCategoryAttempt(
+  createDefaultCategoryProgress(),
+  'web_programming',
+  1,
+  'completed-wrong',
+  false,
+  true,
+);
+assert(completedWrongProgress.web_programming[1].solvedCorrectQuestionIds.length === 0, 'Wrong answers must remain eligible for full first-correct rewards');
 
 assert(getOperationReputationTarget(1) === 40, 'Kolay operation target must be +40');
 assert(getOperationReputationTarget(2) === 50, 'Orta operation target must be +50');
@@ -418,7 +591,59 @@ const legacyAttemptProgress = normalizeCategoryProgress({
   },
 });
 assert(getTierAttemptedCount(legacyAttemptProgress, 'web_programming', 1) === 20, 'Old saves must preserve attempted progress');
+assert(legacyAttemptProgress.web_programming[1].solvedCorrectQuestionIds.length === 0, 'Old saves without solved IDs must normalize safely');
 assert(!isTierUnlocked(legacyAttemptProgress, 'web_programming', 2), 'Missing legacy checkpoint data must not unlock Orta');
+const normalizedSolvedProgress = normalizeCategoryProgress({
+  web_programming: {
+    1: {
+      attemptedQuestionIds: ['solved-1'],
+      solvedCorrectQuestionIds: ['solved-1', 'solved-1', 'solved-2'],
+      correctCount: 2,
+      incorrectCount: 0,
+    },
+  },
+});
+assert(
+  normalizedSolvedProgress.web_programming[1].solvedCorrectQuestionIds.join(',') === 'solved-1,solved-2',
+  'Persisted solved IDs must survive normalization without duplicates',
+);
+const legacyLeaderboardSave = normalizePlayerSave({
+  saveVersion: 4,
+  correctAnswers: 3,
+  rankingOutcomeStats: {
+    successCount: 2,
+    partialCount: 1,
+    failCount: 0,
+    timeoutCount: 0,
+    legacyPositiveCount: 0,
+  },
+  categoryProgress: {
+    web_programming: {
+      1: { attemptedQuestionIds: [], correctCount: 0, incorrectCount: 0 },
+    },
+  },
+});
+assert(
+  getTotalCategoryLeaderboardScore(legacyLeaderboardSave.categoryProgress) === 250,
+  'Existing saves must retain their historical all-time leaderboard score when repeat-aware totals are initialized',
+);
+const repeatAwareLeaderboardSave = normalizePlayerSave({
+  ...legacyLeaderboardSave,
+  categoryProgress: {
+    ...legacyLeaderboardSave.categoryProgress,
+    web_programming: {
+      ...legacyLeaderboardSave.categoryProgress.web_programming,
+      1: {
+        ...legacyLeaderboardSave.categoryProgress.web_programming[1],
+        leaderboardScore: 125,
+      },
+    },
+  },
+});
+assert(
+  getTotalCategoryLeaderboardScore(repeatAwareLeaderboardSave.categoryProgress) === 125,
+  'Persisted repeat-aware all-time score must not be replaced by legacy outcome-count reconstruction',
+);
 const restoredCheckpointProgress = normalizeCategoryProgress({
   web_programming: {
     1: {
@@ -489,11 +714,25 @@ assert(getCategoryAttemptedCount(achievementProgress, 'web_programming') === 60,
 assert(derivedAchievements.find((badge) => badge.id === 'web_mastery')?.earned, 'All six checkpoints must earn Web Hakimiyeti');
 assert(derivedAchievements.find((badge) => badge.id === 'first_hard_unlock')?.earned, 'Two passed Orta operations must earn Zor Kademe');
 assert(!derivedAchievements.find((badge) => badge.id === 'full_coverage')?.earned, 'One mastered category must not earn Tam Kapsama');
+assert(
+  derivedAchievements.find((badge) => badge.id === 'full_coverage')?.progressText === '6/90 operasyon geçti',
+  'Tam Kapsama must require all six qualifications across all 15 categories',
+);
+assert(!derivedAchievements.find((badge) => badge.id === 'all_medium_unlocked')?.earned, 'New empty categories must prevent accidental global tier achievements');
 
 const questions = Array.from({ length: 20 }, (_, index) => ({ id: index + 1 }));
 const selected = selectCategoryQuestion(questions, [1, 2], Array.from({ length: 19 }, (_, index) => index + 1), () => 0);
-assert(selected?.id === 20, 'Selection must prefer the last unseen question');
+assert(selected?.id === 20, 'Selection must prefer the last question not previously solved correctly');
 assert(selectCategoryQuestion(questions, questions.map((question) => question.id), [], () => 0) === null, 'Session must not repeat a question');
+const retryPriorityQuestions = [{ id: 'solved-a' }, { id: 'wrong-before' }, { id: 'solved-b' }];
+assert(
+  selectCategoryQuestion(retryPriorityQuestions, [], ['solved-a', 'solved-b'], () => 0)?.id === 'wrong-before',
+  'A previously wrong question must be prioritized until it is correctly solved in a completed session',
+);
+assert(
+  selectCategoryQuestion(retryPriorityQuestions, [], retryPriorityQuestions.map((question) => question.id), () => 0)?.id === 'solved-a',
+  'Solved questions must remain playable after the unseen-correct pool is exhausted',
+);
 
 const uuidQuestions = Array.from({ length: 20 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}` }));
 const uuidSessionIds: string[] = [];
@@ -527,6 +766,13 @@ assert(isValidCategoryQuestion(validQuestion, 'web_programming', 1), 'Exactly fo
 assert(isValidCategoryQuestion({ ...validQuestion, id: 42 }, 'web_programming', 1), 'Legacy numeric IDs must remain accepted');
 assert(!isValidCategoryQuestion({ ...validQuestion, category_id: null }, 'web_programming', 1), 'Legacy rows must be excluded');
 assert(!isValidCategoryQuestion({ ...validQuestion, wrong_text: '200' }, 'web_programming', 1), 'Duplicate choices must be rejected');
+for (const [categoryId] of expectedCategoryCatalog.slice(3)) {
+  const categoryQuestion = { ...validQuestion, category_id: categoryId };
+  assert(
+    filterCategoryQuestions([categoryQuestion], categoryId, 1).length === 1,
+    `${categoryId} must be accepted by shared question filtering`,
+  );
+}
 
 const databaseStarOneRows: CategoryQuestionRow[] = Array.from({ length: QUESTIONS_PER_TIER }, (_, index) => ({
   ...validQuestion,

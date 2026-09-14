@@ -1,4 +1,8 @@
-import type { DifficultyStar, GameCategoryId } from '../config/gameCategories';
+import {
+  QUESTIONS_PER_TIER,
+  type DifficultyStar,
+  type GameCategoryId,
+} from '../config/gameCategories';
 
 export type CategoryQuestionId = number | string;
 
@@ -40,4 +44,8 @@ export function filterCategoryQuestions(
   star: DifficultyStar,
 ): CategoryQuestion[] {
   return rows.filter((row) => isValidCategoryQuestion(row, categoryId, star));
+}
+
+export function hasEnoughCategoryQuestions(questionCount: number): boolean {
+  return Number.isInteger(questionCount) && questionCount >= QUESTIONS_PER_TIER;
 }

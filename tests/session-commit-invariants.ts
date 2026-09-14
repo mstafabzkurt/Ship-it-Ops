@@ -6,6 +6,7 @@ import { SESSION_QUESTION_COUNT } from '../src/config/gameCategories';
 import {
   completeOperationSession,
   createDefaultCategoryProgress,
+  getTotalCategoryLeaderboardScore,
   isTierUnlocked,
 } from '../src/utils/categoryProgress';
 import {
@@ -17,7 +18,7 @@ import {
   type GameSessionResult,
 } from '../src/utils/gameSession';
 import { formatSessionMetric } from '../src/utils/format';
-import { normalizeRankingOutcomeStats, RANKING_SCORE_BY_OUTCOME, type RankingOutcome } from '../src/utils/ranking';
+import { getRankingScoreForOutcome, normalizeRankingOutcomeStats, type RankingOutcome } from '../src/utils/ranking';
 import { removeSessionResult, upsertSessionResult } from '../src/utils/sessionReputation';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -35,9 +36,14 @@ const createPermanentState = (): GameSessionPermanentState => ({
   uptimeStreak: 0,
 });
 
-function createResult(index: number, outcome: RankingOutcome, uptimeBefore = 0): GameSessionResult {
+function createResult(
+  index: number,
+  outcome: RankingOutcome,
+  uptimeBefore = 0,
+  isRepeatCorrect = false,
+): GameSessionResult {
   const rewardOutcome = outcome === 'partial' ? 'fail' : outcome;
-  const reward = getCategoryReward(1, rewardOutcome);
+  const reward = getCategoryReward(1, rewardOutcome, isRepeatCorrect);
   const isCorrect = outcome === 'success';
   return {
     questionId: `session-question-${index}`,
@@ -47,11 +53,12 @@ function createResult(index: number, outcome: RankingOutcome, uptimeBefore = 0):
     correctAnswer: `Doğru ${index}`,
     outcome,
     isCorrect,
+    isRepeatCorrect: isCorrect && isRepeatCorrect,
     careerXpDelta: reward.careerXpDelta,
     reputationDelta: reward.reputationDelta,
     budgetDelta: reward.budgetDelta,
     milestoneBudgetDelta: 0,
-    leaderboardDelta: RANKING_SCORE_BY_OUTCOME[outcome],
+    leaderboardDelta: getRankingScoreForOutcome(outcome, isRepeatCorrect),
     uptimeBefore,
     uptimeAfter: isCorrect ? uptimeBefore + 1 : outcome === 'timeout' ? uptimeBefore : 0,
     resolvedAt: `2026-09-02T10:${String(index).padStart(2, '0')}:00.000Z`,
@@ -65,6 +72,20 @@ assert(JSON.stringify(permanentBeforeAnswer) === permanentSignature, 'Answering 
 assert(deriveGameSessionTotals(correctTemporaryResults).careerXpDelta === 100, 'Result panel must retain the temporary per-question Career XP delta');
 assert(deriveGameSessionTotals(correctTemporaryResults).reputationDelta === 10, 'Qualification must derive from temporary session reputation');
 assert(deriveGameSessionTotals(correctTemporaryResults).budgetDelta === 300, 'Result panel must retain the temporary per-question budget delta');
+assert(correctTemporaryResults[0].leaderboardDelta === 100, 'A first-time correct answer must award 100 leaderboard points');
+const repeatedCorrectResult = createResult(1, 'success', 0, true);
+assert(
+  repeatedCorrectResult.careerXpDelta === 35
+    && repeatedCorrectResult.reputationDelta === 4
+    && repeatedCorrectResult.budgetDelta === 105,
+  'A repeated correct question must use the configured rounded XP, reputation, and budget scales',
+);
+assert(createResult(1, 'fail', 0, true).reputationDelta === -10, 'A repeated wrong answer must keep its full penalty');
+assert(createResult(1, 'timeout', 0, true).reputationDelta === -15, 'A repeated timeout must keep its full penalty');
+assert(repeatedCorrectResult.leaderboardDelta === 25, 'A repeated correct answer must award 25 leaderboard points');
+assert(createResult(1, 'partial', 0, true).leaderboardDelta === 15, 'A repeated legacy partial answer must award 15 leaderboard points');
+assert(createResult(1, 'fail', 0, true).leaderboardDelta === 0, 'A wrong answer must award no leaderboard points');
+assert(createResult(1, 'timeout', 0, true).leaderboardDelta === 0, 'A timeout must award no leaderboard points');
 assert(!canUseRollbackOnResult(2, correctTemporaryResults[0]), 'A correct answer must not allow Rollback use');
 const inventoryBeforeRejectedRollback = 2;
 const rejectedRollbackResults = canUseRollbackOnResult(inventoryBeforeRejectedRollback, correctTemporaryResults[0])
@@ -93,8 +114,9 @@ assert(formatSessionMetric(-40, 'İtibar') === '40 İtibar kaybı', 'Negative co
 assert(formatSessionMetric(-100, 'Şirket Bütçesi') === '100 Şirket Bütçesi kaybı', 'Negative completion budget must use clear loss wording');
 
 const incompleteResults = Array.from({ length: 9 }, (_, index) => createResult(index + 1, 'success'));
+const incompletePermanentState = createPermanentState();
 const incompletePlan = planCompletedGameSession({
-  permanentState: createPermanentState(),
+  permanentState: incompletePermanentState,
   session: {
     categoryId: 'web_programming',
     star: 1,
@@ -104,6 +126,7 @@ const incompletePlan = planCompletedGameSession({
   },
 });
 assert(incompletePlan === null, 'Incomplete manual/browser/mobile abandon must commit nothing');
+assert(incompletePermanentState.categoryProgress.web_programming[1].solvedCorrectQuestionIds.length === 0, 'Abandoned sessions must not persist correctly solved question IDs');
 
 const failedResults = Array.from({ length: SESSION_QUESTION_COUNT }, (_, index) => (
   createResult(index + 1, index < 2 ? 'success' : 'fail')
@@ -140,6 +163,32 @@ const passedPlan = planCompletedGameSession({
 assert(passedPlan?.totals.reputationDelta === 40 && passedPlan.completion.passed, 'A complete +40 Kolay session must pass and commit');
 assert(passedPlan.permanentState.correctAnswers === 19 && passedPlan.permanentState.wrongAnswers === 11, 'Answer totals must commit once at completion');
 assert(passedPlan.permanentState.rankingOutcomeStats.successCount === 7, 'Ranking outcomes must commit once at completion');
+assert(passedPlan.permanentState.categoryProgress.web_programming[1].solvedCorrectQuestionIds.length === 7, 'Completed sessions must persist stable IDs only for correctly solved questions');
+assert(getTotalCategoryLeaderboardScore(passedPlan.permanentState.categoryProgress) === 700, 'All-time leaderboard progress must use final completed-session result points');
+
+const repeatedCorrectResults = Array.from({ length: SESSION_QUESTION_COUNT }, (_, index) => (
+  createResult(index + 1, 'success', index, true)
+));
+const repeatedCorrectPlan = planCompletedGameSession({
+  permanentState: createPermanentState(),
+  session: {
+    categoryId: 'web_programming',
+    star: 1,
+    checkpointId: 1,
+    initialUptimeStreak: 0,
+    results: repeatedCorrectResults,
+  },
+});
+assert(repeatedCorrectPlan?.totals.repeatCorrectCount === 10, 'Completion totals must count repeated correct questions');
+assert(
+  repeatedCorrectPlan?.totals.careerXpDelta === 350
+    && repeatedCorrectPlan.totals.reputationDelta === 40
+    && repeatedCorrectPlan.totals.budgetDelta === 1_050,
+  'A repeated-correct session must total the scaled per-question rewards',
+);
+assert(repeatedCorrectPlan.completion.passed, 'Checkpoint qualification must use the scaled +40 session reputation');
+assert(repeatedCorrectPlan.totals.leaderboardDelta === 250, 'A repeated-correct session event must total 25 leaderboard points per final result');
+assert(getTotalCategoryLeaderboardScore(repeatedCorrectPlan.permanentState.categoryProgress) === 250, 'All-time leaderboard progress must persist the same scaled completed-session total');
 
 let postRollbackResults = Array.from({ length: SESSION_QUESTION_COUNT }, (_, index) => createResult(index + 1, 'success'));
 postRollbackResults = removeSessionResult(postRollbackResults, 'session-question-10');
@@ -176,6 +225,7 @@ const resultPanelSource = readFileSync(resolve(root, 'src/components/game/GameRe
 const abilityButtonSource = readFileSync(resolve(root, 'src/components/game/GameAbilityButton.tsx'), 'utf8');
 assert(!/contextActionsRef\.current\.(applyOutcome|recordCategoryQuestionAnswer|recordRankingOutcome|setCorrectAnswers|setWrongAnswers)/.test(gameSource), 'Question handlers must not call permanent mutation APIs');
 assert(gameSource.includes('sessionCommittedRef.current = true'), 'Completion must set an exactly-once guard before committing');
+assert(gameSource.includes('getRankingScoreForOutcome(choiceOutcome, isRepeatCorrect)'), 'Resolved answers must derive leaderboard points from the shared repeat-aware helper');
 const timeoutHandlerSource = gameSource.slice(gameSource.indexOf('const resolveTimeout'), gameSource.indexOf('const startTimer'));
 const answerHandlerSource = gameSource.slice(gameSource.indexOf('const handleChoice'), gameSource.indexOf('const handleSelectChoice'));
 const completionHandlerSource = gameSource.slice(gameSource.indexOf('const handleCompleteSession'), gameSource.indexOf('const handleNextScenario'));
@@ -209,7 +259,19 @@ assert(gameSource.includes("AppState.addEventListener('change'"), 'Mobile backgr
 assert(!gameSource.includes('rewardLabel=') && !gameSource.includes('OTURUM ETKİSİ'), 'Simplified result panel must not restore the removed session-impact label');
 assert(!resultPanelSource.includes('ETKİ') && !resultPanelSource.includes('operationImpact'), 'Text-heavy operation impact copy must be removed');
 assert(!resultPanelSource.includes('result.subtitle'), 'Result subtitles must be removed');
+assert(resultPanelSource.includes('Tekrar soru · azaltılmış ödül'), 'Correct repeat results must show the compact reduced-reward label');
+assert(gameSource.includes('Bu oturumda tekrar sorular azaltılmış ödülle sayıldı.'), 'Completion must explain when repeated questions affected rewards');
 assert(playSource.includes("trackEvent('locked_tier_tapped'"), 'Locked tier taps must emit telemetry');
 assert(playSource.includes('showLockedTierFeedback(category.id, tier.star'), 'Locked tier taps must show feedback instead of navigating');
+assert(playSource.includes('source={UI_ICON_ASSETS.info}'), 'The repeat-reward explanation must use the shared info asset');
+assert(playSource.includes('Tekrar soru ödülleri hakkında bilgi'), 'The repeat-reward info trigger must have an accessible label');
+assert(playSource.includes('Tekrar soru ödülleri</Text>'), 'The user-triggered popup must have the requested title');
+assert(
+  playSource.includes('Daha önce doğru çözdüğün sorular tekrar geldiğinde oynanabilir kalır, ancak Kariyer XP, İtibar ve Şirket Bütçesi ödülleri azaltılır.'),
+  'The popup must explain which rewards are reduced',
+);
+assert(playSource.includes('Yıldız kademesi hedefleri de bu azaltılmış İtibar değerleriyle hesaplanır.'), 'The popup must explain scaled checkpoint qualification');
+assert(playSource.includes('Sıralama puanı da tekrar doğru cevaplarda azaltılır.'), 'The repeat-reward popup must explain scaled leaderboard points');
+assert(playSource.includes('<Text style={styles.infoModalActionText}>Anladım</Text>'), 'The popup must provide the requested acknowledgement action');
 
 console.log('Session-end commit invariants passed.');

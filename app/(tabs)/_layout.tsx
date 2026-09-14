@@ -1,20 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useMemo } from 'react';
-import { useWindowDimensions } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { useTheme } from '../../src/state/ThemeContext';
+import { useReputation } from '../../src/state/ReputationContext';
 import { fonts, fontSizes } from '../../src/theme/typography';
 
 // Alt navigasyon: Ana Sayfa / Oyun / Kariyer / Sıralama / Mağaza / Profil
 export default function TabsLayout() {
   const { theme } = useTheme();
+  const { unseenBadgeIds } = useReputation();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const bottomInset = Math.max(insets.bottom, tokens.spacing.sm);
+  const hasNewBadge = unseenBadgeIds.length > 0;
 
   return (
     <Tabs
@@ -56,7 +59,19 @@ export default function TabsLayout() {
         name="reputation"
         options={{
           title: 'Kariyer',
-          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'trophy' : 'trophy-outline'} color={color} size={22} />,
+          tabBarAccessibilityLabel: hasNewBadge ? 'Kariyer, yeni rozet var' : 'Kariyer',
+          tabBarIcon: ({ color, focused }) => (
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.careerIcon}
+            >
+              <Ionicons name={focused ? 'trophy' : 'trophy-outline'} color={color} size={22} />
+              {hasNewBadge ? (
+                <View style={[styles.notificationDot, { backgroundColor: tokens.colors.danger, borderColor: tokens.colors.surface, shadowColor: tokens.colors.danger }]} />
+              ) : null}
+            </View>
+          ),
         }}
       />
       <Tabs.Screen
@@ -94,3 +109,8 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  careerIcon: { width: 26, height: 24, alignItems: 'center', justifyContent: 'center' },
+  notificationDot: { position: 'absolute', top: 0, right: 0, width: 7, height: 7, borderRadius: 4, borderWidth: 1, shadowOpacity: 0.38, shadowRadius: 5, elevation: 5 },
+});

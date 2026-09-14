@@ -13,12 +13,15 @@ for (const tier of ['junior', 'engineer', 'senior', 'lead', 'manager', 'director
   assert.match(assetsSource, new RegExp(`\\b${tier}:`), `Rank asset mapping is missing ${tier}`);
 }
 
-for (const asset of ['muh.png', 'senior.png', 'teamlead.png', 'manager.png', 'director.png', 'cto.png']) {
+for (const asset of ['jr.png', 'muh.png', 'senior.png', 'teamlead.png', 'manager.png', 'director.png', 'cto.png']) {
   assert.ok(existsSync(resolve(root, 'assets/rank', asset)), `Missing rank artwork: ${asset}`);
   assert.ok(assetsSource.includes(`assets/rank/${asset}`), `Rank asset mapping does not reference ${asset}`);
 }
 
-assert.ok(assetsSource.includes('junior: null'), 'Junior must retain its safe fallback while junior.png is absent');
+assert.ok(
+  assetsSource.includes("junior: require('../../assets/rank/jr.png')"),
+  'Junior must use its custom rank artwork',
+);
 assert.ok(rankIconSource.includes('source ?') && rankIconSource.includes("'ribbon-outline'"), 'Unknown or absent rank artwork must render a safe fallback');
 
 const expectedThresholds = '0,500,1200,2000,3200,4800,7000,9500,12500,16000,20000,24500,29500,35000,41000,47500,54500,62000,70000,79000,89000';

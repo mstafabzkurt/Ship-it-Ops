@@ -2,11 +2,13 @@ import React, { useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
+import { SESSION_QUESTION_COUNT } from '../../config/gameCategories';
 import { ECONOMY_ICON_ASSETS } from '../../config/iconAssets';
 import type { Rank } from '../../state/ReputationContext';
 import { useTheme } from '../../state/ThemeContext';
 import { fonts } from '../../theme/typography';
 import { formatBudget } from '../../utils/format';
+import { calculateSuccessRate } from '../../utils/ranking';
 import RankProgressRail from '../RankProgressRail';
 import AssetIcon from '../AssetIcon';
 import RankIcon from '../rank/RankIcon';
@@ -15,12 +17,47 @@ import { getDashboardTokens } from './dashboardTokens';
 interface CareerSummaryCardProps {
   budget: number;
   careerXp: number;
+  correctAnswers: number;
+  wrongAnswers: number;
   uptimeStreak: number;
   currentRank: Rank;
   nextRank: Rank | null;
   progress: number;
   reduceMotion: boolean;
   active: boolean;
+}
+
+interface SessionStatProps {
+  label: string;
+  value: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  color: string;
+  compact: boolean;
+  styles: ReturnType<typeof makeStyles>;
+}
+
+function SessionStat({ label, value, icon, color, compact, styles }: SessionStatProps) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label}: ${value}`}
+      style={[styles.sessionStat, compact && styles.sessionStatCompact]}
+    >
+      <View style={styles.sessionStatLabelRow}>
+        <View style={[styles.sessionStatIcon, { borderColor: color }]}>
+          <Ionicons
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            name={icon}
+            size={14}
+            color={color}
+          />
+        </View>
+        <Text style={styles.sessionStatLabel} numberOfLines={1}>{label}</Text>
+      </View>
+      <Text style={styles.sessionStatValue} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+    </View>
+  );
 }
 
 interface MetricProps {
@@ -58,6 +95,8 @@ function Metric({ label, value, detail, tone, styles, separated = false, icon }:
 export default function CareerSummaryCard({
   budget,
   careerXp,
+  correctAnswers,
+  wrongAnswers,
   uptimeStreak,
   currentRank,
   nextRank,
@@ -70,6 +109,15 @@ export default function CareerSummaryCard({
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const pct = Math.round(progress * 100);
+  const totalAnswers = correctAnswers + wrongAnswers;
+  const completedSessions = Math.floor(totalAnswers / SESSION_QUESTION_COUNT);
+  const successRate = calculateSuccessRate(correctAnswers, wrongAnswers);
+  const sessionStats = [
+    { label: 'Doğru', value: correctAnswers.toLocaleString('tr-TR'), icon: 'checkmark-circle-outline' as const, color: tokens.colors.success },
+    { label: 'Yanlış', value: wrongAnswers.toLocaleString('tr-TR'), icon: 'close-circle-outline' as const, color: tokens.colors.danger },
+    { label: 'Başarı Oranı', value: `%${successRate.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}`, icon: 'pulse-outline' as const, color: tokens.colors.primary },
+    { label: 'Oturum', value: completedSessions.toLocaleString('tr-TR'), icon: 'layers-outline' as const, color: tokens.colors.secondary },
+  ];
 
   return (
     <View style={styles.card}>
@@ -103,6 +151,17 @@ export default function CareerSummaryCard({
         <Text style={styles.progressMetaText}>
           {nextRank ? `Sonraki Hedef · ${nextRank.name}\n${nextRank.threshold.toLocaleString('tr-TR')} XP` : 'Maksimum rütbe'}
         </Text>
+      </View>
+
+      <View style={styles.sessionStrip}>
+        {sessionStats.map((stat) => (
+          <SessionStat
+            key={stat.label}
+            {...stat}
+            compact={tokens.layout.isCompact}
+            styles={styles}
+          />
+        ))}
       </View>
 
       <View style={styles.metrics}>
@@ -181,6 +240,42 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     progressBadgeLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 13, letterSpacing: 0.4, color: colors.textMuted },
     progressMeta: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 8 },
     progressMetaText: { flexShrink: 1, fontFamily: fonts.bodyMedium, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.textMuted },
+    sessionStrip: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: tokens.layout.isCompact ? 13 : 16,
+    },
+    sessionStat: {
+      flex: 1,
+      minWidth: 0,
+      flexBasis: 0,
+      minHeight: 62,
+      justifyContent: 'space-between',
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.secondarySurfaceRaised,
+    },
+    sessionStatCompact: {
+      flexBasis: '46%',
+      minHeight: 58,
+    },
+    sessionStatLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+    sessionStatIcon: {
+      width: 23,
+      height: 23,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 7,
+      borderWidth: 1,
+      backgroundColor: colors.surfaceSoft,
+    },
+    sessionStatLabel: { flex: 1, minWidth: 0, fontFamily: fonts.bodyMedium, fontSize: 10, lineHeight: 14, color: colors.textMuted },
+    sessionStatValue: { marginTop: 4, fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 17 : 18, lineHeight: 22, color: colors.text },
     metrics: {
       flexDirection: 'row',
       overflow: 'hidden',

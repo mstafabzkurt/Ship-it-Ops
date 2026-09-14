@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { getRankingScoreForOutcome } from '../src/utils/ranking';
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -13,6 +15,12 @@ const migrationSource = readFileSync(
   resolve(root, 'supabase/migrations/20260903100000_create_leaderboard_score_events.sql'),
   'utf8',
 );
+
+assert(getRankingScoreForOutcome('success') === 100, 'First-time correct leaderboard score must remain +100');
+assert(getRankingScoreForOutcome('success', true) === 25, 'Repeated correct leaderboard score must be +25');
+assert(getRankingScoreForOutcome('partial', true) === 15, 'Repeated legacy partial leaderboard score must be +15');
+assert(getRankingScoreForOutcome('fail', true) === 0, 'Wrong answers must not score when repeated');
+assert(getRankingScoreForOutcome('timeout', true) === 0, 'Timeouts must not score when repeated');
 
 assert(
   /period === 'all_time'\) return fetchGlobalLeaderboard\(limit\)/.test(serviceSource),
@@ -40,7 +48,8 @@ assert(
 );
 assert(
   gameSource.includes('scoreDelta: totals.leaderboardDelta')
-    && gameSource.includes('commitResolvedSession(sessionResultsRef.current);'),
+    && gameSource.includes('commitResolvedSession(sessionResultsRef.current);')
+    && gameSource.includes('getRankingScoreForOutcome(choiceOutcome, isRepeatCorrect)'),
   'Score history must use the final Git-Revert-adjusted session accumulator total',
 );
 assert(
@@ -67,8 +76,10 @@ assert(
 );
 for (const copy of [
   'tamamlanan 10 soruluk oturumlardaki doğru kararlarına göre hesaplanır',
-  'Her doğru cevap +100 puan kazandırır',
+  'İlk kez doğru çözülen soru +100',
+  'tekrar doğru çözülen soru +25',
   'Yanlış cevap ve süre dolması puan kazandırmaz',
+  'tekrarında +15 puan',
   'Genel sıralama tüm zamanları kapsar',
   'Haftalık ve aylık sıralamalar',
   'Eksik bırakılan oturumlar sıralamaya yazılmaz',

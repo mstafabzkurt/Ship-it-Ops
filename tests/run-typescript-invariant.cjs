@@ -15,6 +15,7 @@ require.extensions['.ts'] = (module, filename) => {
   });
   module._compile(outputText, filename);
 };
+require.extensions['.png'] = (module, filename) => { module.exports = filename; };
 
 const target = process.argv[2];
 if (!target) throw new Error('Usage: node tests/run-typescript-invariant.cjs <test-file>');

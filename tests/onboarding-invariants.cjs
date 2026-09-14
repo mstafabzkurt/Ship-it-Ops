@@ -101,6 +101,22 @@ const interested = saves.normalizePlayerSave({
   selectedInterestAreas: ['web_programming', 'web_programming', 'invalid', 'database_systems'],
 });
 assert.deepEqual(interested.selectedInterestAreas, ['web_programming', 'database_systems']);
+assert.equal(onboarding.INTEREST_AREA_OPTIONS.length, 15, 'Onboarding must expose the full course catalog');
+assert.deepEqual(
+  onboarding.INTEREST_AREA_OPTIONS.slice(0, 3).map((option) => option.id),
+  ['web_programming', 'operating_systems', 'database_systems'],
+  'Onboarding must preserve the original interest-area IDs and order',
+);
+const newInterests = saves.normalizePlayerSave({
+  ...fresh,
+  onboardingCompleted: true,
+  selectedInterestAreas: ['algorithm', 'software_engineering', 'engineering_economics'],
+});
+assert.deepEqual(
+  newInterests.selectedInterestAreas,
+  ['algorithm', 'software_engineering', 'engineering_economics'],
+  'New course interests must survive player-save normalization',
+);
 
 // 9. Tutorial becomes eligible immediately after onboarding.
 assert.equal(onboarding.shouldShowTutorial(true, false, false), true);

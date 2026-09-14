@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -13,9 +13,13 @@ import { AuthProvider, useAuth } from '../src/state/AuthContext';
 import { LeaderboardProvider } from '../src/state/LeaderboardContext';
 import { ReputationProvider, useReputation } from '../src/state/ReputationContext';
 import { ThemeProvider, useTheme } from '../src/state/ThemeContext';
+import { PrivacyConsentProvider } from '../src/state/PrivacyConsentContext';
 import { fonts } from '../src/theme/typography';
+import ShipItOpsSplash from '../src/components/ShipItOpsSplash';
 import GuidedProductTour from '../src/components/onboarding/GuidedProductTour';
 import OnboardingExperience from '../src/components/onboarding/OnboardingExperience';
+import PrivacyConsentExperience from '../src/components/privacy/PrivacyConsentExperience';
+import AnalyticsLifecycle from '../src/components/analytics/AnalyticsLifecycle';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -37,11 +41,13 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <AuthProvider>
         <ThemeProvider>
-          <ReputationProvider>
-            <LeaderboardProvider>
-              <RootNavigator fontsLoaded={fontsLoaded} />
-            </LeaderboardProvider>
-          </ReputationProvider>
+          <PrivacyConsentProvider>
+            <ReputationProvider>
+              <LeaderboardProvider>
+                <RootNavigator fontsLoaded={fontsLoaded} />
+              </LeaderboardProvider>
+            </ReputationProvider>
+          </PrivacyConsentProvider>
         </ThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>
@@ -63,7 +69,6 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
   const shellColors = theme.mode === 'light'
     ? {
         primary: theme.semantic?.action ?? theme.colors.accentPositive,
-        danger: theme.semantic?.danger ?? theme.colors.accentDanger,
         text: theme.semantic?.text ?? theme.colors.textPrimary,
         muted: theme.semantic?.textMuted ?? theme.colors.textMuted,
         panel: theme.semantic?.surface ?? theme.colors.panel,
@@ -74,7 +79,6 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
       }
     : {
         primary: colors.accentPositive,
-        danger: colors.accentDanger,
         text: colors.textPrimary,
         muted: colors.textMuted,
         panel: colors.panel,
@@ -85,33 +89,24 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
       };
 
   useEffect(() => {
-    if (isShellReady) void SplashScreen.hideAsync();
-  }, [isShellReady]);
+    if (fontsLoaded && isThemeHydrated) void SplashScreen.hideAsync();
+  }, [fontsLoaded, isThemeHydrated]);
 
   if (!isShellReady) {
-    return (
-      <View accessibilityLabel="Ship It Ops hazırlanıyor" style={[styles.bootScreen, themedBackground]}>
-        <View style={[styles.bootMark, { backgroundColor: shellColors.primary }]} />
-        <Text style={[styles.bootTitle, { color: shellColors.text }, fontsLoaded && styles.bootTitleLoaded]}>SHIP IT OPS</Text>
-        <Text style={[styles.bootLabel, { color: shellColors.muted }, fontsLoaded && styles.bootLabelLoaded]}>ACCESS NODE BAŞLATILIYOR</Text>
-        <ActivityIndicator accessibilityLabel="Oturum yükleniyor" color={shellColors.primary} size="small" />
-      </View>
-    );
+    return <ShipItOpsSplash fontsLoaded={fontsLoaded} />;
   }
 
   if (isAuthenticated && !isPlayerSaveLoaded) {
     const hasError = saveStatus === 'error';
     return (
-      <View accessibilityLabel="Hesap ilerlemesi hazırlanıyor" style={[styles.bootScreen, themedBackground]}>
-        <View style={[styles.bootMark, { backgroundColor: hasError ? shellColors.danger : shellColors.primary }]} />
-        <Text style={[styles.bootTitle, { color: shellColors.text }, styles.bootTitleLoaded]}>SHIP IT OPS</Text>
-        <Text accessibilityLiveRegion="polite" style={[styles.bootLabel, { color: shellColors.muted }, styles.bootLabelLoaded]}>
-          {hasError
-            ? 'HESAP KAYDI YÜKLENEMEDİ'
-            : saveStatus === 'migrating'
-              ? 'MEVCUT İLERLEME HESABA TAŞINIYOR'
-              : 'HESAP İLERLEMESİ YÜKLENİYOR'}
-        </Text>
+      <ShipItOpsSplash
+        loading={!hasError}
+        status={hasError
+          ? 'Hesap kaydı yüklenemedi'
+          : saveStatus === 'migrating'
+            ? 'Mevcut ilerleme hesaba taşınıyor...'
+            : 'Operasyon ortamı hazırlanıyor...'}
+      >
         {hasError ? (
           <>
             <Text style={[styles.bootError, { color: shellColors.muted }]}>{saveError}</Text>
@@ -127,10 +122,8 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
               <Text style={[styles.retryButtonText, { color: shellColors.primary }]}>Tekrar Dene</Text>
             </Pressable>
           </>
-        ) : (
-          <ActivityIndicator accessibilityLabel="Hesap ilerlemesi yükleniyor" color={shellColors.primary} size="small" />
-        )}
-      </View>
+        ) : null}
+      </ShipItOpsSplash>
     );
   }
 
@@ -171,24 +164,14 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
           <GuidedProductTour key={`tour-${user.id}`} />
         </>
       ) : null}
+      <PrivacyConsentExperience />
+      <AnalyticsLifecycle />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   appRoot: { flex: 1, backgroundColor: colors.bgBase },
-  bootScreen: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    backgroundColor: colors.bgBase,
-  },
-  bootMark: { width: 42, height: 3, borderRadius: 2, backgroundColor: colors.accentPositive },
-  bootTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '700', letterSpacing: 1.4 },
-  bootTitleLoaded: { fontFamily: fonts.headingBold, fontWeight: '400' },
-  bootLabel: { color: colors.textMuted, fontSize: 10, letterSpacing: 1.1, marginBottom: 4 },
-  bootLabelLoaded: { fontFamily: fonts.monoMedium },
   bootError: {
     maxWidth: 440,
     paddingHorizontal: 24,

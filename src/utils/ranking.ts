@@ -10,6 +10,20 @@ export const RANKING_SCORE_BY_OUTCOME: Readonly<Record<RankingOutcome, number>> 
   timeout: 0,
 };
 
+export const REPEAT_RANKING_SCORE_BY_OUTCOME: Readonly<Record<RankingOutcome, number>> = {
+  success: 25,
+  partial: 15,
+  fail: 0,
+  timeout: 0,
+};
+
+export function getRankingScoreForOutcome(
+  outcome: RankingOutcome,
+  isRepeatSolved = false,
+): number {
+  return (isRepeatSolved ? REPEAT_RANKING_SCORE_BY_OUTCOME : RANKING_SCORE_BY_OUTCOME)[outcome];
+}
+
 export interface RankingOutcomeStats {
   successCount: number;
   partialCount: number;

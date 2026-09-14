@@ -29,6 +29,7 @@ import {
   type CosmeticType,
 } from '../config/cosmetics';
 import { DEFAULT_COMPANY_NAME } from '../config/company';
+import type { AchievementId } from '../config/achievements';
 import {
   saveCompanyName as persistCompanyName,
   type CompanyNameSaveResult,
@@ -43,7 +44,6 @@ import {
 } from '../services/playerSave';
 import { appendRecentQuestionId } from '../utils/questionSelection';
 import {
-  calculateRankingScore,
   normalizeRankingOutcomeStats,
   recordRankingOutcome as advanceRankingOutcomeStats,
   revertRankingOutcome as rollbackRankingOutcomeStats,
@@ -66,6 +66,7 @@ import { trackEvent } from '../utils/telemetry';
 import {
   completeOperationSession,
   createDefaultCategoryProgress,
+  getTotalCategoryLeaderboardScore,
   recordCategoryAttempt,
   revertCategoryAttemptOutcome,
   type CategoryProgress,
@@ -75,6 +76,7 @@ import {
 import type { DifficultyStar, GameCategoryId } from '../config/gameCategories';
 import type { CategoryQuestionId } from '../utils/categoryQuestions';
 import { deriveAchievements, type DerivedAchievement } from '../utils/achievements';
+import { planBadgeRewardGrants } from '../utils/badgeRewards';
 import {
   createSkippedOnboardingSelection,
   normalizeInterestAreas,
@@ -90,9 +92,14 @@ import { useAuth } from './AuthContext';
 export { RANKS } from '../config/progression';
 export type { Rank } from '../config/progression';
 
-// The visible catalog is fully derived from persisted progression and answer
-// stats. No achievement IDs are added to the player-save schema.
+// The visible catalog remains derived from progression and answer stats. Only
+// payout and unread-receipt IDs are persisted; they never decide earned state.
 export type Badge = DerivedAchievement;
+
+export interface SessionCommitCompletion extends OperationSessionCompletion {
+  newlyEarnedBadges: Badge[];
+  badgeBudgetReward: number;
+}
 
 interface LegacyBadgeRewardMilestone {
   id: string;
@@ -188,6 +195,9 @@ interface ReputationContextValue {
   nextRank: Rank | null;
   rankProgress: number; // 0-1 arası, ekranın kendi hesap yapmasına gerek yok
   badges: Badge[];
+  claimedBadgeRewardIds: AchievementId[];
+  unseenBadgeIds: AchievementId[];
+  markBadgesSeen: () => void;
   codeReview: number;
   gitRevert: number;
   serverScaleUp: number;
@@ -288,7 +298,7 @@ interface ReputationContextValue {
     netReputation: number,
   ) => OperationSessionCompletion;
   /** Commits one complete 10-question session to permanent progression atomically. */
-  commitGameSession: (session: GameSessionCommitInput) => OperationSessionCompletion | null;
+  commitGameSession: (session: GameSessionCommitInput) => SessionCommitCompletion | null;
 }
 
 const ReputationContext = createContext<ReputationContextValue | null>(null);
@@ -307,6 +317,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [pendingBadges, setPendingBadges] = useState<Badge[]>([]);
+  const [claimedBadgeRewardIds, setClaimedBadgeRewardIds] = useState<AchievementId[]>([]);
+  const [unseenBadgeIds, setUnseenBadgeIds] = useState<AchievementId[]>([]);
   const [codeReview, setCodeReviewState] = useState(DEFAULT_LIFELINE_COUNT);
   const [gitRevert, setGitRevertState] = useState(DEFAULT_LIFELINE_COUNT);
   const [serverScaleUp, setServerScaleUpState] = useState(DEFAULT_LIFELINE_COUNT);
@@ -339,6 +351,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const uptimeStreakRef = useRef(DEFAULT_UPTIME_STREAK);
   const rankingOutcomeStatsRef = useRef<RankingOutcomeStats>(normalizeRankingOutcomeStats(null));
   const categoryProgressRef = useRef<CategoryProgress>(createDefaultCategoryProgress());
+  const claimedBadgeRewardIdsRef = useRef<AchievementId[]>([]);
+  const unseenBadgeIdsRef = useRef<AchievementId[]>([]);
 
 
   // Streak: 7-slot bool array (Mon-Sun) + last claimed date string (YYYY-MM-DD)
@@ -394,6 +408,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     categoryProgressRef.current = save.categoryProgress;
     correctAnswersRef.current = save.correctAnswers;
     wrongAnswersRef.current = save.wrongAnswers;
+    claimedBadgeRewardIdsRef.current = save.claimedBadgeRewardIds;
+    unseenBadgeIdsRef.current = save.unseenBadgeIds;
 
     setScore(save.reputation);
     setCareerXp(save.careerXp);
@@ -417,6 +433,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setStreakDays(save.streakDays);
     setStreakLastDate(save.streakLastDate ?? '');
     setCategoryProgress(save.categoryProgress);
+    setClaimedBadgeRewardIds(save.claimedBadgeRewardIds);
+    setUnseenBadgeIds(save.unseenBadgeIds);
     setPendingBadges([]);
   }, []);
 
@@ -542,6 +560,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     onboardingCompleted,
     tutorialCompleted,
     selectedInterestAreas,
+    claimedBadgeRewardIds,
+    unseenBadgeIds,
   }), [
     budget,
     careerXp,
@@ -565,6 +585,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     onboardingCompleted,
     tutorialCompleted,
     selectedInterestAreas,
+    claimedBadgeRewardIds,
+    unseenBadgeIds,
   ]);
   latestSaveRef.current = saveSnapshot;
 
@@ -753,7 +775,41 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     return completion;
   }, []);
 
-  const commitGameSession = useCallback((session: GameSessionCommitInput): OperationSessionCompletion | null => {
+  const grantNewBadgeRewards = useCallback((
+    snapshot: {
+      careerXp: number;
+      correctAnswers: number;
+      wrongAnswers: number;
+      categoryProgress: CategoryProgress;
+    },
+    currentBudget: number,
+  ) => {
+    const derivedBadges = deriveAchievements(snapshot);
+    const rewardPlan = planBadgeRewardGrants({
+      badges: derivedBadges,
+      claimedBadgeRewardIds: claimedBadgeRewardIdsRef.current,
+      unseenBadgeIds: unseenBadgeIdsRef.current,
+      budget: currentBudget,
+    });
+    const newlyEarnedBadges = derivedBadges.filter((badge) => (
+      rewardPlan.newlyRewardedBadgeIds.includes(badge.id)
+    ));
+
+    if (newlyEarnedBadges.length > 0) {
+      claimedBadgeRewardIdsRef.current = rewardPlan.claimedBadgeRewardIds;
+      unseenBadgeIdsRef.current = rewardPlan.unseenBadgeIds;
+      setClaimedBadgeRewardIds(rewardPlan.claimedBadgeRewardIds);
+      setUnseenBadgeIds(rewardPlan.unseenBadgeIds);
+      setPendingBadges((current) => {
+        const queuedIds = new Set(current.map((badge) => badge.id));
+        return [...current, ...newlyEarnedBadges.filter((badge) => !queuedIds.has(badge.id))];
+      });
+    }
+
+    return { rewardPlan, newlyEarnedBadges };
+  }, []);
+
+  const commitGameSession = useCallback((session: GameSessionCommitInput): SessionCommitCompletion | null => {
     const plan = planCompletedGameSession({
       permanentState: {
         careerXp: careerXpRef.current,
@@ -781,9 +837,16 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     if (!plan) return null;
 
     const next = plan.permanentState;
+    const badgeGrant = grantNewBadgeRewards({
+      careerXp: next.careerXp,
+      correctAnswers: next.correctAnswers,
+      wrongAnswers: next.wrongAnswers,
+      categoryProgress: next.categoryProgress,
+    }, next.budget);
+    const nextBudget = badgeGrant.rewardPlan.budget;
     careerXpRef.current = next.careerXp;
     scoreRef.current = next.reputation;
-    budgetRef.current = next.budget;
+    budgetRef.current = nextBudget;
     correctAnswersRef.current = next.correctAnswers;
     wrongAnswersRef.current = next.wrongAnswers;
     rankingOutcomeStatsRef.current = next.rankingOutcomeStats;
@@ -792,14 +855,18 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
 
     setCareerXp(next.careerXp);
     setScore(next.reputation);
-    setBudget(next.budget);
+    setBudget(nextBudget);
     setCorrectAnswers(next.correctAnswers);
     setWrongAnswers(next.wrongAnswers);
     setRankingOutcomeStats(next.rankingOutcomeStats);
     setCategoryProgress(next.categoryProgress);
     setUptimeStreakState(next.uptimeStreak);
-    return plan.completion;
-  }, []);
+    return {
+      ...plan.completion,
+      newlyEarnedBadges: badgeGrant.newlyEarnedBadges,
+      badgeBudgetReward: badgeGrant.rewardPlan.budgetRewardTotal,
+    };
+  }, [grantNewBadgeRewards]);
 
   const applyDelta = async (careerXpDelta: number, reputationDelta: number, budgetDelta: number): Promise<Badge[]> => {
     const oldScore = scoreRef.current;
@@ -819,6 +886,14 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       newBudget += totalReward;
     }
 
+    const badgeGrant = grantNewBadgeRewards({
+      careerXp: newCareerXp,
+      correctAnswers: correctAnswersRef.current,
+      wrongAnswers: wrongAnswersRef.current,
+      categoryProgress: categoryProgressRef.current,
+    }, newBudget);
+    newBudget = badgeGrant.rewardPlan.budget;
+
     scoreRef.current = newScore;
     careerXpRef.current = newCareerXp;
     budgetRef.current = newBudget;
@@ -826,7 +901,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setCareerXp(newCareerXp);
     setBudget(newBudget);
 
-    return [];
+    return badgeGrant.newlyEarnedBadges;
   };
 
   const addScore = (amount: number) => applyDelta(0, amount, 0);
@@ -848,6 +923,11 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const addBudget = (amount: number) => applyDelta(0, 0, amount);
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));
+  const markBadgesSeen = useCallback(() => {
+    if (unseenBadgeIdsRef.current.length === 0) return;
+    unseenBadgeIdsRef.current = [];
+    setUnseenBadgeIds([]);
+  }, []);
 
   const updateLifelineCount = useCallback((jokerId: JokerId, action: React.SetStateAction<number>) => {
     const current = lifelineInventoryRef.current[jokerId];
@@ -906,6 +986,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     rankingOutcomeStatsRef.current = normalizeRankingOutcomeStats(null);
     streakDaysRef.current = [false, false, false, false, false, false, false];
     categoryProgressRef.current = createDefaultCategoryProgress();
+    claimedBadgeRewardIdsRef.current = [];
+    unseenBadgeIdsRef.current = [];
 
     // 2. State'leri sıfırla
     setScore(DEFAULT_SCORE);
@@ -919,6 +1001,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setUptimeStreakState(DEFAULT_UPTIME_STREAK);
     setInventory([]);
     setPendingBadges([]);
+    setClaimedBadgeRewardIds([]);
+    setUnseenBadgeIds([]);
 
     // 3. EKSİK OLANLARI BURAYA EKLE (Kendi değişken isimlerine göre düzelt)
     setCorrectAnswers(DEFAULT_CORRECT_ANSWERS);
@@ -1092,7 +1176,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     const { current, next } = getRankForCareerXp(careerXp);
     const badges = deriveAchievements({ careerXp, correctAnswers, wrongAnswers, categoryProgress });
     const rankProgress = getRankProgress(careerXp, current, next);
-    const rankingScore = calculateRankingScore(rankingOutcomeStats);
+    const rankingScore = getTotalCategoryLeaderboardScore(categoryProgress);
     const dayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
     let sc = 0;
     for (let i = dayIdx; i >= 0; i--) {
@@ -1123,6 +1207,9 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       nextRank: next,
       rankProgress,
       badges,
+      claimedBadgeRewardIds,
+      unseenBadgeIds,
+      markBadgesSeen,
       codeReview,
       gitRevert,
       serverScaleUp,
@@ -1193,6 +1280,8 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     saveStatus,
     saveError,
     pendingBadges,
+    claimedBadgeRewardIds,
+    unseenBadgeIds,
     codeReview,
     gitRevert,
     serverScaleUp,

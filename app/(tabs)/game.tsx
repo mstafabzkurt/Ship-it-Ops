@@ -29,21 +29,26 @@ import ProgressSweep from '../../src/components/ProgressSweep';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { createLeaderboardSessionId, writeLeaderboardScoreEvent } from '../../src/services/leaderboard';
 import { useAuth } from '../../src/state/AuthContext';
-import { useReputation } from '../../src/state/ReputationContext';
+import { useReputation, type SessionCommitCompletion } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { supabase } from '../../src/supabase';
 import { fonts } from '../../src/theme/typography';
 import {
   formatSignedReputation,
+  getCategoryTierProgress,
   getCurrentOperationCheckpoint,
   getOperationReputationProgress,
   getOperationReputationTarget,
   selectCategoryQuestion,
   type OperationCheckpointId,
-  type OperationSessionCompletion,
 } from '../../src/utils/categoryProgress';
-import { filterCategoryQuestions, type CategoryQuestionId, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
-import { RANKING_SCORE_BY_OUTCOME } from '../../src/utils/ranking';
+import {
+  filterCategoryQuestions,
+  hasEnoughCategoryQuestions,
+  type CategoryQuestionId,
+  type CategoryQuestionRow,
+} from '../../src/utils/categoryQuestions';
+import { getRankingScoreForOutcome } from '../../src/utils/ranking';
 import {
   deriveGameSessionTotals,
   canUseRollbackOnResult,
@@ -374,9 +379,11 @@ export default function GameScreen() {
   const sessionCheckpointRef = useRef<OperationCheckpointId | null>(
     categoryId && difficultyStar ? getCurrentOperationCheckpoint(categoryProgress, categoryId, difficultyStar) : null,
   );
-  const sessionCompletionRef = useRef<OperationSessionCompletion | null>(null);
+  const sessionCompletionRef = useRef<SessionCommitCompletion | null>(null);
   const sessionStartAttemptedCountRef = useRef(
-    categoryId && difficultyStar ? categoryProgress[categoryId][difficultyStar].attemptedQuestionIds.length : 0,
+    categoryId && difficultyStar
+      ? getCategoryTierProgress(categoryProgress, categoryId, difficultyStar).attemptedQuestionIds.length
+      : 0,
   );
   const lostStreakRef = useRef(0);
   const fetchRequestIdRef = useRef(0);
@@ -389,13 +396,22 @@ export default function GameScreen() {
   const leaderboardSessionIdRef = useRef(createLeaderboardSessionId());
   const resumeTimerAfterExitPromptRef = useRef(false);
   const attemptedQuestionIdsRef = useRef<CategoryQuestionId[]>(
-    categoryId && difficultyStar ? categoryProgress[categoryId][difficultyStar].attemptedQuestionIds : [],
+    categoryId && difficultyStar
+      ? getCategoryTierProgress(categoryProgress, categoryId, difficultyStar).attemptedQuestionIds
+      : [],
+  );
+  const solvedCorrectQuestionIdsRef = useRef<CategoryQuestionId[]>(
+    categoryId && difficultyStar
+      ? getCategoryTierProgress(categoryProgress, categoryId, difficultyStar).solvedCorrectQuestionIds
+      : [],
   );
   const contextActionsRef = useRef({ commitGameSession });
 
   useEffect(() => {
     if (!categoryId || !difficultyStar) return;
-    attemptedQuestionIdsRef.current = categoryProgress[categoryId][difficultyStar].attemptedQuestionIds;
+    const tierProgress = getCategoryTierProgress(categoryProgress, categoryId, difficultyStar);
+    attemptedQuestionIdsRef.current = tierProgress.attemptedQuestionIds;
+    solvedCorrectQuestionIdsRef.current = tierProgress.solvedCorrectQuestionIds;
   }, [categoryId, categoryProgress, difficultyStar]);
 
   useEffect(() => {
@@ -548,11 +564,12 @@ export default function GameScreen() {
       correctAnswer: currentIncident.optimal_text,
       outcome: 'timeout',
       isCorrect: false,
+      isRepeatCorrect: false,
       careerXpDelta: reward.careerXpDelta,
       reputationDelta: reward.reputationDelta,
       budgetDelta: reward.budgetDelta,
       milestoneBudgetDelta: 0,
-      leaderboardDelta: RANKING_SCORE_BY_OUTCOME.timeout,
+      leaderboardDelta: getRankingScoreForOutcome('timeout'),
       uptimeBefore: previousUptimeStreak,
       uptimeAfter: previousUptimeStreak,
       resolvedAt: new Date().toISOString(),
@@ -605,7 +622,7 @@ export default function GameScreen() {
     const next = selectCategoryQuestion(
       pool,
       sessionQuestionIds,
-      attemptedQuestionIdsRef.current,
+      solvedCorrectQuestionIdsRef.current,
     );
     if (!next) {
       setIncident(null);
@@ -647,7 +664,7 @@ export default function GameScreen() {
         categoryId,
         difficultyStar,
       ) as GameIncident[];
-      if (loadedIncidents.length !== QUESTIONS_PER_TIER) {
+      if (!hasEnoughCategoryQuestions(loadedIncidents.length)) {
         setError(`Bu kademe henüz hazır değil (${loadedIncidents.length}/${QUESTIONS_PER_TIER} geçerli soru).`);
         return;
       }
@@ -708,9 +725,10 @@ export default function GameScreen() {
     if (!categoryId || !difficultyStar) return;
     const choiceOutcome = getCategoryChoiceOutcome(choice.tier);
     const isCorrect = choiceOutcome === 'success';
+    const isRepeatCorrect = isCorrect && solvedCorrectQuestionIdsRef.current.includes(currentIncident.id);
     const previousUptimeStreak = sessionUptimeStreakRef.current;
     if (!attemptedQuestionIdsRef.current.includes(currentIncident.id)) attemptedQuestionIdsRef.current = [...attemptedQuestionIdsRef.current, currentIncident.id];
-    const reward = getCategoryReward(difficultyStar, choiceOutcome);
+    const reward = getCategoryReward(difficultyStar, choiceOutcome, isRepeatCorrect);
     let milestoneBonus = 0;
     let nextUptimeStreak = previousUptimeStreak;
     if (reward.isPositive) {
@@ -731,11 +749,12 @@ export default function GameScreen() {
       correctAnswer: currentIncident.optimal_text,
       outcome: choiceOutcome,
       isCorrect,
+      isRepeatCorrect,
       careerXpDelta: reward.careerXpDelta,
       reputationDelta: reward.reputationDelta,
       budgetDelta: reward.budgetDelta,
       milestoneBudgetDelta: milestoneBonus,
-      leaderboardDelta: RANKING_SCORE_BY_OUTCOME[choiceOutcome],
+      leaderboardDelta: getRankingScoreForOutcome(choiceOutcome, isRepeatCorrect),
       uptimeBefore: previousUptimeStreak,
       uptimeAfter: nextUptimeStreak,
       resolvedAt: new Date().toISOString(),
@@ -1124,9 +1143,12 @@ export default function GameScreen() {
   );
 
   if (!incident || !category || !difficultyStar) return <ErrorScreen styles={styles} message="Geçerli bir oyun seçimi bulunamadı." onRetry={() => router.replace('/(tabs)/play')} />;
-  const selectedReward = activeChoice ? getCategoryReward(difficultyStar, getCategoryChoiceOutcome(activeChoice.tier)) : null;
-  const timeoutReward = getCategoryReward(difficultyStar, 'timeout');
-  const feedbackReward = timedOut ? timeoutReward : selectedReward;
+  const feedbackReward = currentResolvedResult ? {
+    careerXpDelta: currentResolvedResult.careerXpDelta,
+    reputationDelta: currentResolvedResult.reputationDelta,
+    budgetDelta: currentResolvedResult.budgetDelta,
+    isPositive: currentResolvedResult.isCorrect,
+  } : null;
   const timerColor = timerColorProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [timeLeft <= 5 ? colors.danger : colors.gameUrgency, colors.gameTimerBoost],
@@ -1320,6 +1342,7 @@ export default function GameScreen() {
                       careerXpDelta={feedbackReward.careerXpDelta}
                       reputationDelta={feedbackReward.reputationDelta}
                       budgetDelta={feedbackReward.budgetDelta}
+                      isRepeatCorrect={currentResolvedResult?.isRepeatCorrect === true}
                       bestAnswer={!feedbackReward.isPositive ? incident.optimal_text : undefined}
                       isProcessing={isOutcomePending || !isCompletionReady}
                       onNext={isFinalQuestion ? handleCompleteSession : handleNextScenario}
@@ -1510,7 +1533,7 @@ function CompleteScreen({
   correctCount: number;
   attemptedCount: number;
   progressGained: number;
-  operationCompletion: OperationSessionCompletion | null;
+  operationCompletion: SessionCommitCompletion | null;
   sessionTotals: GameSessionTotals;
   reviewEntries: SessionReviewEntry[];
 }) {
@@ -1588,6 +1611,25 @@ function CompleteScreen({
                 </Text>
               </View>
             </View>
+            {sessionTotals.repeatCorrectCount > 0 ? (
+              <Text style={styles.completeRepeatNote}>Bu oturumda tekrar sorular azaltılmış ödülle sayıldı.</Text>
+            ) : null}
+            {operationCompletion && operationCompletion.newlyEarnedBadges.length > 0 ? (
+              <View accessibilityLiveRegion="polite" style={styles.badgeRewardNotice}>
+                <Ionicons
+                  name="ribbon-outline"
+                  size={20}
+                  color={tokens.colors.warning}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                />
+                <Text style={styles.badgeRewardNoticeText}>
+                  {operationCompletion.newlyEarnedBadges.length === 1
+                    ? `Yeni rozet: ${operationCompletion.newlyEarnedBadges[0].title} · +${operationCompletion.badgeBudgetReward.toLocaleString('tr-TR')} Şirket Bütçesi`
+                    : `${operationCompletion.newlyEarnedBadges.length} yeni rozet · +${operationCompletion.badgeBudgetReward.toLocaleString('tr-TR')} Şirket Bütçesi`}
+                </Text>
+              </View>
+            ) : null}
             <View style={[styles.qualificationResult, targetPassed ? styles.qualificationResultPassed : styles.qualificationResultFailed]}>
               <View style={styles.qualificationResultHeader}>
                 <Ionicons
@@ -1839,6 +1881,9 @@ function makeStyles(tokens: DashboardTokens) {
     completeRewardCopy: { width: '100%', minWidth: 0, gap: 3 },
     completeRewardLabel: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, letterSpacing: 0.55, color: colors.textMuted },
     completeRewardText: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 11 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.text },
+    completeRepeatNote: { width: '100%', fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted, textAlign: 'center' },
+    badgeRewardNotice: { width: '100%', minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 11, paddingVertical: 9, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoft },
+    badgeRewardNoticeText: { flex: 1, fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 11 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.text },
     completeTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, textAlign: 'center' },
     completeMessage: { ...tokens.type.body, fontFamily: fonts.bodyMedium, color: colors.textMuted, textAlign: 'center', marginBottom: tokens.layout.isCompact ? 4 : 8 },
     completeMetrics: {

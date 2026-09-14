@@ -3,6 +3,12 @@ import type { EvaluationReward, EvaluationTier } from './gameRewards';
 
 export type CategoryOutcome = 'success' | 'fail' | 'timeout';
 
+export const REPEAT_QUESTION_REWARD_SCALE = Object.freeze({
+  careerXp: 0.35,
+  reputation: 0.4,
+  budget: 0.35,
+});
+
 export function getCategoryChoiceOutcome(choice: EvaluationTier): Exclude<CategoryOutcome, 'timeout'> {
   return choice === 'optimal' ? 'success' : 'fail';
 }
@@ -31,10 +37,27 @@ const FEEDBACK: Record<CategoryOutcome, string> = {
   timeout: 'Bu soru cevaplanmadığı için yanlış olarak kaydedildi.',
 };
 
-export function getCategoryReward(star: DifficultyStar, outcome: CategoryOutcome): EvaluationReward {
+export function scaleRepeatCorrectReward(
+  reward: EvaluationReward,
+  isRepeatSolved: boolean,
+): EvaluationReward {
+  if (!isRepeatSolved || !reward.isPositive) return reward;
   return {
+    ...reward,
+    careerXpDelta: Math.round(reward.careerXpDelta * REPEAT_QUESTION_REWARD_SCALE.careerXp),
+    reputationDelta: Math.round(reward.reputationDelta * REPEAT_QUESTION_REWARD_SCALE.reputation),
+    budgetDelta: Math.round(reward.budgetDelta * REPEAT_QUESTION_REWARD_SCALE.budget),
+  };
+}
+
+export function getCategoryReward(
+  star: DifficultyStar,
+  outcome: CategoryOutcome,
+  isRepeatSolved = false,
+): EvaluationReward {
+  return scaleRepeatCorrectReward({
     ...REWARDS[star][outcome],
     feedback: FEEDBACK[outcome],
     isPositive: outcome === 'success',
-  };
+  }, isRepeatSolved);
 }

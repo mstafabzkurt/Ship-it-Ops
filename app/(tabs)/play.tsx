@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import AssetIcon from '../../src/components/AssetIcon';
 import ProgressSweep from '../../src/components/ProgressSweep';
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import {
@@ -15,6 +16,7 @@ import {
   type DifficultyStar,
   type GameCategoryId,
 } from '../../src/config/gameCategories';
+import { UI_ICON_ASSETS } from '../../src/config/iconAssets';
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { supabase } from '../../src/supabase';
@@ -25,8 +27,13 @@ import {
   getTierAttemptedCount,
   isTierUnlocked,
 } from '../../src/utils/categoryProgress';
-import { filterCategoryQuestions, type CategoryQuestionRow } from '../../src/utils/categoryQuestions';
+import {
+  filterCategoryQuestions,
+  hasEnoughCategoryQuestions,
+  type CategoryQuestionRow,
+} from '../../src/utils/categoryQuestions';
 import { trackEvent } from '../../src/utils/telemetry';
+import { trackAnalyticsEvent } from '../../src/lib/analytics';
 
 type Availability = Record<GameCategoryId, Record<DifficultyStar, number>>;
 type LockedTierFeedback = {
@@ -60,6 +67,8 @@ export default function PlayHubScreen() {
   const [lockedTierFeedback, setLockedTierFeedback] = useState<LockedTierFeedback | null>(null);
   const [hoveredActionId, setHoveredActionId] = useState<GameCategoryId | null>(null);
   const [focusedActionId, setFocusedActionId] = useState<GameCategoryId | null>(null);
+  const [repeatInfoVisible, setRepeatInfoVisible] = useState(false);
+  const [repeatInfoControlFocused, setRepeatInfoControlFocused] = useState(false);
 
   useFocusEffect(useCallback(() => {
     setIsScreenFocused(true);
@@ -77,6 +86,20 @@ export default function PlayHubScreen() {
     const timer = setTimeout(() => setLockedTierFeedback(null), 4500);
     return () => clearTimeout(timer);
   }, [lockedTierFeedback]);
+
+  const closeRepeatInfo = useCallback(() => {
+    setRepeatInfoVisible(false);
+    setRepeatInfoControlFocused(false);
+  }, []);
+
+  useEffect(() => {
+    if (!repeatInfoVisible || Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeRepeatInfo();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [closeRepeatInfo, repeatInfoVisible]);
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -112,6 +135,8 @@ export default function PlayHubScreen() {
 
   const startSession = (categoryId: GameCategoryId, star: DifficultyStar) => {
     setLockedTierFeedback(null);
+    void trackAnalyticsEvent('category_selected', { category_id: categoryId });
+    void trackAnalyticsEvent('tier_selected', { category_id: categoryId, difficulty_star: star });
     router.push(buildGameSessionRoute(categoryId, star));
   };
 
@@ -161,7 +186,31 @@ export default function PlayHubScreen() {
                   <View style={styles.liveDot} />
                   <Text style={styles.eyebrow}>AREA SELECTION</Text>
                 </View>
-                <Text accessibilityRole="header" style={styles.title}>Oyun Merkezi</Text>
+                <View style={styles.titleRow}>
+                  <Text accessibilityRole="header" style={styles.title}>Oyun Merkezi</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Tekrar soru ödülleri hakkında bilgi"
+                    accessibilityHint="Tekrar sorularda ödüllerin neden azaltıldığını açıklar"
+                    accessibilityState={{ expanded: repeatInfoVisible }}
+                    hitSlop={6}
+                    onFocus={() => setRepeatInfoControlFocused(true)}
+                    onBlur={() => setRepeatInfoControlFocused(false)}
+                    onPress={() => setRepeatInfoVisible(true)}
+                    style={({ pressed }) => [
+                      styles.infoButton,
+                      repeatInfoControlFocused && styles.controlFocused,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <AssetIcon
+                      source={UI_ICON_ASSETS.info}
+                      fallbackName="information-outline"
+                      fallbackColor={tokens.colors.secondary}
+                      size={22}
+                    />
+                  </Pressable>
+                </View>
                 <Text style={styles.description}>Disiplin seç, 10 soruluk operasyonlarda itibar hedefini geç ve yıldız kademelerini aç.</Text>
               </View>
               <View style={styles.hubStatus}>
@@ -201,7 +250,7 @@ export default function PlayHubScreen() {
                   const passedOperations = getPassedOperationCount(categoryProgress, category.id, star);
                   const unlocked = isTierUnlocked(categoryProgress, category.id, star);
                   const contentCount = availability[category.id][star];
-                  const completeContent = contentCount === QUESTIONS_PER_TIER;
+                  const completeContent = hasEnoughCategoryQuestions(contentCount);
                   return {
                     star,
                     attempted,
@@ -369,7 +418,90 @@ export default function PlayHubScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+      <RepeatQuestionRewardsModal
+        visible={repeatInfoVisible}
+        reduceMotion={reduceMotion}
+        focused={repeatInfoControlFocused}
+        styles={styles}
+        tokens={tokens}
+        onFocus={() => setRepeatInfoControlFocused(true)}
+        onBlur={() => setRepeatInfoControlFocused(false)}
+        onClose={closeRepeatInfo}
+      />
     </View>
+  );
+}
+
+function RepeatQuestionRewardsModal({
+  visible,
+  reduceMotion,
+  focused,
+  styles,
+  tokens,
+  onFocus,
+  onBlur,
+  onClose,
+}: {
+  visible: boolean;
+  reduceMotion: boolean;
+  focused: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  tokens: ReturnType<typeof getDashboardTokens>;
+  onFocus: () => void;
+  onBlur: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType={reduceMotion ? 'none' : 'fade'}
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.infoScrim}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Tekrar soru ödülleri bilgisini kapat"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+        <SafeAreaView pointerEvents="box-none" style={styles.infoSafeArea}>
+          <View accessibilityViewIsModal style={styles.infoModal}>
+            <View style={styles.infoModalHeader}>
+              <View style={styles.infoModalIcon}>
+                <AssetIcon
+                  source={UI_ICON_ASSETS.info}
+                  fallbackName="information-outline"
+                  fallbackColor={tokens.colors.secondary}
+                  size={24}
+                />
+              </View>
+              <Text accessibilityRole="header" style={styles.infoModalTitle}>Tekrar soru ödülleri</Text>
+            </View>
+            <View style={styles.infoModalCopy}>
+              <Text style={styles.infoModalText}>Daha önce doğru çözdüğün sorular tekrar geldiğinde oynanabilir kalır, ancak Kariyer XP, İtibar ve Şirket Bütçesi ödülleri azaltılır. Böylece ezber yerine yeni sorularda ilerlemek daha değerli olur.</Text>
+              <Text style={styles.infoModalText}>Yıldız kademesi hedefleri de bu azaltılmış İtibar değerleriyle hesaplanır.</Text>
+              <Text style={styles.infoModalText}>Sıralama puanı da tekrar doğru cevaplarda azaltılır.</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Tekrar soru ödülleri bilgisini kapat"
+              onFocus={onFocus}
+              onBlur={onBlur}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.infoModalAction,
+                focused && styles.controlFocused,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.infoModalActionText}>Anladım</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -389,7 +521,9 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     eyebrowChip: { minHeight: 24, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.secondarySoft },
     liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.secondary },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.monoMedium, color: colors.secondary },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     title: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
+    infoButton: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.pill, backgroundColor: colors.secondarySurfaceRaised },
     description: { ...tokens.type.body, maxWidth: 620, fontFamily: fonts.body, color: colors.textMuted },
     hubStatus: { minWidth: tokens.layout.isCompact ? 0 : 260, flexDirection: 'row', alignItems: 'stretch', padding: tokens.layout.isCompact ? 10 : 12, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, backgroundColor: colors.secondarySurfaceRaised },
     hubMetric: { flex: 1, gap: 2 },
@@ -447,6 +581,17 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     buttonMetaDisabled: { color: colors.textMuted },
     buttonIcon: { width: tokens.layout.isCompact ? 30 : 32, height: tokens.layout.isCompact ? 30 : 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.actionSubSurface },
     buttonIconDisabled: { backgroundColor: colors.borderSubtle },
+    infoScrim: { flex: 1, justifyContent: 'center', backgroundColor: colors.overlayScrim },
+    infoSafeArea: { width: '100%', paddingHorizontal: tokens.layout.isCompact ? 12 : 24, paddingVertical: 20 },
+    infoModal: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: 18, padding: tokens.layout.isCompact ? 18 : 24, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.lg, backgroundColor: colors.floatingSurface, ...shadow.raised },
+    infoModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    infoModalIcon: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, backgroundColor: colors.secondarySoft },
+    infoModalTitle: { ...tokens.type.title, flex: 1, fontFamily: fonts.headingBold, color: colors.text },
+    infoModalCopy: { gap: 12 },
+    infoModalText: { ...tokens.type.body, fontFamily: fonts.body, color: colors.textMuted },
+    infoModalAction: { minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: isCalmLightTheme ? colors.action : colors.primary },
+    infoModalActionText: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 19, color: colors.onAccent },
+    controlFocused: { borderWidth: 2, borderColor: colors.actionFocus },
     pressed: tokens.motion.pressed,
   });
 }

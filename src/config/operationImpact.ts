@@ -18,7 +18,7 @@ export interface OperationImpactInput {
   resultStatus: OperationImpactTone;
 }
 
-const OPERATION_IMPACT_FAMILIES: Readonly<Record<GameCategoryId, readonly OperationImpactFamily[]>> = {
+const OPERATION_IMPACT_FAMILIES: Readonly<Partial<Record<GameCategoryId, readonly OperationImpactFamily[]>>> = {
   web_programming: [
     {
       keywords: ['html', 'table', 'tablo', 'colspan', 'rowspan', 'attribute', 'öznitelik'],
@@ -186,7 +186,7 @@ export function getOperationImpact({
   title,
   resultStatus,
 }: OperationImpactInput) {
-  const families = OPERATION_IMPACT_FAMILIES[categoryId];
+  const families = OPERATION_IMPACT_FAMILIES[categoryId] ?? [];
   const titleSearch = createSearchText(title);
   const tagSearch = createSearchText(tag);
   const family = families.find((candidate) => matchesFamily(titleSearch, candidate))

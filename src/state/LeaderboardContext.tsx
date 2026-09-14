@@ -33,6 +33,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
     currentRank,
     correctAnswers,
     wrongAnswers,
+    rankingScore,
     rankingOutcomeStats,
     equippedAvatarId,
     equippedAvatarFrameId,
@@ -53,6 +54,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
     careerRank: currentRank,
     correctAnswers,
     wrongAnswers,
+    rankingScore,
     rankingOutcomeStats,
   }), [
     companyName,
@@ -61,6 +63,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
     equippedAvatarFrameId,
     equippedAvatarId,
     rankingOutcomeStats,
+    rankingScore,
     wrongAnswers,
   ]);
 

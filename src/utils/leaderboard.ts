@@ -2,7 +2,6 @@ import type { AvatarCosmeticId, AvatarFrameCosmeticId } from '../config/cosmetic
 import { normalizeCompanyName } from '../config/company';
 import type { Rank } from '../config/progression';
 import {
-  calculateRankingScore,
   calculateSuccessRate,
   type RankingOutcomeStats,
 } from './ranking';
@@ -14,6 +13,7 @@ export interface LeaderboardProjectionInput {
   careerRank: Rank;
   correctAnswers: number;
   wrongAnswers: number;
+  rankingScore: number;
   rankingOutcomeStats: RankingOutcomeStats;
 }
 
@@ -44,9 +44,9 @@ export function buildLeaderboardProjection(
     avatarId: input.avatarId,
     avatarFrameId: input.avatarFrameId,
     careerRank: input.careerRank.name.trim().slice(0, 80),
-    // These values always come from the canonical local ranking helpers.
+    // The persisted completed-session total includes repeat-aware point values.
     // A server-authoritative outcome ledger is a future anti-cheat hardening step.
-    rankingScore: calculateRankingScore(input.rankingOutcomeStats),
+    rankingScore: normalizeCount(input.rankingScore),
     successRate: Number(Math.min(100, Math.max(0, successRate)).toFixed(2)),
     successCount: normalizeCount(input.rankingOutcomeStats.successCount),
   };

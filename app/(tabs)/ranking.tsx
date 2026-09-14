@@ -430,8 +430,8 @@ function LeaderboardInfoModal({
             </View>
             <View style={styles.infoModalCopy}>
               <Text style={styles.infoModalText}>Sıralama puanı tamamlanan 10 soruluk oturumlardaki doğru kararlarına göre hesaplanır.</Text>
-              <Text style={styles.infoModalText}>Her doğru cevap +100 puan kazandırır. Yanlış cevap ve süre dolması puan kazandırmaz.</Text>
-              <Text style={styles.infoModalText}>Kısmi doğru eski içeriklerde +50 puan olarak işlenebilir.</Text>
+              <Text style={styles.infoModalText}>İlk kez doğru çözülen soru +100, tekrar doğru çözülen soru +25 puan kazandırır.</Text>
+              <Text style={styles.infoModalText}>Yanlış cevap ve süre dolması puan kazandırmaz. Kısmi doğru eski içeriklerde +50, tekrarında +15 puan olarak işlenebilir.</Text>
               <Text style={styles.infoModalText}>Genel sıralama tüm zamanları kapsar. Haftalık ve aylık sıralamalar yalnızca ilgili dönemde tamamlanan oturumlardan gelen puanları gösterir.</Text>
               <Text style={styles.infoModalText}>Eksik bırakılan oturumlar sıralamaya yazılmaz.</Text>
             </View>

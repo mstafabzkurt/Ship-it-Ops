@@ -12,8 +12,6 @@ import RankIcon from '../rank/RankIcon';
 interface ProfileSummaryCardProps {
   companyName: string;
   currentRank: Rank;
-  careerXp: number;
-  score: number;
   equippedAvatar: AvatarCosmetic;
   equippedAvatarFrame: AvatarFrameCosmetic;
 }
@@ -21,8 +19,6 @@ interface ProfileSummaryCardProps {
 export default function ProfileSummaryCard({
   companyName,
   currentRank,
-  careerXp,
-  score,
   equippedAvatar,
   equippedAvatarFrame,
 }: ProfileSummaryCardProps) {
@@ -55,19 +51,6 @@ export default function ProfileSummaryCard({
           <Text style={styles.rankText}>{currentRank.name}</Text>
         </View>
       </View>
-
-      <View style={styles.progressMetrics}>
-        <View style={styles.careerBlock}>
-          <Text style={styles.reputationLabel}>KARİYER XP</Text>
-          <Text style={styles.careerValue}>{careerXp.toLocaleString('tr-TR')}</Text>
-          <Text style={styles.reputationUnit}>kalıcı ilerleme</Text>
-        </View>
-        <View style={styles.reputationBlock}>
-          <Text style={styles.reputationLabel}>İTİBAR</Text>
-          <Text style={styles.reputationValue}>{score.toLocaleString('tr-TR')}</Text>
-          <Text style={styles.reputationUnit}>performans puanı</Text>
-        </View>
-      </View>
     </View>
   );
 }
@@ -97,15 +80,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     profileCopy: { flex: 1, minWidth: tokens.layout.isCompact ? 160 : 210 },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 4 },
     companyName: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text, marginBottom: tokens.layout.isCompact ? 6 : 9 },
-    rankLine: { alignSelf: 'flex-start', minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8 },
+    rankLine: { flexWrap: 'wrap', alignSelf: 'flex-start', minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8 },
     rankIconTile: { width: tokens.layout.isCompact ? 42 : 48, height: tokens.layout.isCompact ? 42 : 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.borderSubtle },
     rankText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.primary, textTransform: 'uppercase' },
-    progressMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 14 : 20 },
-    careerBlock: { flexGrow: 1, minWidth: tokens.layout.isCompact ? 118 : 140, paddingLeft: tokens.layout.isCompact ? 11 : 15, borderLeftWidth: 1, borderLeftColor: colors.primary },
-    reputationBlock: { flexGrow: 1, minWidth: tokens.layout.isCompact ? 118 : 140, paddingLeft: tokens.layout.isCompact ? 11 : 15, borderLeftWidth: 1, borderLeftColor: colors.warning },
-    reputationLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.65, color: colors.textMuted },
-    reputationValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 22 : 27, lineHeight: tokens.layout.isCompact ? 27 : 33, color: colors.warning, marginTop: 1 },
-    careerValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 22 : 27, lineHeight: tokens.layout.isCompact ? 27 : 33, color: colors.primary, marginTop: 1 },
-    reputationUnit: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 15, color: colors.textMuted },
   });
 }

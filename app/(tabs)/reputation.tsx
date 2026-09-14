@@ -9,6 +9,7 @@ import RankTierCard, { type RankTierVisual } from '../../src/components/reputati
 import ReputationSummaryCard from '../../src/components/reputation/ReputationSummaryCard';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { ACHIEVEMENT_GROUPS } from '../../src/config/achievements';
+import type { AchievementId } from '../../src/config/achievements';
 import { RANKS, type Rank, useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
@@ -40,12 +41,14 @@ function ReputationTabButton({
   id,
   label,
   selected,
+  hasNotification,
   onPress,
   styles,
 }: {
   id: ReputationTabId;
   label: string;
   selected: boolean;
+  hasNotification: boolean;
   onPress: (tab: ReputationTabId) => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
@@ -55,7 +58,7 @@ function ReputationTabButton({
   return (
     <Pressable
       accessibilityRole="tab"
-      accessibilityLabel={`${label} görünümü`}
+      accessibilityLabel={`${label} görünümü${hasNotification ? ', yeni rozet var' : ''}`}
       accessibilityState={{ selected }}
       onPress={() => onPress(id)}
       onFocus={() => setFocused(true)}
@@ -70,7 +73,17 @@ function ReputationTabButton({
         pressed && styles.tabPressed,
       ]}
     >
-      <Text style={[styles.tabLabel, selected && styles.tabLabelSelected]}>{label}</Text>
+      <View style={styles.tabLabelRow}>
+        <Text style={[styles.tabLabel, selected && styles.tabLabelSelected]}>{label}</Text>
+        {hasNotification ? (
+          <View
+            aria-hidden
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.notificationDot}
+          />
+        ) : null}
+      </View>
       <View style={[styles.tabIndicator, selected && styles.tabIndicatorSelected]} />
     </Pressable>
   );
@@ -78,7 +91,16 @@ function ReputationTabButton({
 
 export default function ReputationScreen() {
   const { width } = useWindowDimensions();
-  const { careerXp, score, currentRank, nextRank, rankProgress, badges } = useReputation();
+  const {
+    careerXp,
+    score,
+    currentRank,
+    nextRank,
+    rankProgress,
+    badges,
+    unseenBadgeIds,
+    markBadgesSeen,
+  } = useReputation();
   const { theme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
@@ -88,8 +110,10 @@ export default function ReputationScreen() {
   const [expandedTier, setExpandedTier] = useState<Rank['tier'] | null>(currentRank.tier);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
+  const [newlyViewedBadgeIds, setNewlyViewedBadgeIds] = useState<AchievementId[]>([]);
   const isDesktop = width >= 1040;
   const earnedCount = badges.filter((badge) => badge.earned).length;
+  const newlyViewedBadgeIdSet = useMemo(() => new Set(newlyViewedBadgeIds), [newlyViewedBadgeIds]);
 
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -100,8 +124,17 @@ export default function ReputationScreen() {
   useFocusEffect(useCallback(() => {
     setIsScreenFocused(true);
     void trackEvent(activeTabRef.current === 'career' ? 'career_opened' : 'badges_opened');
-    return () => setIsScreenFocused(false);
+    return () => {
+      setIsScreenFocused(false);
+      setNewlyViewedBadgeIds([]);
+    };
   }, []));
+
+  useEffect(() => {
+    if (!isScreenFocused || activeTab !== 'badges' || unseenBadgeIds.length === 0) return;
+    setNewlyViewedBadgeIds((current) => [...new Set([...current, ...unseenBadgeIds])]);
+    markBadgesSeen();
+  }, [activeTab, isScreenFocused, markBadgesSeen, unseenBadgeIds]);
 
   const handleTabChange = useCallback((tab: ReputationTabId) => {
     if (activeTabRef.current === tab) return;
@@ -141,6 +174,7 @@ export default function ReputationScreen() {
                   id={tab.id}
                   label={tab.label}
                   selected={activeTab === tab.id}
+                  hasNotification={tab.id === 'badges' && unseenBadgeIds.length > 0}
                   onPress={handleTabChange}
                   styles={styles}
                 />
@@ -230,7 +264,12 @@ export default function ReputationScreen() {
                                   isDesktop && styles.achievementGridItemDesktop,
                                 ]}
                               >
-                                <AchievementCard badge={badge} reduceMotion={reduceMotion} active={isScreenFocused} />
+                                <AchievementCard
+                                  badge={badge}
+                                  reduceMotion={reduceMotion}
+                                  active={isScreenFocused}
+                                  isNew={newlyViewedBadgeIdSet.has(badge.id)}
+                                />
                               </View>
                             ))}
                           </View>
@@ -293,8 +332,10 @@ function makeStyles(tokens: DashboardTokens) {
     tabHovered: { backgroundColor: colors.floatingSurfaceRaised },
     tabFocused: { borderColor: colors.text },
     tabPressed: { backgroundColor: colors.secondarySurfaceRaised, transform: [{ scale: 0.985 }] },
+    tabLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
     tabLabel: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 12 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.textMuted, textAlign: 'center' },
     tabLabelSelected: { color: colors.text },
+    notificationDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.danger, shadowColor: colors.danger, shadowOpacity: 0.35, shadowRadius: 5, elevation: 4 },
     tabIndicator: { position: 'absolute', bottom: 1, width: tokens.layout.isCompact ? 30 : 34, height: 2, borderRadius: 1, backgroundColor: 'transparent' },
     tabIndicatorSelected: { backgroundColor: colors.primary },
     tabContent: { marginTop: tokens.layout.isCompact ? 12 : 18 },

@@ -16,6 +16,7 @@ interface GameResultPanelProps {
   careerXpDelta: number;
   reputationDelta: number;
   budgetDelta: number;
+  isRepeatCorrect?: boolean;
   bestAnswer?: string;
   isProcessing: boolean;
   onNext: () => void;
@@ -47,6 +48,7 @@ export default function GameResultPanel({
   careerXpDelta,
   reputationDelta,
   budgetDelta,
+  isRepeatCorrect = false,
   bestAnswer,
   isProcessing,
   onNext,
@@ -241,6 +243,9 @@ export default function GameResultPanel({
           >
             {result.label}
           </Animated.Text>
+          {isRepeatCorrect ? (
+            <Text style={styles.repeatRewardLabel}>Tekrar soru · azaltılmış ödül</Text>
+          ) : null}
         </View>
       </View>
 
@@ -420,6 +425,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     },
     outcomeCopy: { flex: 1, minWidth: 0 },
     outcomeLabel: { ...tokens.type.title, fontFamily: fonts.headingBold, marginBottom: 2 },
+    repeatRewardLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 16, color: colors.textMuted },
     resultDetails: { gap: tokens.layout.isCompact ? 11 : 16 },
     impactGrid: {
       flexDirection: 'row',

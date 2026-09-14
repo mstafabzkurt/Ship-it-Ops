@@ -13,7 +13,8 @@
     "test:themes": "node tests/theme-invariants.cjs",
     "test:rank-icons": "node tests/rank-icon-invariants.cjs",
     "test:tour": "node tests/guided-tour-invariants.cjs",
-    "test:company-names": "node tests/company-name-validation-invariants.cjs"
+    "test:company-names": "node tests/company-name-validation-invariants.cjs",
+    "test:badges": "node tests/run-typescript-invariant.cjs tests/badge-reward-invariants.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",

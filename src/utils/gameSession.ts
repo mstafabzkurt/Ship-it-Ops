@@ -5,6 +5,7 @@ import {
   type GameCategoryId,
 } from '../config/gameCategories';
 import {
+  addCategoryLeaderboardScore,
   completeOperationSession,
   recordCategoryAttempt,
   type CategoryProgress,
@@ -26,6 +27,7 @@ export interface GameSessionResult {
   correctAnswer: string;
   outcome: RankingOutcome;
   isCorrect: boolean;
+  isRepeatCorrect: boolean;
   careerXpDelta: number;
   reputationDelta: number;
   budgetDelta: number;
@@ -39,6 +41,7 @@ export interface GameSessionResult {
 export interface GameSessionTotals {
   answeredCount: number;
   correctCount: number;
+  repeatCorrectCount: number;
   wrongCount: number;
   successCount: number;
   partialCount: number;
@@ -91,6 +94,7 @@ export function deriveGameSessionTotals(
   return orderedResults.reduce<GameSessionTotals>((totals, result) => ({
     answeredCount: totals.answeredCount + 1,
     correctCount: totals.correctCount + (result.isCorrect ? 1 : 0),
+    repeatCorrectCount: totals.repeatCorrectCount + (result.isRepeatCorrect ? 1 : 0),
     wrongCount: totals.wrongCount + (result.isCorrect ? 0 : 1),
     successCount: totals.successCount + (result.outcome === 'success' ? 1 : 0),
     partialCount: totals.partialCount + (result.outcome === 'partial' ? 1 : 0),
@@ -104,6 +108,7 @@ export function deriveGameSessionTotals(
   }), {
     answeredCount: 0,
     correctCount: 0,
+    repeatCorrectCount: 0,
     wrongCount: 0,
     successCount: 0,
     partialCount: 0,
@@ -172,8 +177,16 @@ export function planCompletedGameSession({
       session.star,
       result.questionId,
       result.isCorrect,
+      true,
     );
   }
+
+  categoryProgress = addCategoryLeaderboardScore(
+    categoryProgress,
+    session.categoryId,
+    session.star,
+    totals.leaderboardDelta,
+  );
 
   const completion = completeOperationSession(
     categoryProgress,

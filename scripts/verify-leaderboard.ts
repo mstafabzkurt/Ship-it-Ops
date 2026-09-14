@@ -22,6 +22,7 @@ function createProjection(stats: RankingOutcomeStats, correctAnswers = 0, wrongA
     careerRank: rank,
     correctAnswers,
     wrongAnswers,
+    rankingScore: calculateRankingScore(stats),
     rankingOutcomeStats: stats,
   });
 }
@@ -50,6 +51,7 @@ const longCompany = buildLeaderboardProjection({
   careerRank: rank,
   correctAnswers: 0,
   wrongAnswers: 0,
+  rankingScore: 0,
   rankingOutcomeStats: emptyStats,
 });
 assertEqual(longCompany.companyName.length, MAX_COMPANY_NAME_LENGTH, 'Şirket adı üst sınırı');

@@ -9,12 +9,19 @@ import type { CategoryQuestionId } from './categoryQuestions';
 
 export interface CategoryTierProgress {
   attemptedQuestionIds: CategoryQuestionId[];
+  solvedCorrectQuestionIds: CategoryQuestionId[];
+  leaderboardScore: number;
   correctCount: number;
   incorrectCount: number;
   operationCheckpoints: OperationCheckpoints;
 }
 
 export type CategoryProgress = Record<GameCategoryId, Record<DifficultyStar, CategoryTierProgress>>;
+
+export type CategoryProgressReadInput = Partial<Record<
+  GameCategoryId,
+  Partial<Record<DifficultyStar, Partial<CategoryTierProgress>>>
+>>;
 
 export type OperationCheckpointId = 1 | 2;
 
@@ -60,6 +67,8 @@ const createOperationCheckpoints = (): OperationCheckpoints => ({
 
 const createTierProgress = (): CategoryTierProgress => ({
   attemptedQuestionIds: [],
+  solvedCorrectQuestionIds: [],
+  leaderboardScore: 0,
   correctCount: 0,
   incorrectCount: 0,
   operationCheckpoints: createOperationCheckpoints(),
@@ -82,6 +91,12 @@ function normalizeIds(value: unknown): CategoryQuestionId[] {
     }
     return [];
   }))].slice(0, 500);
+}
+
+function normalizeLeaderboardScore(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(parsed)));
 }
 
 function normalizeOperationCheckpoint(value: unknown, target: number): OperationCheckpointProgress {
@@ -133,6 +148,8 @@ export function normalizeCategoryProgress(value: unknown): CategoryProgress {
       const attemptedQuestionIds = normalizeIds(tier.attemptedQuestionIds);
       defaults[category.id][star] = {
         attemptedQuestionIds,
+        solvedCorrectQuestionIds: normalizeIds(tier.solvedCorrectQuestionIds),
+        leaderboardScore: normalizeLeaderboardScore(tier.leaderboardScore),
         correctCount: Math.max(0, Math.trunc(Number(tier.correctCount) || 0)),
         incorrectCount: Math.max(0, Math.trunc(Number(tier.incorrectCount) || 0)),
         operationCheckpoints: normalizeOperationCheckpoints(tier.operationCheckpoints, star),
@@ -142,18 +159,36 @@ export function normalizeCategoryProgress(value: unknown): CategoryProgress {
   return defaults;
 }
 
-export function getTierAttemptedCount(progress: CategoryProgress, categoryId: GameCategoryId, star: DifficultyStar): number {
-  return Math.min(QUESTIONS_PER_TIER, progress[categoryId][star].attemptedQuestionIds.length);
+/** Returns a normalized copy for reads without mutating partial or legacy save data. */
+export function getCategoryTierProgress(
+  progress: CategoryProgressReadInput | null | undefined,
+  categoryId: GameCategoryId,
+  star: DifficultyStar,
+): CategoryTierProgress {
+  const tier = progress?.[categoryId]?.[star];
+  if (!tier || typeof tier !== 'object') return createTierProgress();
+  return {
+    attemptedQuestionIds: normalizeIds(tier.attemptedQuestionIds),
+    solvedCorrectQuestionIds: normalizeIds(tier.solvedCorrectQuestionIds),
+    leaderboardScore: normalizeLeaderboardScore(tier.leaderboardScore),
+    correctCount: Math.max(0, Math.trunc(Number(tier.correctCount) || 0)),
+    incorrectCount: Math.max(0, Math.trunc(Number(tier.incorrectCount) || 0)),
+    operationCheckpoints: normalizeOperationCheckpoints(tier.operationCheckpoints, star),
+  };
 }
 
-export function getCategoryAttemptedCount(progress: CategoryProgress, categoryId: GameCategoryId): number {
+export function getTierAttemptedCount(progress: CategoryProgressReadInput, categoryId: GameCategoryId, star: DifficultyStar): number {
+  return Math.min(QUESTIONS_PER_TIER, getCategoryTierProgress(progress, categoryId, star).attemptedQuestionIds.length);
+}
+
+export function getCategoryAttemptedCount(progress: CategoryProgressReadInput, categoryId: GameCategoryId): number {
   return DIFFICULTY_STARS.reduce(
     (total, star) => total + getTierAttemptedCount(progress, categoryId, star),
     0,
   );
 }
 
-export function isTierUnlocked(progress: CategoryProgress, categoryId: GameCategoryId, star: DifficultyStar): boolean {
+export function isTierUnlocked(progress: CategoryProgressReadInput, categoryId: GameCategoryId, star: DifficultyStar): boolean {
   if (star === 1) return true;
   return getPassedOperationCount(progress, categoryId, (star - 1) as DifficultyStar) === OPERATION_CHECKPOINT_IDS.length;
 }
@@ -163,22 +198,22 @@ export function getOperationReputationTarget(star: DifficultyStar): number {
 }
 
 export function getPassedOperationCount(
-  progress: CategoryProgress,
+  progress: CategoryProgressReadInput,
   categoryId: GameCategoryId,
   star: DifficultyStar,
 ): number {
-  const checkpoints = progress[categoryId][star].operationCheckpoints;
+  const checkpoints = getCategoryTierProgress(progress, categoryId, star).operationCheckpoints;
   return OPERATION_CHECKPOINT_IDS.filter((checkpointId) => checkpoints[checkpointId].passed).length;
 }
 
-export function getCategoryPassedOperationCount(progress: CategoryProgress, categoryId: GameCategoryId): number {
+export function getCategoryPassedOperationCount(progress: CategoryProgressReadInput, categoryId: GameCategoryId): number {
   return DIFFICULTY_STARS.reduce(
     (total, star) => total + getPassedOperationCount(progress, categoryId, star),
     0,
   );
 }
 
-export function getTotalPassedOperationCount(progress: CategoryProgress): number {
+export function getTotalPassedOperationCount(progress: CategoryProgressReadInput): number {
   return GAME_CATEGORIES.reduce(
     (total, category) => total + getCategoryPassedOperationCount(progress, category.id),
     0,
@@ -186,11 +221,11 @@ export function getTotalPassedOperationCount(progress: CategoryProgress): number
 }
 
 export function getCurrentOperationCheckpoint(
-  progress: CategoryProgress,
+  progress: CategoryProgressReadInput,
   categoryId: GameCategoryId,
   star: DifficultyStar,
 ): OperationCheckpointId | null {
-  const checkpoints = progress[categoryId][star].operationCheckpoints;
+  const checkpoints = getCategoryTierProgress(progress, categoryId, star).operationCheckpoints;
   return OPERATION_CHECKPOINT_IDS.find((checkpointId) => !checkpoints[checkpointId].passed) ?? null;
 }
 
@@ -259,10 +294,12 @@ export function recordCategoryAttempt(
   star: DifficultyStar,
   questionId: CategoryQuestionId,
   correct: boolean,
+  completedSession = false,
 ): CategoryProgress {
   const normalized = normalizeCategoryProgress(progress);
   const current = normalized[categoryId][star];
   const alreadyAttempted = current.attemptedQuestionIds.includes(questionId);
+  const alreadySolved = current.solvedCorrectQuestionIds.includes(questionId);
   return {
     ...normalized,
     [categoryId]: {
@@ -271,12 +308,63 @@ export function recordCategoryAttempt(
         attemptedQuestionIds: alreadyAttempted
           ? current.attemptedQuestionIds
           : [...current.attemptedQuestionIds, questionId],
+        solvedCorrectQuestionIds: completedSession && correct && !alreadySolved
+          ? [...current.solvedCorrectQuestionIds, questionId]
+          : current.solvedCorrectQuestionIds,
+        leaderboardScore: current.leaderboardScore,
         correctCount: current.correctCount + (correct ? 1 : 0),
         incorrectCount: current.incorrectCount + (correct ? 0 : 1),
         operationCheckpoints: current.operationCheckpoints,
       },
     },
   };
+}
+
+export function addCategoryLeaderboardScore(
+  progress: CategoryProgress,
+  categoryId: GameCategoryId,
+  star: DifficultyStar,
+  scoreDelta: number,
+): CategoryProgress {
+  const normalized = normalizeCategoryProgress(progress);
+  const current = normalized[categoryId][star];
+  const safeDelta = Math.max(0, Math.trunc(Number.isFinite(scoreDelta) ? scoreDelta : 0));
+  return {
+    ...normalized,
+    [categoryId]: {
+      ...normalized[categoryId],
+      [star]: {
+        ...current,
+        leaderboardScore: Math.min(Number.MAX_SAFE_INTEGER, current.leaderboardScore + safeDelta),
+      },
+    },
+  };
+}
+
+export function getTotalCategoryLeaderboardScore(progress: CategoryProgressReadInput): number {
+  const total = GAME_CATEGORIES.reduce((categoryTotal, category) => (
+    categoryTotal + DIFFICULTY_STARS.reduce((tierTotal, star) => (
+      tierTotal + getCategoryTierProgress(progress, category.id, star).leaderboardScore
+    ), 0)
+  ), 0);
+  return Math.min(Number.MAX_SAFE_INTEGER, total);
+}
+
+export function hasStoredCategoryLeaderboardScore(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const stored = value as Record<string, unknown>;
+  return GAME_CATEGORIES.some((category) => {
+    const categoryValue = stored[category.id];
+    if (!categoryValue || typeof categoryValue !== 'object') return false;
+    return DIFFICULTY_STARS.some((star) => {
+      const tierValue = (categoryValue as Record<string, unknown>)[String(star)];
+      return Boolean(
+        tierValue
+        && typeof tierValue === 'object'
+        && Object.prototype.hasOwnProperty.call(tierValue, 'leaderboardScore'),
+      );
+    });
+  });
 }
 
 /** Keeps the question visible as attempted while removing a reverted answer result. */
@@ -304,12 +392,12 @@ export function revertCategoryAttemptOutcome(
 export function selectCategoryQuestion<T extends { id: CategoryQuestionId }>(
   pool: T[],
   sessionQuestionIds: CategoryQuestionId[],
-  attemptedQuestionIds: CategoryQuestionId[],
+  solvedCorrectQuestionIds: CategoryQuestionId[],
   random: () => number = Math.random,
 ): T | null {
   const sessionUnused = pool.filter((question) => !sessionQuestionIds.includes(question.id));
   if (sessionUnused.length === 0) return null;
-  const unseen = sessionUnused.filter((question) => !attemptedQuestionIds.includes(question.id));
-  const candidates = unseen.length > 0 ? unseen : sessionUnused;
+  const notSolvedCorrectly = sessionUnused.filter((question) => !solvedCorrectQuestionIds.includes(question.id));
+  const candidates = notSolvedCorrectly.length > 0 ? notSolvedCorrectly : sessionUnused;
   return candidates[Math.floor(Math.max(0, Math.min(0.999999, random())) * candidates.length)] ?? null;
 }

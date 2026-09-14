@@ -1,5 +1,10 @@
 import { ACHIEVEMENTS, type AchievementDefinition, type AchievementId } from '../config/achievements';
-import { GAME_CATEGORIES, QUESTIONS_PER_TIER, type GameCategoryId } from '../config/gameCategories';
+import {
+  DIFFICULTY_STARS,
+  GAME_CATEGORIES,
+  QUESTIONS_PER_TIER,
+  type GameCategoryId,
+} from '../config/gameCategories';
 import { RANKS } from '../config/progression';
 import {
   getCategoryAttemptedCount,
@@ -7,6 +12,7 @@ import {
   getTierAttemptedCount,
   getTotalPassedOperationCount,
   isTierUnlocked,
+  OPERATION_CHECKPOINT_IDS,
   type CategoryProgress,
 } from './categoryProgress';
 
@@ -17,10 +23,10 @@ export interface AchievementSnapshot {
   categoryProgress: CategoryProgress;
 }
 
-export interface DerivedAchievement extends AchievementDefinition {
+export interface DerivedAchievement extends Omit<AchievementDefinition, 'id'> {
+  id: AchievementId;
   earned: boolean;
   progressText: string;
-  rewardBudget: 0;
 }
 
 interface AchievementState {
@@ -31,6 +37,10 @@ interface AchievementState {
 const formatProgress = (current: number, target: number, suffix: string): string => (
   `${Math.min(current, target).toLocaleString('tr-TR')}/${target.toLocaleString('tr-TR')} ${suffix}`
 );
+
+const FULL_COVERAGE_TARGET = GAME_CATEGORIES.length
+  * DIFFICULTY_STARS.length
+  * OPERATION_CHECKPOINT_IDS.length;
 
 export function deriveAchievements(snapshot: AchievementSnapshot): DerivedAchievement[] {
   const totalAnswers = Math.max(0, snapshot.correctAnswers) + Math.max(0, snapshot.wrongAnswers);
@@ -86,7 +96,10 @@ export function deriveAchievements(snapshot: AchievementSnapshot): DerivedAchiev
       case 'db_mastery':
         return { earned: categoryOperationTotals.database_systems >= 6, progressText: formatProgress(categoryOperationTotals.database_systems, 6, 'operasyon geçti') };
       case 'full_coverage':
-        return { earned: passedOperationTotal >= 18, progressText: formatProgress(passedOperationTotal, 18, 'operasyon geçti') };
+        return {
+          earned: passedOperationTotal >= FULL_COVERAGE_TARGET,
+          progressText: formatProgress(passedOperationTotal, FULL_COVERAGE_TARGET, 'operasyon geçti'),
+        };
       case 'hundred_correct':
         return { earned: snapshot.correctAnswers >= 100, progressText: formatProgress(snapshot.correctAnswers, 100, 'doğru') };
       case 'balanced_operator':
@@ -103,6 +116,5 @@ export function deriveAchievements(snapshot: AchievementSnapshot): DerivedAchiev
   return ACHIEVEMENTS.map((achievement) => ({
     ...achievement,
     ...getState(achievement.id),
-    rewardBudget: 0,
   }));
 }

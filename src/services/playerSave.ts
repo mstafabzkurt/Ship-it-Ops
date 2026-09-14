@@ -40,6 +40,8 @@ interface PlayerSaveDatabaseRow {
   onboarding_completed: boolean;
   tutorial_completed: boolean;
   selected_interest_areas: unknown;
+  claimed_badge_reward_ids: unknown;
+  unseen_badge_ids: unknown;
 }
 
 export type PlayerSaveErrorKind = 'schema_missing' | 'unauthorized' | 'unavailable';
@@ -102,6 +104,8 @@ const mapDatabaseRow = (row: PlayerSaveDatabaseRow): PlayerSaveSnapshot => {
     onboardingCompleted: row.onboarding_completed,
     tutorialCompleted: row.tutorial_completed,
     selectedInterestAreas: row.selected_interest_areas,
+    claimedBadgeRewardIds: row.claimed_badge_reward_ids,
+    unseenBadgeIds: row.unseen_badge_ids,
   });
 };
 
@@ -131,12 +135,14 @@ const toDatabaseRow = (userId: string, save: PlayerSaveSnapshot) => ({
   onboarding_completed: save.onboardingCompleted,
   tutorial_completed: save.tutorialCompleted,
   selected_interest_areas: save.selectedInterestAreas,
+  claimed_badge_reward_ids: save.claimedBadgeRewardIds,
+  unseen_badge_ids: save.unseenBadgeIds,
 });
 
 export async function fetchMyPlayerSave(userId: string): Promise<PlayerSaveSnapshot | null> {
   const { data, error } = await supabase
     .from('player_saves')
-    .select('user_id, save_version, career_xp, reputation, company_budget, company_name, correct_answers, wrong_answers, ranking_success_count, ranking_partial_count, ranking_fail_count, ranking_timeout_count, ranking_legacy_positive_count, joker_inventory, owned_item_ids, owned_cosmetic_ids, equipped_avatar_id, equipped_avatar_frame_id, streak_days, streak_last_date, recent_question_ids, category_progress, onboarding_completed, tutorial_completed, selected_interest_areas')
+    .select('user_id, save_version, career_xp, reputation, company_budget, company_name, correct_answers, wrong_answers, ranking_success_count, ranking_partial_count, ranking_fail_count, ranking_timeout_count, ranking_legacy_positive_count, joker_inventory, owned_item_ids, owned_cosmetic_ids, equipped_avatar_id, equipped_avatar_frame_id, streak_days, streak_last_date, recent_question_ids, category_progress, onboarding_completed, tutorial_completed, selected_interest_areas, claimed_badge_reward_ids, unseen_badge_ids')
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw normalizeServiceError(error);
