@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AssetIcon from '../../src/components/AssetIcon';
@@ -23,6 +23,8 @@ import { supabase } from '../../src/supabase';
 import { fonts } from '../../src/theme/typography';
 import {
   getOperationReputationTarget,
+  getCategoryAttemptedCount,
+  getCategoryPassedOperationCount,
   getPassedOperationCount,
   getTierAttemptedCount,
   isTierUnlocked,
@@ -69,6 +71,22 @@ export default function PlayHubScreen() {
   const [focusedActionId, setFocusedActionId] = useState<GameCategoryId | null>(null);
   const [repeatInfoVisible, setRepeatInfoVisible] = useState(false);
   const [repeatInfoControlFocused, setRepeatInfoControlFocused] = useState(false);
+  const [search, setSearch] = useState('');
+  const [progressFilter, setProgressFilter] = useState<'all' | 'started' | 'completed'>('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<GameCategoryId | null>(null);
+  const [focusedBrowseControl, setFocusedBrowseControl] = useState<string | null>(null);
+  const isMobile = width < 680;
+  const visibleCategories = GAME_CATEGORIES.filter((category) => {
+    const matchesName = category.name.toLocaleLowerCase('tr-TR').includes(search.trim().toLocaleLowerCase('tr-TR'));
+    const completed = getCategoryPassedOperationCount(categoryProgress, category.id) === DIFFICULTY_STARS.length * 2;
+    const started = getCategoryAttemptedCount(categoryProgress, category.id) > 0
+      || getCategoryPassedOperationCount(categoryProgress, category.id) > 0;
+    return matchesName && (progressFilter === 'all' || (progressFilter === 'completed' ? completed : started && !completed));
+  });
+
+  useEffect(() => {
+    if (!isMobile || !isScreenFocused) setSelectedCategoryId(null);
+  }, [isMobile, isScreenFocused]);
 
   useFocusEffect(useCallback(() => {
     setIsScreenFocused(true);
@@ -184,14 +202,14 @@ export default function PlayHubScreen() {
       <View pointerEvents="none" style={styles.gridLineVertical} />
       <View pointerEvents="none" style={styles.gridLineHorizontal} />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={styles.container}>
             <View style={styles.header}>
               <View style={styles.headerCopy}>
-                <View style={styles.eyebrowChip}>
+                {!isMobile && <View style={styles.eyebrowChip}>
                   <View style={styles.liveDot} />
                   <Text style={styles.eyebrow}>AREA SELECTION</Text>
-                </View>
+                </View>}
                 <View style={styles.titleRow}>
                   <Text accessibilityRole="header" style={styles.title}>Oyun Merkezi</Text>
                   <Pressable
@@ -217,9 +235,9 @@ export default function PlayHubScreen() {
                     />
                   </Pressable>
                 </View>
-                <Text style={styles.description}>Disiplin seç, 10 soruluk operasyonlarda itibar hedefini geç ve yıldız kademelerini aç.</Text>
+                <Text style={styles.description}>{isMobile ? 'Dersini seç, operasyona hazırlan.' : 'Disiplin seç, 10 soruluk operasyonlarda itibar hedefini geç ve yıldız kademelerini aç.'}</Text>
               </View>
-              <View style={styles.hubStatus}>
+              {!isMobile && <View style={styles.hubStatus}>
                 <View style={styles.hubMetric}>
                   <Text style={styles.hubMetricLabel}>KAYITLI İLERLEME</Text>
                   <Text style={styles.hubMetricValue}>{hubProgress}/{HUB_PROGRESS_TOTAL}</Text>
@@ -229,7 +247,47 @@ export default function PlayHubScreen() {
                   <Text style={styles.hubMetricLabel}>AÇIK KADEME</Text>
                   <Text style={styles.hubMetricValue}>{unlockedTierCount}/{GAME_CATEGORIES.length * DIFFICULTY_STARS.length}</Text>
                 </View>
+              </View>}
+            </View>
+
+            <View style={styles.browseControls}>
+              <Text style={styles.browseLabel}>Ders ara</Text>
+              <View style={[styles.searchField, focusedBrowseControl === 'search' && styles.controlFocused]}>
+                <Ionicons name="search-outline" size={20} color={tokens.colors.textMuted} />
+                <TextInput
+                  accessibilityLabel="Ders ara"
+                  placeholder="Ders ara"
+                  placeholderTextColor={tokens.colors.textMuted}
+                  value={search}
+                  onChangeText={setSearch}
+                  onFocus={() => setFocusedBrowseControl('search')}
+                  onBlur={() => setFocusedBrowseControl(null)}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  returnKeyType="search"
+                  style={styles.searchInput}
+                />
+                {search.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel="Aramayı temizle" onPress={() => setSearch('')} style={styles.clearSearch}>
+                  <Ionicons name="close" size={20} color={tokens.colors.text} />
+                </Pressable>}
               </View>
+              <View style={styles.filterRow}>
+                {([{ id: 'all', label: 'Tümü' }, { id: 'started', label: 'Devam Eden' }, { id: 'completed', label: 'Tamamlanan' }] as const).map((filter) => (
+                  <Pressable
+                    key={filter.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: progressFilter === filter.id }}
+                    aria-pressed={progressFilter === filter.id}
+                    onPress={() => setProgressFilter(filter.id)}
+                    onFocus={() => setFocusedBrowseControl(filter.id)}
+                    onBlur={() => setFocusedBrowseControl(null)}
+                    style={({ pressed }) => [styles.filterChip, progressFilter === filter.id && styles.filterChipSelected, focusedBrowseControl === filter.id && styles.controlFocused, pressed && styles.browsePressed]}
+                  >
+                    <Text style={[styles.filterText, progressFilter === filter.id && styles.filterTextSelected]}>{filter.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text accessibilityLiveRegion="polite" style={styles.resultCount}>{visibleCategories.length}/{GAME_CATEGORIES.length} ders{progressFilter === 'completed' ? ' · 6/6 operasyon tamamlandı' : ''}</Text>
             </View>
 
             {loading ? (
@@ -250,7 +308,7 @@ export default function PlayHubScreen() {
             ) : null}
 
             <View style={styles.categoryGrid}>
-              {GAME_CATEGORIES.map((category) => {
+              {visibleCategories.map((category) => {
                 const tiers = DIFFICULTY_STARS.map((star) => {
                   const attempted = getTierAttemptedCount(categoryProgress, category.id, star);
                   const passedOperations = getPassedOperationCount(categoryProgress, category.id, star);
@@ -271,9 +329,35 @@ export default function PlayHubScreen() {
                 const fallbackPlayable = [...tiers].reverse().find((tier) => tier.playable);
                 const primaryTier = firstIncompletePlayable ?? fallbackPlayable;
                 const hasIncompleteContent = tiers.some((tier) => tier.unlocked && !tier.completeContent);
+                const completed = tiers.every((tier) => tier.passedOperations >= 2);
+                const compactStatus = loading ? 'Kontrol ediliyor' : !primaryTier && hasIncompleteContent ? 'Hazır Değil' : completed ? 'Tamamlandı' : totalAttempted > 0 ? 'Devam ediyor' : null;
 
                 return (
-                  <View key={category.id} style={styles.categoryCard}>
+                  <React.Fragment key={category.id}>
+                    {isMobile && <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${category.name}, ${totalAttempted}/${CATEGORY_PROGRESS_TOTAL} soru${compactStatus ? `, ${compactStatus}` : ''}`}
+                      accessibilityHint="Ders detaylarını ve oturum kademesini açar"
+                      accessibilityState={{ expanded: selectedCategoryId === category.id }}
+                      aria-expanded={selectedCategoryId === category.id}
+                      onPress={() => { setLockedTierFeedback(null); setSelectedCategoryId(category.id); }}
+                      onFocus={() => setFocusedBrowseControl(category.id)}
+                      onBlur={() => setFocusedBrowseControl(null)}
+                      style={({ pressed }) => [styles.compactCard, selectedCategoryId === category.id && styles.compactCardSelected, focusedBrowseControl === category.id && styles.controlFocused, pressed && styles.browsePressed, pressed && !reduceMotion && styles.compactCardPressed]}
+                    >
+                      <View style={styles.compactTopline}>
+                        <Ionicons name={category.icon} size={23} color={tokens.colors.secondary} />
+                        <Ionicons name="chevron-forward" size={16} color={tokens.colors.textMuted} />
+                      </View>
+                      <Text style={styles.compactTitle}>{category.name}</Text>
+                      <View style={styles.compactProgress}>
+                        <View style={styles.compactTrack}><View style={[styles.progressFill, { width: `${totalAttempted / CATEGORY_PROGRESS_TOTAL * 100}%` }]} /></View>
+                        <Text style={styles.compactCount}>{totalAttempted}/{CATEGORY_PROGRESS_TOTAL}</Text>
+                      </View>
+                      {compactStatus && <Text style={styles.compactStatus}>{compactStatus}</Text>}
+                    </Pressable>}
+                    {(!isMobile || selectedCategoryId === category.id) && <CategoryDetailSurface mobile={isMobile} reduceMotion={reduceMotion} styles={styles} onClose={() => setSelectedCategoryId(null)}>
+                  <View style={[styles.categoryCard, isMobile && styles.detailCard]}>
                     <View style={styles.cardRail} />
                     <View style={styles.categoryHeader}>
                       <View style={styles.categoryIdentity}>
@@ -335,6 +419,7 @@ export default function PlayHubScreen() {
                               </View>
                               <Text style={[styles.tierTitle, !tier.unlocked && styles.tierTextMuted]}>{DIFFICULTY_LABELS[tier.star]}</Text>
                               <Text style={styles.tierStatus}>{status}</Text>
+                              {isMobile && <Text style={styles.tierProgress}>{tier.attempted}/{QUESTIONS_PER_TIER} soru · {tier.passedOperations}/2 operasyon</Text>}
                             </>
                           );
                           if (!tier.unlocked && !loading) {
@@ -376,6 +461,7 @@ export default function PlayHubScreen() {
                     </View>
 
                     <View style={styles.actionSection}>
+                      {isMobile && <Text style={styles.detailHint}>Her kademede 2 operasyonu geç. Kolay operasyonlarında +{getOperationReputationTarget(1)}, Orta operasyonlarında +{getOperationReputationTarget(2)} itibar kazanarak sonraki kademeyi aç.</Text>}
                       {!primaryTier && !loading && hasIncompleteContent ? (
                         <View style={styles.availabilityNote}>
                           <Ionicons name="construct-outline" size={16} color={tokens.colors.warning} />
@@ -388,7 +474,7 @@ export default function PlayHubScreen() {
                         accessibilityHint={primaryTier ? '10 soruluk oyun oturumunu açar' : undefined}
                         accessibilityState={{ disabled: !primaryTier }}
                         disabled={!primaryTier}
-                        onPress={() => primaryTier && startSession(category.id, primaryTier.star)}
+                        onPress={() => { if (primaryTier) { setSelectedCategoryId(null); startSession(category.id, primaryTier.star); } }}
                         onHoverIn={() => setHoveredActionId(category.id)}
                         onHoverOut={() => setHoveredActionId(null)}
                         onFocus={() => setFocusedActionId(category.id)}
@@ -418,9 +504,18 @@ export default function PlayHubScreen() {
                       </Pressable>
                     </View>
                   </View>
+                    </CategoryDetailSurface>}
+                  </React.Fragment>
                 );
               })}
             </View>
+            {visibleCategories.length === 0 && <View style={styles.emptyState}>
+              <Text style={styles.categoryTitle}>Ders bulunamadı</Text>
+              <Text style={styles.description}>Aramanı veya ilerleme filtresini değiştir.</Text>
+              <Pressable accessibilityRole="button" onPress={() => { setSearch(''); setProgressFilter('all'); }} style={styles.filterChip}>
+                <Text style={styles.filterText}>Tüm dersleri göster</Text>
+              </Pressable>
+            </View>}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -435,6 +530,42 @@ export default function PlayHubScreen() {
         onClose={closeRepeatInfo}
       />
     </View>
+  );
+}
+
+function CategoryDetailSurface({ mobile, reduceMotion, styles, onClose, children }: {
+  mobile: boolean;
+  reduceMotion: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const opacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  useEffect(() => {
+    if (!mobile || reduceMotion) { opacity.setValue(1); return; }
+    const animation = Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [mobile, opacity, reduceMotion]);
+
+  if (!mobile) return <>{children}</>;
+  return (
+    <Modal transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+      <View style={styles.detailScrim}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Ders detayını kapat" onPress={onClose} style={StyleSheet.absoluteFill} />
+        <SafeAreaView pointerEvents="box-none" style={styles.detailSafeArea}>
+          <Animated.View accessibilityViewIsModal style={[styles.detailPanel, { opacity }]}>
+            <View style={styles.detailTopbar}>
+              <Text style={styles.browseLabel}>DERS DETAYI</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Derslere dön" onPress={onClose} style={({ pressed }) => [styles.detailClose, pressed && styles.browsePressed]}>
+                <Text style={styles.filterText}>Kapat</Text>
+              </Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>{children}</ScrollView>
+          </Animated.View>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -515,6 +646,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
   const { colors, radius, shadow } = tokens;
   const categoryWidth = width >= 1120 ? '32.2%' : width >= 680 ? '48%' : '100%';
   const isCalmLightTheme = tokens.effects.decorativeOpacity === 0;
+  const isMobile = width < 680;
   return StyleSheet.create({
     background: { flex: 1, backgroundColor: colors.canvas },
     safeArea: { flex: 1 },
@@ -542,7 +674,38 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     errorText: { ...tokens.type.bodySmall, flex: 1, minWidth: 190, fontFamily: fonts.bodyMedium, color: colors.text },
     retryButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: radius.sm, backgroundColor: colors.warning },
     retryText: { fontFamily: fonts.bodySemiBold, color: colors.onAccent },
-    categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: 'center', gap: tokens.layout.isCompact ? 10 : 18 },
+    browseControls: { gap: 8 },
+    browseLabel: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.textMuted },
+    searchField: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 12, paddingRight: 4, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.surface },
+    searchInput: { flex: 1, minWidth: 0, minHeight: 46, paddingVertical: 10, fontFamily: fonts.body, fontSize: 16, color: colors.text },
+    clearSearch: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    filterChip: { minHeight: 44, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.sm, backgroundColor: colors.secondarySurface },
+    filterChipSelected: { borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
+    filterText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 18, color: colors.text },
+    filterTextSelected: { color: colors.secondary },
+    resultCount: { fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 17, color: colors.textMuted },
+    browsePressed: { backgroundColor: colors.surfacePressed },
+    compactCard: { width: width < 340 ? '100%' : '48%', flexGrow: 0, minWidth: 0, minHeight: 152, gap: 9, padding: 12, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, backgroundColor: colors.surface },
+    compactCardSelected: { borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
+    compactCardPressed: { transform: [{ scale: 0.98 }] },
+    compactTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    compactTitle: { fontFamily: fonts.headingBold, fontSize: 15, lineHeight: 20, color: colors.text, minHeight: 40 },
+    compactProgress: { marginTop: 'auto', gap: 6 },
+    compactTrack: { height: 4, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.progressTrack },
+    compactCount: { fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 16, color: colors.text },
+    compactStatus: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 16, color: colors.textMuted },
+    detailScrim: { flex: 1, backgroundColor: colors.overlayScrim },
+    detailSafeArea: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 10, paddingTop: 12 },
+    detailPanel: { maxHeight: '95%', overflow: 'hidden', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.lg, backgroundColor: colors.surface, ...shadow.raised },
+    detailTopbar: { minHeight: 52, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle },
+    detailClose: { minHeight: 44, minWidth: 64, justifyContent: 'center', alignItems: 'center', borderRadius: radius.sm },
+    detailContent: { paddingBottom: 12 },
+    detailCard: { width: '100%', borderWidth: 0, borderRadius: 0, shadowOpacity: 0, elevation: 0 },
+    detailHint: { paddingHorizontal: 4, fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: colors.textMuted },
+    tierProgress: { marginTop: 5, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.text },
+    emptyState: { alignItems: 'flex-start', gap: 12, paddingVertical: 20 },
+    categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: isMobile ? 'space-between' : 'center', gap: isMobile ? 10 : 18 },
     categoryCard: { width: categoryWidth, minWidth: 0, overflow: 'hidden', borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.lg, backgroundColor: colors.surface, ...shadow.card },
     cardRail: { height: 3, backgroundColor: colors.secondary, opacity: 0.72 },
     categoryHeader: { padding: tokens.layout.isCompact ? 10 : 16, borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle },
@@ -560,18 +723,18 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     tierStrip: { flexDirection: 'row', alignItems: 'stretch', gap: 6 },
     tierCell: { flex: 1, minWidth: 0, minHeight: tokens.layout.isCompact ? 68 : 76, paddingHorizontal: tokens.layout.isCompact ? 7 : 9, paddingVertical: tokens.layout.isCompact ? 7 : 9, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised },
     tierCellPrimary: { borderColor: colors.secondary, backgroundColor: colors.secondarySoft },
-    tierCellLocked: { opacity: 0.56, backgroundColor: colors.secondarySurface },
+    tierCellLocked: { opacity: isMobile ? 1 : 0.56, backgroundColor: colors.secondarySurface },
     tierCellIncomplete: { borderColor: colors.warning, backgroundColor: colors.warningSoft },
-    tierTopline: { minHeight: tokens.layout.isCompact ? 15 : 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 3 },
+    tierTopline: { minHeight: tokens.layout.isCompact ? 15 : 16, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 3 },
     starLabel: { flexShrink: 1, fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isNarrow ? 10 : 11, lineHeight: 15, color: colors.warning },
     tierTextMuted: { color: colors.textMuted },
     tierTitle: { marginTop: tokens.layout.isCompact ? 1 : 2, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: tokens.layout.isCompact ? 17 : 18, color: colors.text },
-    tierStatus: { marginTop: tokens.layout.isCompact ? 2 : 3, fontFamily: fonts.body, fontSize: tokens.layout.isCompact ? 10 : 9, lineHeight: 13, color: colors.textMuted },
+    tierStatus: { marginTop: tokens.layout.isCompact ? 2 : 3, fontFamily: fonts.body, fontSize: isMobile ? 12 : 9, lineHeight: isMobile ? 17 : 13, color: colors.textMuted },
     lockedTierFeedback: { minHeight: 48, flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 9, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.sm, backgroundColor: colors.warningSoft },
     lockedTierFeedbackCopy: { flex: 1, minWidth: 0, gap: 2 },
     lockedTierFeedbackText: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.text },
     lockedTierFeedbackTarget: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, color: colors.textMuted },
-    nextBadge: { alignSelf: 'flex-start', paddingHorizontal: tokens.layout.isCompact ? 5 : 6, paddingVertical: 2, overflow: 'hidden', borderRadius: radius.pill, fontFamily: fonts.monoSemiBold, fontSize: tokens.layout.isCompact ? 9 : 8, lineHeight: 11, letterSpacing: 0.35, color: colors.secondary, backgroundColor: colors.secondarySoft },
+    nextBadge: { alignSelf: 'flex-start', flexShrink: 0, paddingHorizontal: tokens.layout.isCompact ? 5 : 6, paddingVertical: 2, overflow: 'hidden', borderRadius: radius.pill, fontFamily: fonts.monoSemiBold, fontSize: tokens.layout.isCompact ? 9 : 8, lineHeight: 11, letterSpacing: 0.35, color: colors.secondary, backgroundColor: colors.secondarySoft },
     actionSection: { marginTop: 'auto', gap: tokens.layout.isCompact ? 6 : 8, padding: tokens.layout.isCompact ? 8 : 12, paddingTop: tokens.layout.isCompact ? 0 : 2 },
     availabilityNote: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 4 },
     availabilityText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted },
