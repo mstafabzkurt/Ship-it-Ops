@@ -37,6 +37,7 @@ import {
   type InterestAreaId,
 } from '../../utils/onboarding';
 import { COMPANY_NAME_MAX_LENGTH } from '../../utils/companyNameValidation';
+import { suggestCompanyName } from '../../utils/companyNameSuggestions';
 import { trackEvent } from '../../utils/telemetry';
 import CosmeticPreview from '../cosmetics/CosmeticPreview';
 import { getDashboardTokens } from '../dashboard/dashboardTokens';
@@ -44,7 +45,6 @@ import { getDashboardTokens } from '../dashboard/dashboardTokens';
 export default function OnboardingExperience() {
   const { user } = useAuth();
   const {
-    companyName,
     completeOnboarding,
     equippedAvatarFrameId,
     equippedAvatarId,
@@ -59,7 +59,7 @@ export default function OnboardingExperience() {
   const starterFrames = useMemo(() => getStarterFrames(ownedCosmeticIds), [ownedCosmeticIds]);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [themeDraft, setThemeDraft] = useState<Theme['id']>(themeId);
-  const [companyDraft, setCompanyDraft] = useState(companyName);
+  const [companyDraft, setCompanyDraft] = useState('');
   const [avatarDraft, setAvatarDraft] = useState<AvatarCosmeticId>(
     starterAvatars.some((item) => item.id === equippedAvatarId)
       ? equippedAvatarId
@@ -330,23 +330,39 @@ function renderOnboardingStep(options: OnboardingStepRenderOptions) {
       <View style={styles.stepBlock}>
         <StepHeading icon="business-outline" title="Şirketini kur" styles={styles} tokens={tokens} />
         <Text style={styles.inputLabel}>Şirket adı</Text>
-        <TextInput
-          accessibilityLabel="Şirket adı"
-          accessibilityHint={`En fazla ${COMPANY_NAME_MAX_LENGTH} karakter. ${options.companyMessage}`}
-          autoCapitalize="words"
-          autoCorrect={false}
-          maxLength={COMPANY_NAME_MAX_LENGTH}
-          onChangeText={options.setCompanyDraft}
-          placeholder="Örn. Neon Stack"
-          placeholderTextColor={tokens.colors.textMuted}
-          returnKeyType="done"
-          style={[
-            styles.input,
-            (options.companyStatus === 'available' || options.companyStatus === 'saved') && styles.inputAvailable,
-            (options.companyStatus === 'invalid' || options.companyStatus === 'unavailable' || options.companyStatus === 'error') && styles.inputError,
-          ]}
-          value={options.companyDraft}
-        />
+        <View style={styles.companyInputRow}>
+          <TextInput
+            accessibilityLabel="Şirket adı"
+            accessibilityHint={`En fazla ${COMPANY_NAME_MAX_LENGTH} karakter. ${options.companyMessage}`}
+            autoCapitalize="words"
+            autoCorrect={false}
+            maxLength={COMPANY_NAME_MAX_LENGTH}
+            onChangeText={options.setCompanyDraft}
+            placeholder="Şirket adını yaz"
+            placeholderTextColor={tokens.colors.textMuted}
+            returnKeyType="done"
+            style={[
+              styles.input,
+              (options.companyStatus === 'available' || options.companyStatus === 'saved') && styles.inputAvailable,
+              (options.companyStatus === 'invalid' || options.companyStatus === 'unavailable' || options.companyStatus === 'error') && styles.inputError,
+            ]}
+            value={options.companyDraft}
+          />
+          <Pressable
+            accessibilityLabel="Rastgele şirket adı seç"
+            accessibilityRole="button"
+            onPress={() => options.setCompanyDraft(suggestCompanyName(options.companyDraft))}
+            style={({ pressed }) => [styles.randomCompanyButton, pressed && styles.pressed]}
+          >
+            <Ionicons
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              name="dice-outline"
+              size={22}
+              color={tokens.colors.text}
+            />
+          </Pressable>
+        </View>
         <View style={styles.inputMeta}>
           <View style={styles.companyStatusSlot}>
             <CompanyNameStatus
@@ -683,7 +699,9 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     stepHeading: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
     headingIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.primarySoft },
     inputLabel: { marginTop: 20, marginBottom: 8, color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18 },
-    input: { minHeight: 52, width: '100%', paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.secondarySurface, color: colors.text, fontFamily: fonts.bodyMedium, fontSize: 16 },
+    companyInputRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 8 },
+    input: { minHeight: 52, flex: 1, minWidth: 0, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.secondarySurface, color: colors.text, fontFamily: fonts.bodyMedium, fontSize: 16 },
+    randomCompanyButton: { width: 48, minHeight: 52, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.secondarySurface },
     inputAvailable: { borderColor: colors.success, backgroundColor: colors.successSoft },
     inputError: { borderColor: colors.danger },
     inputMeta: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 7 },
