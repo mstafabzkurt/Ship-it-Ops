@@ -1,4 +1,5 @@
 import type { AchievementId } from '../config/achievements';
+import { clampBudget } from './budget';
 
 export interface BadgeRewardCandidate {
   id: AchievementId;
@@ -37,7 +38,7 @@ export function planBadgeRewardGrants({
   const budgetRewardTotal = newlyRewarded.reduce((total, badge) => total + badge.budgetReward, 0);
 
   return {
-    budget: budget + budgetRewardTotal,
+    budget: clampBudget(budget + budgetRewardTotal),
     claimedBadgeRewardIds: uniqueIds([...claimedBadgeRewardIds, ...newlyRewardedBadgeIds]),
     unseenBadgeIds: uniqueIds([...unseenBadgeIds, ...newlyRewardedBadgeIds]),
     newlyRewardedBadgeIds,

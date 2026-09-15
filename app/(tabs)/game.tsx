@@ -53,6 +53,7 @@ import {
   deriveGameSessionTotals,
   canUseRollbackOnResult,
   isCompleteGameSession,
+  isCurrentGameSessionResult,
   type GameSessionResult,
   type GameSessionTotals,
 } from '../../src/utils/gameSession';
@@ -425,10 +426,6 @@ export default function GameScreen() {
   }, []);
 
   useEffect(() => {
-    advancingRef.current = false;
-  }, [incident?.id]);
-
-  useEffect(() => {
     sessionResultsRef.current = [];
     sessionCompletionRef.current = null;
     sessionCommittedRef.current = false;
@@ -443,6 +440,9 @@ export default function GameScreen() {
     [sessionResults],
   );
   const sessionReputation = sessionTotals.reputationDelta;
+  const currentResolvedResult = incident
+    ? sessionResults.find((result) => result.questionId === incident.id)
+    : undefined;
 
   useEffect(() => {
     confirmationTransition.stopAnimation();
@@ -544,7 +544,7 @@ export default function GameScreen() {
 
   const resolveTimeout = useCallback(() => {
     const currentIncident = incidentRef.current;
-    if (resolvingRef.current || !currentIncident) return;
+    if (resolvingRef.current || !currentIncident || !categoryId || !difficultyStar) return;
     resolvingRef.current = true;
     selectedChoiceRef.current = null;
     setSelectedChoice(null);
@@ -552,7 +552,6 @@ export default function GameScreen() {
     setIsOutcomePending(true);
     setIsAnswered(true);
     setTimedOut(true);
-    if (!categoryId || !difficultyStar) return;
     const previousUptimeStreak = sessionUptimeStreakRef.current;
     if (!attemptedQuestionIdsRef.current.includes(currentIncident.id)) attemptedQuestionIdsRef.current = [...attemptedQuestionIdsRef.current, currentIncident.id];
     const reward = getCategoryReward(difficultyStar, 'timeout');
@@ -730,7 +729,7 @@ export default function GameScreen() {
 
   const handleChoice = useCallback((choice: IncidentChoice) => {
     const currentIncident = incidentRef.current;
-    if (resolvingRef.current || outcomePendingRef.current || !currentIncident) return;
+    if (resolvingRef.current || outcomePendingRef.current || !currentIncident || !categoryId || !difficultyStar) return;
     stopTimer();
     resolvingRef.current = true;
     selectedChoiceRef.current = null;
@@ -739,7 +738,6 @@ export default function GameScreen() {
     setIsOutcomePending(true);
     setIsAnswered(true);
     setActiveChoice(choice);
-    if (!categoryId || !difficultyStar) return;
     const choiceOutcome = getCategoryChoiceOutcome(choice.tier);
     const isCorrect = choiceOutcome === 'success';
     const isRepeatCorrect = isCorrect && solvedCorrectQuestionIdsRef.current.includes(currentIncident.id);
@@ -807,42 +805,52 @@ export default function GameScreen() {
     if (outcomePendingRef.current || advancingRef.current) return;
     const currentIncident = incidentRef.current;
     if (!currentIncident) return;
+    if (!isCurrentGameSessionResult(currentIncident.id, currentResolvedResult, sessionResultsRef.current)) return;
     if (!isCompleteGameSession(sessionResultsRef.current)) return;
 
     advancingRef.current = true;
-    stopTimer();
-    if (!sessionCompletionRef.current) {
-      commitResolvedSession(sessionResultsRef.current);
-    }
-    if (!sessionCompletionRef.current) {
-      advancingRef.current = false;
-      return;
-    }
+    try {
+      stopTimer();
+      if (!sessionCompletionRef.current) {
+        commitResolvedSession(sessionResultsRef.current);
+      }
+      if (!sessionCompletionRef.current) return;
 
-    incidentRef.current = null;
-    setIncident(null);
-    setChoices([]);
-  }, [commitResolvedSession, stopTimer]);
+      setJokerOverlayQueue([]);
+      incidentRef.current = null;
+      setIncident(null);
+      setChoices([]);
+    } finally {
+      advancingRef.current = false;
+    }
+  }, [commitResolvedSession, currentResolvedResult, stopTimer]);
 
   const handleNextScenario = useCallback(() => {
     if (outcomePendingRef.current || advancingRef.current) return;
     const currentIncident = incidentRef.current;
     if (!currentIncident || sessionQuestionIdsRef.current.length >= SESSION_QUESTION_COUNT) return;
+    if (!isCurrentGameSessionResult(currentIncident.id, currentResolvedResult, sessionResultsRef.current)) return;
 
     advancingRef.current = true;
-    questionTransition.stopAnimation();
-    questionTransition.setValue(reduceMotion ? 1 : 0);
-    chooseIncident(incidentsRef.current, sessionQuestionIdsRef.current);
+    try {
+      setJokerOverlayQueue([]);
+      questionTransition.stopAnimation();
+      questionTransition.setValue(reduceMotion ? 1 : 0);
+      chooseIncident(incidentsRef.current, sessionQuestionIdsRef.current);
 
-    if (!reduceMotion) {
-      Animated.timing(questionTransition, {
-        toValue: 1,
-        duration: 190,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+      if (!reduceMotion) {
+        Animated.timing(questionTransition, {
+          toValue: 1,
+          duration: 190,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start(() => questionTransition.setValue(1));
+      }
+    } finally {
+      // Question selection is synchronous; animation callbacks never own this lock.
+      advancingRef.current = false;
     }
-  }, [chooseIncident, questionTransition, reduceMotion]);
+  }, [chooseIncident, currentResolvedResult, questionTransition, reduceMotion]);
 
   const handleExit = useCallback(() => {
     if (!incidentRef.current || sessionCommittedRef.current) {
@@ -981,9 +989,6 @@ export default function GameScreen() {
   }, [categoryId, consumeServerScaleUp, difficultyStar, isAnswered, isScaleUpUsed, queueJokerOverlay, serverScaleUp]);
 
   const failedChoiceSelected = Boolean(activeChoice && activeChoice.tier !== 'optimal');
-  const currentResolvedResult = incident
-    ? sessionResults.find((result) => result.questionId === incident.id)
-    : undefined;
   const canUseGitRevert = isAnswered
     && !isOutcomePending
     && !sessionCommittedRef.current
@@ -995,6 +1000,7 @@ export default function GameScreen() {
   const handleGitRevert = useCallback(() => {
     const currentIncident = incidentRef.current;
     if (!canUseGitRevert || !currentIncident || !currentResolvedResult || !categoryId || !difficultyStar || !resolvingRef.current || lifelineUseLocksRef.current.has('gitRevert')) return;
+    if (outcomePendingRef.current || advancingRef.current || !isCurrentGameSessionResult(currentIncident.id, currentResolvedResult, sessionResultsRef.current)) return;
     lifelineUseLocksRef.current.add('gitRevert');
     queueJokerOverlay('gitRevert', 'arrow-undo', JOKER_DISPLAY.gitRevert.name, gitRevert);
     consumeGitRevert();
@@ -1014,6 +1020,8 @@ export default function GameScreen() {
     setIsReverted(true);
     setRevertedChoiceId(activeChoice?.id ?? null);
     setActiveChoice(null);
+    selectedChoiceRef.current = null;
+    setSelectedChoice(null);
     setTimedOut(false);
     resolvingRef.current = false;
     setIsAnswered(false);
@@ -1032,6 +1040,7 @@ export default function GameScreen() {
 
   const handleSnapshotBackup = useCallback(() => {
     if (!canUseSnapshotBackup || lostStreakRef.current <= 0 || lifelineUseLocksRef.current.has('snapshotBackup')) return;
+    if (outcomePendingRef.current || advancingRef.current || !isCurrentGameSessionResult(incidentRef.current?.id ?? null, currentResolvedResult, sessionResultsRef.current)) return;
     lifelineUseLocksRef.current.add('snapshotBackup');
     queueJokerOverlay('snapshotBackup', 'camera-outline', JOKER_DISPLAY.snapshotBackup.name, snapshotBackup);
     const currentResult = currentResolvedResult;

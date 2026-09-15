@@ -1,10 +1,12 @@
+import { clampBudget } from './budget';
+
 // "$48.200" gibi formatlar — tr-TR locale binlik ayıracı nokta kullanır.
 export function formatCurrency(value: number): string {
   return '$' + value.toLocaleString('tr-TR');
 }
 
 export function formatBudget(value: number): string {
-  return value.toLocaleString('tr-TR');
+  return clampBudget(value).toLocaleString('tr-TR');
 }
 
 export function formatScore(value: number): string {

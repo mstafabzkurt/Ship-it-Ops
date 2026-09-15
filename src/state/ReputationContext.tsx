@@ -77,6 +77,7 @@ import type { DifficultyStar, GameCategoryId } from '../config/gameCategories';
 import type { CategoryQuestionId } from '../utils/categoryQuestions';
 import { deriveAchievements, type DerivedAchievement } from '../utils/achievements';
 import { planBadgeRewardGrants } from '../utils/badgeRewards';
+import { clampBudget } from '../utils/budget';
 import {
   createSkippedOnboardingSelection,
   normalizeInterestAreas,
@@ -914,12 +915,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     budget: budgetRef.current,
   }), []);
   const restoreOutcomeRollbackSnapshot = useCallback((snapshot: OutcomeRollbackSnapshot) => {
+    const restoredBudget = clampBudget(snapshot.budget);
     careerXpRef.current = snapshot.careerXp;
     scoreRef.current = snapshot.reputation;
-    budgetRef.current = snapshot.budget;
+    budgetRef.current = restoredBudget;
     setCareerXp(snapshot.careerXp);
     setScore(snapshot.reputation);
-    setBudget(snapshot.budget);
+    setBudget(restoredBudget);
   }, []);
   const addBudget = (amount: number) => applyDelta(0, 0, amount);
   const dismissBadge = () => setPendingBadges((prev) => prev.slice(1));

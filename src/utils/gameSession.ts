@@ -13,6 +13,7 @@ import {
   type OperationSessionCompletion,
 } from './categoryProgress';
 import type { CategoryQuestionId } from './categoryQuestions';
+import { clampBudget } from './budget';
 import {
   recordRankingOutcome,
   type RankingOutcome,
@@ -134,6 +135,17 @@ export function canUseRollbackOnResult(
   return inventoryCount > 0 && Boolean(result) && result?.outcome !== 'success';
 }
 
+/** Reject presses from a result panel replaced by Next or invalidated by Rollback. */
+export function isCurrentGameSessionResult(
+  questionId: CategoryQuestionId | null,
+  displayedResult: GameSessionResult | undefined,
+  results: readonly GameSessionResult[],
+): boolean {
+  return Boolean(displayedResult)
+    && displayedResult?.questionId === questionId
+    && results.some((result) => result === displayedResult);
+}
+
 export function planCompletedGameSession({
   permanentState,
   session,
@@ -149,7 +161,7 @@ export function planCompletedGameSession({
   const totals = deriveGameSessionTotals(orderedResults, session.initialUptimeStreak);
   let careerXp = permanentState.careerXp;
   let reputation = permanentState.reputation;
-  let budget = permanentState.budget;
+  let budget = clampBudget(permanentState.budget);
   let rankingOutcomeStats = permanentState.rankingOutcomeStats;
   let categoryProgress = permanentState.categoryProgress;
 
@@ -202,7 +214,7 @@ export function planCompletedGameSession({
     permanentState: {
       careerXp,
       reputation,
-      budget,
+      budget: clampBudget(budget),
       correctAnswers: permanentState.correctAnswers + totals.correctCount,
       wrongAnswers: permanentState.wrongAnswers + totals.wrongCount,
       rankingOutcomeStats,

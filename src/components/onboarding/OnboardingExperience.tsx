@@ -9,7 +9,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +21,7 @@ import {
   type AvatarFrameCosmeticId,
 } from '../../config/cosmetics';
 import { useCompanyNameAvailability } from '../../hooks/useCompanyNameAvailability';
+import { useOnboardingViewport } from '../../hooks/useOnboardingViewport';
 import type { CompanyNameAvailabilityStatus } from '../../services/companyName';
 import { useAuth } from '../../state/AuthContext';
 import { useReputation } from '../../state/ReputationContext';
@@ -54,7 +54,7 @@ export default function OnboardingExperience() {
     skipOnboarding,
   } = useReputation();
   const { theme, themeId, setThemeId } = useTheme();
-  const { width } = useWindowDimensions();
+  const { width, height } = useOnboardingViewport();
   const starterAvatars = useMemo(() => getStarterAvatars(ownedCosmeticIds), [ownedCosmeticIds]);
   const starterFrames = useMemo(() => getStarterFrames(ownedCosmeticIds), [ownedCosmeticIds]);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -81,7 +81,7 @@ export default function OnboardingExperience() {
   const showOnboarding = !onboardingCompleted;
   const previewTheme = onboardingStep === 2 ? THEMES[themeDraft] : theme;
   const tokens = useMemo(() => getDashboardTokens(previewTheme, width), [previewTheme, width]);
-  const styles = useMemo(() => makeStyles(tokens, width), [tokens, width]);
+  const styles = useMemo(() => makeStyles(tokens, width, height), [tokens, width, height]);
   const companyAvailability = useCompanyNameAvailability(companyDraft, {
     enabled: onboardingStep === 1,
   });
@@ -187,97 +187,100 @@ export default function OnboardingExperience() {
               </View>
 
               <ScrollView
+                style={styles.scroll}
                 contentContainerStyle={styles.content}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                {renderOnboardingStep({
-                  avatarDraft,
-                  companyDraft,
-                  companyError,
-                  companyMessage: companySubmissionFeedback?.message ?? companyAvailability.message,
-                  companyStatus: companySubmissionFeedback?.status ?? companyAvailability.status,
-                  retryCompanyCheck: () => {
-                    setCompanySubmissionFeedback(null);
-                    companyAvailability.retry();
-                  },
-                  frameDraft,
-                  interestDraft,
-                  onboardingStep,
-                  setAvatarDraft,
-                  setCompanyDraft: (value) => {
-                    setCompanyDraft(value);
-                    if (companyError) setCompanyError('');
-                    if (companySubmissionFeedback) setCompanySubmissionFeedback(null);
-                  },
-                  setFrameDraft,
-                  setInterestDraft,
-                  setThemeDraft,
-                  starterAvatars,
-                  starterFrames,
-                  styles,
-                  themeDraft,
-                  tokens,
-                  width,
-                })}
-              </ScrollView>
+                <View style={styles.stepContent}>
+                  {renderOnboardingStep({
+                    avatarDraft,
+                    companyDraft,
+                    companyError,
+                    companyMessage: companySubmissionFeedback?.message ?? companyAvailability.message,
+                    companyStatus: companySubmissionFeedback?.status ?? companyAvailability.status,
+                    retryCompanyCheck: () => {
+                      setCompanySubmissionFeedback(null);
+                      companyAvailability.retry();
+                    },
+                    frameDraft,
+                    interestDraft,
+                    onboardingStep,
+                    setAvatarDraft,
+                    setCompanyDraft: (value) => {
+                      setCompanyDraft(value);
+                      if (companyError) setCompanyError('');
+                      if (companySubmissionFeedback) setCompanySubmissionFeedback(null);
+                    },
+                    setFrameDraft,
+                    setInterestDraft,
+                    setThemeDraft,
+                    starterAvatars,
+                    starterFrames,
+                    styles,
+                    themeDraft,
+                    tokens,
+                    width,
+                  })}
+                </View>
 
-              <View style={styles.footer}>
-                {onboardingStep === 0 ? (
+                <View style={styles.footer}>
+                  {onboardingStep === 0 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: isSavingCompany }}
+                      disabled={isSavingCompany}
+                      onPress={skipCurrentOnboarding}
+                      style={({ pressed }) => [styles.secondaryButton, isSavingCompany && styles.controlDisabled, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Atla</Text>
+                    </Pressable>
+                  ) : onboardingStep > 0 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: isSavingCompany }}
+                      disabled={isSavingCompany}
+                      onPress={() => setOnboardingStep((step) => Math.max(0, step - 1))}
+                      style={({ pressed }) => [styles.secondaryButton, isSavingCompany && styles.controlDisabled, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Geri</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: isSavingCompany }}
-                    disabled={isSavingCompany}
-                    onPress={skipCurrentOnboarding}
-                    style={({ pressed }) => [styles.secondaryButton, isSavingCompany && styles.controlDisabled, pressed && styles.pressed]}
+                    accessibilityState={{
+                      busy: isSavingCompany,
+                      disabled: companyStepBlocked || isSavingCompany,
+                    }}
+                    disabled={companyStepBlocked || isSavingCompany}
+                    onPress={() => void advanceOnboarding()}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      (companyStepBlocked || isSavingCompany) && styles.primaryButtonDisabled,
+                      pressed && styles.primaryPressed,
+                    ]}
                   >
-                    <Text style={styles.secondaryButtonText}>Atla</Text>
+                    <Text style={styles.primaryButtonText}>
+                      {isSavingCompany
+                        ? 'Şirket adı kaydediliyor...'
+                        : onboardingStep === 0
+                        ? 'Başlayalım'
+                        : onboardingStep === 2
+                          ? 'Bu temayla devam et'
+                          : onboardingStep === ONBOARDING_STEP_COUNT - 1
+                            ? 'Sistemi Başlat'
+                            : 'Devam et'}
+                    </Text>
+                    <Ionicons
+                      accessibilityElementsHidden
+                      color={tokens.colors.onAccent}
+                      importantForAccessibility="no-hide-descendants"
+                      name={onboardingStep === ONBOARDING_STEP_COUNT - 1 ? 'play' : 'arrow-forward'}
+                      size={18}
+                    />
                   </Pressable>
-                ) : onboardingStep > 0 ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: isSavingCompany }}
-                    disabled={isSavingCompany}
-                    onPress={() => setOnboardingStep((step) => Math.max(0, step - 1))}
-                    style={({ pressed }) => [styles.secondaryButton, isSavingCompany && styles.controlDisabled, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.secondaryButtonText}>Geri</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    busy: isSavingCompany,
-                    disabled: companyStepBlocked || isSavingCompany,
-                  }}
-                  disabled={companyStepBlocked || isSavingCompany}
-                  onPress={() => void advanceOnboarding()}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    (companyStepBlocked || isSavingCompany) && styles.primaryButtonDisabled,
-                    pressed && styles.primaryPressed,
-                  ]}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {isSavingCompany
-                      ? 'Şirket adı kaydediliyor...'
-                      : onboardingStep === 0
-                      ? 'Başlayalım'
-                      : onboardingStep === 2
-                        ? 'Bu temayla devam et'
-                        : onboardingStep === ONBOARDING_STEP_COUNT - 1
-                          ? 'Sistemi Başlat'
-                          : 'Devam et'}
-                  </Text>
-                  <Ionicons
-                    accessibilityElementsHidden
-                    color={tokens.colors.onAccent}
-                    importantForAccessibility="no-hide-descendants"
-                    name={onboardingStep === ONBOARDING_STEP_COUNT - 1 ? 'play' : 'arrow-forward'}
-                    size={18}
-                  />
-                </Pressable>
-              </View>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -612,14 +615,19 @@ function StepHeading({ icon, styles, title, tokens }: {
   );
 }
 
-function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number) {
+function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number, height: number) {
   const { colors, radius } = tokens;
   const desktop = width >= 700;
   return StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: colors.canvas },
-    keyboardArea: { flex: 1 },
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+      ...(Platform.OS === 'web' ? { flex: undefined, height, maxHeight: '100%' as const, minHeight: 0 } : {}),
+    },
+    keyboardArea: { flex: 1, minHeight: 0 },
     centerer: {
       flex: 1,
+      minHeight: 0,
       alignItems: 'center',
       justifyContent: 'center',
       padding: desktop ? 24 : 0,
@@ -628,9 +636,11 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     panel: {
       flex: desktop ? undefined : 1,
       width: getOnboardingPanelWidth(width),
+      minWidth: 0,
+      flexShrink: 1,
       maxWidth: 640,
-      maxHeight: desktop ? 760 : undefined,
-      minHeight: desktop ? 600 : undefined,
+      maxHeight: desktop ? Math.min(760, Math.max(0, height - 48)) : '100%',
+      minHeight: desktop ? Math.min(600, Math.max(0, height - 48)) : 0,
       overflow: 'hidden',
       borderRadius: desktop ? radius.lg : 0,
       borderWidth: desktop ? 1 : 0,
@@ -656,7 +666,9 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     skipText: { color: colors.textMuted, fontFamily: fonts.bodySemiBold, fontSize: 14 },
     progressTrack: { height: 3, backgroundColor: colors.secondarySurfaceRaised },
     progressFill: { height: 3, backgroundColor: colors.secondary },
-    content: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingVertical: desktop ? 32 : 24 },
+    scroll: { flex: 1, minHeight: 0, width: '100%' },
+    content: { flexGrow: 1 },
+    stepContent: { flexGrow: 1, flexShrink: 0, justifyContent: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingVertical: desktop ? 32 : 24 },
     stepBlock: { width: '100%', maxWidth: 520, alignSelf: 'center' },
     intro: { width: '100%', maxWidth: 500, alignSelf: 'center', alignItems: 'center', paddingVertical: 12 },
     heroIcon: { width: 80, height: 80, alignItems: 'center', justifyContent: 'center', marginBottom: 24, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.primarySoft },
@@ -707,13 +719,13 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     choiceIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised },
     choiceIconSelected: { backgroundColor: colors.surfaceHighlight },
     note: { marginTop: 12, color: colors.textMuted, fontFamily: fonts.body, fontSize: 11, lineHeight: 17 },
-    footer: { minHeight: 84, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, paddingHorizontal: tokens.layout.pageGutter, paddingVertical: 14, borderTopWidth: 1, borderTopColor: colors.dividerSubtle, backgroundColor: colors.secondarySurface },
+    footer: { minHeight: 84, flexShrink: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: 10, paddingHorizontal: tokens.layout.pageGutter, paddingVertical: 14, borderTopWidth: 1, borderTopColor: colors.dividerSubtle, backgroundColor: colors.secondarySurface },
     secondaryButton: { minWidth: 84, minHeight: 52, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
     secondaryButtonText: { color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 14 },
-    primaryButton: { minWidth: tokens.layout.isNarrow ? 150 : 174, minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 18, borderRadius: radius.sm, backgroundColor: colors.primary },
+    primaryButton: { minWidth: tokens.layout.isNarrow ? 150 : 174, maxWidth: '100%', minHeight: 52, flexShrink: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 18, borderRadius: radius.sm, backgroundColor: colors.primary },
     primaryButtonDisabled: { opacity: 0.45 },
     controlDisabled: { opacity: 0.45 },
-    primaryButtonText: { color: colors.onAccent, fontFamily: fonts.bodySemiBold, fontSize: 14 },
+    primaryButtonText: { flexShrink: 1, textAlign: 'center', color: colors.onAccent, fontFamily: fonts.bodySemiBold, fontSize: 14 },
     pressed: { opacity: 0.72 },
     primaryPressed: tokens.motion.pressed,
   });

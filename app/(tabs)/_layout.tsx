@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
@@ -22,10 +22,11 @@ export default function TabsLayout() {
   return (
     <Tabs
       initialRouteName="index"
-      screenOptions={{
+      screenOptions={({ navigation }) => ({
         headerShown: false,
         tabBarActiveTintColor: tokens.colors.secondary,
         tabBarInactiveTintColor: tokens.colors.textMuted,
+        tabBarLabelPosition: 'beside-icon',
         tabBarStyle: {
           backgroundColor: tokens.colors.surface,
           borderTopColor: tokens.colors.border,
@@ -33,18 +34,37 @@ export default function TabsLayout() {
           height: tokens.layout.tabBarHeight + bottomInset,
           paddingTop: tokens.spacing.sm,
           paddingBottom: bottomInset,
+          paddingHorizontal: Math.max(insets.left, insets.right, tokens.spacing.sm),
         },
-        tabBarLabelStyle: {
-          fontFamily: fonts.bodySemiBold,
-          fontSize: width <= 430 ? 10 : fontSizes.sm,
+        tabBarLabel: ({ focused, color, children }) => focused ? (
+          <Text
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.2}
+            style={[styles.activeLabel, { color, marginLeft: tokens.spacing.xs }]}
+          >
+            {children}
+          </Text>
+        ) : null,
+        tabBarItemStyle: {
+          // Reserve room for the selected label while keeping six comfortable targets.
+          flex: navigation.isFocused() ? 2.6 : 1,
+          minWidth: 44,
+          maxWidth: navigation.isFocused() ? 160 : 64,
+          height: tokens.control.height,
+          alignSelf: 'center',
+          marginHorizontal: 'auto',
+          borderRadius: tokens.radius.pill,
+          borderWidth: 1,
+          borderColor: navigation.isFocused() ? tokens.colors.borderStrong : 'transparent',
+          backgroundColor: navigation.isFocused() ? tokens.colors.secondarySoft : 'transparent',
         },
-        tabBarItemStyle: { minWidth: 0 },
-      }}
+      })}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Ana Sayfa',
+          tabBarAccessibilityLabel: 'Ana Sayfa',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'home' : 'home-outline'} color={color} size={22} />,
         }}
       />
@@ -52,7 +72,8 @@ export default function TabsLayout() {
         name="play"
         options={{
           title: 'Oyun',
-          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} color={color} size={width <= 430 ? 20 : 22} />,
+          tabBarAccessibilityLabel: 'Oyun',
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} color={color} size={22} />,
         }}
       />
       <Tabs.Screen
@@ -78,6 +99,7 @@ export default function TabsLayout() {
         name="ranking"
         options={{
           title: 'Sıralama',
+          tabBarAccessibilityLabel: 'Sıralama',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'podium' : 'podium-outline'} color={color} size={22} />,
         }}
       />
@@ -85,6 +107,7 @@ export default function TabsLayout() {
         name="store"
         options={{
           title: 'Mağaza',
+          tabBarAccessibilityLabel: 'Mağaza',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'bag-handle' : 'bag-handle-outline'} color={color} size={22} />,
         }}
       />
@@ -92,6 +115,7 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profil',
+          tabBarAccessibilityLabel: 'Profil',
           tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'person' : 'person-outline'} color={color} size={22} />,
         }}
       />
@@ -100,6 +124,7 @@ export default function TabsLayout() {
         options={{
           href: null,
           title: 'Oyun',
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
@@ -111,6 +136,7 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
+  activeLabel: { fontFamily: fonts.bodySemiBold, fontSize: fontSizes.base, lineHeight: 18, flexShrink: 1 },
   careerIcon: { width: 26, height: 24, alignItems: 'center', justifyContent: 'center' },
   notificationDot: { position: 'absolute', top: 0, right: 0, width: 7, height: 7, borderRadius: 4, borderWidth: 1, shadowOpacity: 0.38, shadowRadius: 5, elevation: 5 },
 });

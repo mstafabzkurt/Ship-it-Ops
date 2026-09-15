@@ -41,6 +41,18 @@ export default function JokerUseOverlay({ activation, reduceMotion, onFinished }
 
   useEffect(() => {
     let mounted = true;
+    let completed = false;
+    const finish = () => {
+      if (!mounted || completed) return;
+      completed = true;
+      clearTimeout(fallbackTimer);
+      animation.stop();
+      opacity.setValue(0);
+      backdropOpacity.setValue(0);
+      onFinished(activation.activationId);
+    };
+    // Feedback is temporary even if the animation driver misses a callback.
+    const fallbackTimer = setTimeout(finish, 2200);
     opacity.setValue(0);
     backdropOpacity.setValue(0);
     cardScale.setValue(reduceMotion ? 1 : 0.85);
@@ -79,97 +91,95 @@ export default function JokerUseOverlay({ activation, reduceMotion, onFinished }
       }),
     ]);
 
-    entrance.start(({ finished }) => {
-      if (!finished || !mounted) return;
+    const decrement = Animated.parallel([
+      Animated.timing(beforeCountOpacity, {
+        toValue: 0.58,
+        duration: reduceMotion ? 220 : 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(beforeCountScale, {
+        toValue: reduceMotion ? 1 : 0.92,
+        duration: reduceMotion ? 0 : 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(arrowOpacity, {
+        toValue: 1,
+        duration: reduceMotion ? 220 : 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(afterCountOpacity, {
+        toValue: 1,
+        duration: reduceMotion ? 220 : 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(afterCountTranslateY, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      reduceMotion
+        ? Animated.delay(220)
+        : Animated.sequence([
+            Animated.timing(afterCountScale, {
+              toValue: 1.18,
+              duration: 150,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+            Animated.timing(afterCountScale, {
+              toValue: 1,
+              duration: 170,
+              easing: Easing.out(Easing.back(1.2)),
+              useNativeDriver: true,
+            }),
+          ]),
+    ]);
 
-      const decrement = Animated.parallel([
-        Animated.timing(beforeCountOpacity, {
-          toValue: 0.58,
-          duration: reduceMotion ? 220 : 240,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(beforeCountScale, {
-          toValue: reduceMotion ? 1 : 0.92,
-          duration: reduceMotion ? 0 : 240,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(arrowOpacity, {
-          toValue: 1,
-          duration: reduceMotion ? 220 : 180,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(afterCountOpacity, {
-          toValue: 1,
-          duration: reduceMotion ? 220 : 180,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(afterCountTranslateY, {
-          toValue: 0,
-          duration: reduceMotion ? 0 : 250,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        reduceMotion
-          ? Animated.delay(220)
-          : Animated.sequence([
-              Animated.timing(afterCountScale, {
-                toValue: 1.18,
-                duration: 150,
-                easing: Easing.out(Easing.cubic),
-                useNativeDriver: true,
-              }),
-              Animated.timing(afterCountScale, {
-                toValue: 1,
-                duration: 170,
-                easing: Easing.out(Easing.back(1.2)),
-                useNativeDriver: true,
-              }),
-            ]),
-      ]);
+    const exit = Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: reduceMotion ? 260 : 340,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: reduceMotion ? 260 : 300,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: reduceMotion ? 0 : -22,
+        duration: reduceMotion ? 0 : 340,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardScale, {
+        toValue: reduceMotion ? 1 : 0.96,
+        duration: reduceMotion ? 0 : 340,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
 
-      const exit = Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: reduceMotion ? 260 : 340,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 0,
-          duration: reduceMotion ? 260 : 300,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: reduceMotion ? 0 : -22,
-          duration: reduceMotion ? 0 : 340,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardScale, {
-          toValue: reduceMotion ? 1 : 0.96,
-          duration: reduceMotion ? 0 : 340,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]);
-
-      Animated.sequence([
-        Animated.delay(reduceMotion ? 300 : 360),
-        decrement,
-        Animated.delay(300),
-        exit,
-      ]).start(({ finished: exitFinished }) => {
-        if (exitFinished && mounted) onFinished(activation.activationId);
-      });
-    });
+    const animation = Animated.sequence([
+      entrance,
+      Animated.delay(reduceMotion ? 300 : 360),
+      decrement,
+      Animated.delay(300),
+      exit,
+    ]);
+    animation.start(finish);
 
     return () => {
       mounted = false;
+      clearTimeout(fallbackTimer);
+      animation.stop();
       opacity.stopAnimation();
       backdropOpacity.stopAnimation();
       cardScale.stopAnimation();
