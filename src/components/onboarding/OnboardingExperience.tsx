@@ -54,7 +54,9 @@ export default function OnboardingExperience() {
     skipOnboarding,
   } = useReputation();
   const { theme, themeId, setThemeId } = useTheme();
-  const { width, height } = useOnboardingViewport();
+  const viewport = useOnboardingViewport();
+  const { width, height } = viewport;
+  const viewportTop = 'top' in viewport ? viewport.top : 0;
   const starterAvatars = useMemo(() => getStarterAvatars(ownedCosmeticIds), [ownedCosmeticIds]);
   const starterFrames = useMemo(() => getStarterFrames(ownedCosmeticIds), [ownedCosmeticIds]);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -72,6 +74,7 @@ export default function OnboardingExperience() {
   );
   const [interestDraft, setInterestDraft] = useState<InterestAreaId[]>(selectedInterestAreas);
   const [companyError, setCompanyError] = useState('');
+  const [companyTouched, setCompanyTouched] = useState(false);
   const [companySubmissionFeedback, setCompanySubmissionFeedback] = useState<{
     status: CompanyNameAvailabilityStatus;
     message: string;
@@ -81,11 +84,23 @@ export default function OnboardingExperience() {
   const showOnboarding = !onboardingCompleted;
   const previewTheme = onboardingStep === 2 ? THEMES[themeDraft] : theme;
   const tokens = useMemo(() => getDashboardTokens(previewTheme, width), [previewTheme, width]);
-  const styles = useMemo(() => makeStyles(tokens, width, height), [tokens, width, height]);
+  const styles = useMemo(() => makeStyles(tokens, width, height, viewportTop), [tokens, width, height, viewportTop]);
   const companyAvailability = useCompanyNameAvailability(companyDraft, {
     enabled: onboardingStep === 1,
   });
-  const companyStepBlocked = onboardingStep === 1 && !companyAvailability.canSave;
+  const companyEmpty = companyAvailability.validation.code === 'empty';
+  // Empty attempts provide feedback, but never bypass the availability gate below.
+  const companyStepBlocked = onboardingStep === 1 && !companyEmpty && !companyAvailability.canSave;
+  const hideEmptyFeedback = companyEmpty && !companyTouched && !companyError;
+  // A new valid candidate (including dice) must not display the previous input's error.
+  const companyFeedback = companySubmissionFeedback ?? (hideEmptyFeedback
+    ? { status: 'idle' as const, message: '' }
+    : !companyAvailability.validation.isValid
+      ? { status: 'invalid' as const, message: companyAvailability.validation.message }
+      : companyAvailability.checkedInput !== null && companyAvailability.checkedInput !== companyDraft
+        ? { status: 'checking' as const, message: 'Şirket adı kontrol ediliyor...' }
+        : companyAvailability);
+  const shortCompanyViewport = onboardingStep === 1 && width < 700 && height < 600;
 
   useEffect(() => {
     if (!showOnboarding || onboardingStarted.current) return;
@@ -104,8 +119,8 @@ export default function OnboardingExperience() {
 
   const advanceOnboarding = async () => {
     if (onboardingStep === 1) {
+      setCompanyTouched(true);
       if (!companyAvailability.canSave) {
-        setCompanyError(companyAvailability.message);
         return;
       }
       setCompanyDraft(companyAvailability.displayName);
@@ -151,8 +166,10 @@ export default function OnboardingExperience() {
       onRequestClose={() => undefined}
       presentationStyle="fullScreen"
       statusBarTranslucent
+      transparent={Platform.OS === 'web'}
       visible
     >
+      <View style={styles.modalBackdrop}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -188,17 +205,19 @@ export default function OnboardingExperience() {
 
               <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.content}
+                contentContainerStyle={[styles.content, shortCompanyViewport && styles.naturalContent]}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <View style={styles.stepContent}>
+                <View style={[styles.stepContent, shortCompanyViewport && styles.naturalStepContent]}>
                   {renderOnboardingStep({
                     avatarDraft,
                     companyDraft,
                     companyError,
-                    companyMessage: companySubmissionFeedback?.message ?? companyAvailability.message,
-                    companyStatus: companySubmissionFeedback?.status ?? companyAvailability.status,
+                    companyMessage: companyFeedback.message,
+                    companyStatus: companyFeedback.status,
+                    onCompanyBlur: () => setCompanyTouched(true),
+                    submitCompany: () => void advanceOnboarding(),
                     retryCompanyCheck: () => {
                       setCompanySubmissionFeedback(null);
                       companyAvailability.retry();
@@ -285,6 +304,7 @@ export default function OnboardingExperience() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -295,6 +315,8 @@ interface OnboardingStepRenderOptions {
   companyError: string;
   companyMessage: string;
   companyStatus: CompanyNameAvailabilityStatus;
+  onCompanyBlur: () => void;
+  submitCompany: () => void;
   frameDraft: AvatarFrameCosmeticId;
   interestDraft: InterestAreaId[];
   onboardingStep: number;
@@ -338,6 +360,8 @@ function renderOnboardingStep(options: OnboardingStepRenderOptions) {
             autoCorrect={false}
             maxLength={COMPANY_NAME_MAX_LENGTH}
             onChangeText={options.setCompanyDraft}
+            onBlur={options.onCompanyBlur}
+            onSubmitEditing={options.submitCompany}
             placeholder="Şirket adını yaz"
             placeholderTextColor={tokens.colors.textMuted}
             returnKeyType="done"
@@ -631,14 +655,15 @@ function StepHeading({ icon, styles, title, tokens }: {
   );
 }
 
-function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number, height: number) {
+function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number, height: number, viewportTop: number) {
   const { colors, radius } = tokens;
   const desktop = width >= 700;
   return StyleSheet.create({
+    modalBackdrop: { flex: 1, backgroundColor: colors.canvas },
     safeArea: {
       flex: 1,
       backgroundColor: colors.canvas,
-      ...(Platform.OS === 'web' ? { flex: undefined, height, maxHeight: '100%' as const, minHeight: 0 } : {}),
+      ...(Platform.OS === 'web' ? { position: 'absolute' as const, top: viewportTop, width: '100%' as const, height, maxHeight: '100%' as const, minHeight: 0 } : {}),
     },
     keyboardArea: { flex: 1, minHeight: 0 },
     centerer: {
@@ -654,7 +679,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
       width: getOnboardingPanelWidth(width),
       minWidth: 0,
       flexShrink: 1,
-      maxWidth: 640,
+      maxWidth: '100%',
       maxHeight: desktop ? Math.min(760, Math.max(0, height - 48)) : '100%',
       minHeight: desktop ? Math.min(600, Math.max(0, height - 48)) : 0,
       overflow: 'hidden',
@@ -684,6 +709,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     progressFill: { height: 3, backgroundColor: colors.secondary },
     scroll: { flex: 1, minHeight: 0, width: '100%' },
     content: { flexGrow: 1 },
+    naturalContent: { flexGrow: 0 },
+    naturalStepContent: { flexGrow: 0, justifyContent: 'flex-start' as const },
     stepContent: { flexGrow: 1, flexShrink: 0, justifyContent: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingVertical: desktop ? 32 : 24 },
     stepBlock: { width: '100%', maxWidth: 520, alignSelf: 'center' },
     intro: { width: '100%', maxWidth: 500, alignSelf: 'center', alignItems: 'center', paddingVertical: 12 },

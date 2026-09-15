@@ -5,3 +5,16 @@ web-build/
 *.log
 .DS_Store
 expo-env.d.ts
+
+# Local environment files (keep the values-free example available).
+.env
+.env.*
+!.env.example
+
+# Private credential artifacts.
+*.pem
+*.key
+*.p12
+*.pfx
+service-account*.json
+credentials*.json

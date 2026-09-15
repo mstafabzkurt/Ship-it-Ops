@@ -28,7 +28,7 @@ function mount({ platform = 'web', hasVisualViewport = true } = {}) {
   let effect;
   let cleanup;
   let pendingFrame;
-  const viewport = surface({ width: 390, height: 760, scale: 1 });
+  const viewport = surface({ width: 390, height: 760, scale: 1, offsetTop: 0 });
   const browser = surface({ visualViewport: hasVisualViewport ? viewport : undefined });
   const document = surface({
     visibilityState: 'visible',
@@ -79,12 +79,48 @@ app.flush();
 assert.equal(app.read().width, 390);
 assert.equal(app.read().height, 430);
 
+// iOS keyboard panning can change the visible origin without a resize.
+app.viewport.offsetTop = 120;
+app.viewport.emit('scroll');
+app.flush();
+assert.equal(app.read().top, 120);
+assert.equal(app.read().height, 430);
+app.viewport.offsetTop = -10;
+app.viewport.emit('scroll');
+app.flush();
+assert.equal(app.read().top, 0);
+app.viewport.offsetTop = 900;
+app.viewport.emit('scroll');
+app.flush();
+assert.equal(app.read().top, 414, 'The visible panel must not extend past the layout viewport');
+
 // Inactive/zero measurements from browser UI must retain the last usable layout.
 const withKeyboard = app.read();
 app.viewport.scale = 0;
 app.viewport.emit('resize');
 app.flush();
 assert.equal(app.read(), withKeyboard);
+for (const height of [0, NaN, Infinity]) {
+  Object.assign(app.viewport, { height, scale: 1 });
+  app.viewport.emit('resize');
+  app.flush();
+  assert.equal(app.read(), withKeyboard, 'Invalid heights must retain the previous layout');
+}
+Object.assign(app.viewport, { height: 430, scale: 1 });
+for (const scale of [NaN, Infinity, -1]) {
+  app.viewport.scale = scale;
+  app.viewport.emit('resize');
+  app.flush();
+  assert.equal(app.read(), withKeyboard);
+}
+app.viewport.scale = 1;
+for (const width of [0, NaN, Infinity]) {
+  app.viewport.width = width;
+  app.viewport.emit('resize');
+  app.flush();
+  assert.equal(app.read(), withKeyboard);
+}
+app.viewport.width = 390;
 app.document.visibilityState = 'hidden';
 Object.assign(app.viewport, { height: 760, scale: 1 });
 app.viewport.emit('resize');
@@ -94,6 +130,11 @@ app.document.visibilityState = 'visible';
 app.document.emit('visibilitychange');
 app.flush();
 assert.equal(app.read().height, 760);
+assert.equal(app.read().top, 84, 'Stale iOS offsets are clamped when the keyboard closes');
+app.viewport.offsetTop = 0;
+app.viewport.emit('scroll');
+app.flush();
+assert.equal(app.read().top, 0);
 
 // A focus/pageshow return repairs the height even without another resize event.
 app.viewport.height = 700;
@@ -112,6 +153,7 @@ app.browser.emit('orientationchange');
 app.flush();
 assert.equal(app.read().width, 844);
 assert.equal(app.read().height, 390);
+assert.equal(app.read().top, 0, 'Zoom panning must not shift onboarding');
 Object.assign(app.document.documentElement, { clientWidth: 1280, clientHeight: 900 });
 Object.assign(app.viewport, { height: 950, scale: 1 });
 app.browser.emit('resize');
@@ -134,4 +176,4 @@ const native = mount({ platform: 'ios' });
 assert.equal(native.read(), native.nativeDimensions);
 assert.equal(native.browser.listeners.size, 0);
 native.unmount();
-console.log('Onboarding viewport checks passed: zoom, keyboard, browser return, orientation, fallback, cleanup, native.');
+console.log('Onboarding viewport checks passed: zoom, keyboard resize/pan, invalid sizes, browser return, orientation, fallback, cleanup, native.');
