@@ -19,9 +19,10 @@ interface QuestionShareSheetProps {
   visible: boolean;
   onClose: () => void;
   onSent?: (companyName: string) => void;
+  allowInboxDelivery?: boolean;
 }
 
-export default function QuestionShareSheet({ questionId, visible, onClose, onSent }: QuestionShareSheetProps) {
+export default function QuestionShareSheet({ questionId, visible, onClose, onSent, allowInboxDelivery = false }: QuestionShareSheetProps) {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
   const { theme } = useTheme();
@@ -32,6 +33,7 @@ export default function QuestionShareSheet({ questionId, visible, onClose, onSen
   const [sendingUserId, setSendingUserId] = useState<string | null>(null);
   const [sentCompanyName, setSentCompanyName] = useState('');
   const [deliveryMode, setDeliveryMode] = useState<'message' | 'inbox'>('message');
+  const effectiveDeliveryMode = allowInboxDelivery ? deliveryMode : 'message';
   const sendLockRef = useRef(false);
 
   const loadFriends = useCallback(() => {
@@ -57,7 +59,7 @@ export default function QuestionShareSheet({ questionId, visible, onClose, onSen
     sendLockRef.current = true;
     setSendingUserId(connection.userId);
     try {
-      if (deliveryMode === 'message') {
+      if (effectiveDeliveryMode === 'message') {
         await sendQuestionToDirectMessage(connection.userId, questionId);
       } else {
         await shareQuestionWithFriend(connection.userId, questionId);
@@ -70,7 +72,7 @@ export default function QuestionShareSheet({ questionId, visible, onClose, onSen
       setSendingUserId(null);
       sendLockRef.current = false;
     }
-  }, [deliveryMode, onSent, questionId]);
+  }, [effectiveDeliveryMode, onSent, questionId]);
 
   const handleClose = useCallback(() => {
     if (sendingUserId) return;
@@ -100,7 +102,7 @@ export default function QuestionShareSheet({ questionId, visible, onClose, onSen
             </Pressable>
           </View>
 
-          {!sentCompanyName ? (
+          {allowInboxDelivery && !sentCompanyName ? (
             <View accessibilityRole="radiogroup" style={styles.deliveryTabs}>
               <Pressable
                 accessibilityRole="radio"
@@ -129,7 +131,7 @@ export default function QuestionShareSheet({ questionId, visible, onClose, onSen
             <View accessibilityLiveRegion="polite" style={styles.successState}>
               <Ionicons name="checkmark-circle-outline" size={32} color={tokens.colors.success} />
               <Text style={styles.stateTitle}>Soru gönderildi</Text>
-              <Text style={styles.stateText}>{deliveryMode === 'message'
+              <Text style={styles.stateText}>{effectiveDeliveryMode === 'message'
                 ? `${sentCompanyName} soruyu mesajlarında görecek.`
                 : `${sentCompanyName} soruyu Paylaşılan Sorular ekranında görecek.`}</Text>
               <Pressable accessibilityRole="button" onPress={handleClose} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
@@ -167,7 +169,7 @@ export default function QuestionShareSheet({ questionId, visible, onClose, onSen
                   connection={item}
                   disabled={Boolean(sendingUserId)}
                   sending={sendingUserId === item.userId}
-                  mode={deliveryMode}
+                  mode={effectiveDeliveryMode}
                   onSend={() => void handleSend(item)}
                   styles={styles}
                   tokens={tokens}

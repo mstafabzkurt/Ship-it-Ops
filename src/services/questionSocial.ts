@@ -49,8 +49,9 @@ async function fetchQuestionsById(questionIds: string[]): Promise<Map<string, Ar
     .select(ARCHIVED_QUESTION_SELECT)
     .in('id', uniqueIds);
   if (error) throw new QuestionSocialServiceError(unavailableMessage);
+  if (!Array.isArray(data)) throw new QuestionSocialServiceError(unavailableMessage);
 
-  for (const row of Array.isArray(data) ? data : []) {
+  for (const row of data) {
     const question = serializeArchivedQuestion(row as ArchivedQuestionDatabaseRow);
     if (question) result.set(question.id, question);
   }
@@ -80,7 +81,8 @@ export async function getQuestionFavoriteState(
   questionId: unknown,
 ): Promise<boolean> {
   const normalizedQuestionId = normalizeQuestionId(questionId);
-  if (!isUuid(currentUserId) || !normalizedQuestionId) return false;
+  if (!isUuid(currentUserId)) throw new QuestionSocialServiceError(unavailableMessage);
+  if (!normalizedQuestionId) return false;
   const { data, error } = await supabase
     .from('question_favorites')
     .select('question_id')
@@ -109,37 +111,43 @@ export async function setQuestionFavorite(
         { onConflict: 'user_id,question_id', ignoreDuplicates: true },
       );
     if (error) throw new QuestionSocialServiceError(mutationMessage);
-    return true;
+  } else {
+    const { error } = await supabase
+      .from('question_favorites')
+      .delete()
+      .eq('user_id', currentUserId)
+      .eq('question_id', normalizedQuestionId);
+    if (error) throw new QuestionSocialServiceError(mutationMessage);
   }
 
-  const { error } = await supabase
-    .from('question_favorites')
-    .delete()
-    .eq('user_id', currentUserId)
-    .eq('question_id', normalizedQuestionId);
-  if (error) throw new QuestionSocialServiceError(mutationMessage);
-  return false;
+  const persisted = await getQuestionFavoriteState(currentUserId, normalizedQuestionId)
+    .catch(() => { throw new QuestionSocialServiceError(mutationMessage); });
+  if (persisted !== favorite) throw new QuestionSocialServiceError(mutationMessage);
+  return persisted;
 }
 
 export async function listFavoriteQuestions(currentUserId: string): Promise<FavoriteQuestionEntry[]> {
-  if (!isUuid(currentUserId)) return [];
+  if (!isUuid(currentUserId)) throw new QuestionSocialServiceError(unavailableMessage);
   const { data, error } = await supabase
     .from('question_favorites')
     .select('question_id, created_at')
     .eq('user_id', currentUserId)
     .order('created_at', { ascending: false });
   if (error) throw new QuestionSocialServiceError(unavailableMessage);
+  if (!Array.isArray(data)) throw new QuestionSocialServiceError(unavailableMessage);
 
-  const favorites = (Array.isArray(data) ? data : [])
+  const favorites = data
     .map((row) => serializeQuestionFavorite(row as QuestionFavoriteDatabaseRow))
     .filter((favorite): favorite is QuestionFavorite => Boolean(favorite));
   const questions = await fetchQuestionsById(favorites.map((favorite) => favorite.questionId));
-  return favorites
+  const entries = favorites
     .map((favorite) => {
       const question = questions.get(favorite.questionId);
       return question ? { favorite, question } : null;
     })
     .filter((entry): entry is FavoriteQuestionEntry => Boolean(entry));
+  if (data.length > 0 && entries.length === 0) throw new QuestionSocialServiceError(unavailableMessage);
+  return entries;
 }
 
 export async function fetchArchivedQuestion(questionId: unknown): Promise<ArchivedQuestion | null> {
@@ -171,28 +179,32 @@ export async function shareQuestionWithFriend(
 }
 
 export async function listReceivedQuestionShares(currentUserId: string): Promise<SharedQuestionEntry[]> {
-  if (!isUuid(currentUserId)) return [];
+  if (!isUuid(currentUserId)) throw new QuestionSocialServiceError(unavailableMessage);
   const { data, error } = await supabase
     .from('question_shares')
     .select('id, sender_id, recipient_id, question_id, created_at, opened_at')
     .eq('recipient_id', currentUserId)
     .order('created_at', { ascending: false });
   if (error) throw new QuestionSocialServiceError(unavailableMessage);
+  if (!Array.isArray(data)) throw new QuestionSocialServiceError(unavailableMessage);
 
-  const shares = (Array.isArray(data) ? data : [])
+  const shares = data
     .map((row) => serializeQuestionShare(row as QuestionShareDatabaseRow))
     .filter((share): share is QuestionShare => Boolean(share));
-  const [questions, senders] = await Promise.all([
-    fetchQuestionsById(shares.map((share) => share.questionId)),
-    fetchPublicProfilesById(shares.map((share) => share.senderId)),
-  ]);
+  const questions = await fetchQuestionsById(shares.map((share) => share.questionId));
 
-  return shares
+  const entries = shares
     .map((share) => {
       const question = questions.get(share.questionId);
-      return question ? { share, question, sender: senders.get(share.senderId) ?? null } : null;
+      return question ? { share, question, sender: null } as SharedQuestionEntry : null;
     })
     .filter((entry): entry is SharedQuestionEntry => Boolean(entry));
+  if (data.length > 0 && entries.length === 0) throw new QuestionSocialServiceError(unavailableMessage);
+  return entries;
+}
+
+export async function fetchSharedQuestionSenderProfiles(entries: SharedQuestionEntry[]): Promise<Map<string, PublicProfile>> {
+  return fetchPublicProfilesById(entries.map((entry) => entry.share.senderId));
 }
 
 export async function markQuestionShareOpened(shareId: string): Promise<boolean> {

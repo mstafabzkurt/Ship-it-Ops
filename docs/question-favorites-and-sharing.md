@@ -11,12 +11,12 @@
 ## Query shape
 
 - Favorite list: one favorite-reference query plus one batched `game_incidents` query.
-- Received inbox: one share query plus parallel batched question and public-profile queries.
+- Received inbox: one share query plus a batched question lookup. Sender profiles load afterward so a profile failure cannot hide a valid question.
 - Active game: one favorite-state lookup for the current question; it never fetches the full favorite collection.
 
-## Future direct-message integration
+## Direct-message integration
 
-`question_shares` can remain a standalone inbox when direct messages are introduced. A future message model may reference the existing share row, or use a typed message such as `message_type = 'question_share'` with a `question_id`/`question_share_id` reference. The current table does not need to become a chat table, and no free-text message should be added to it during that migration.
+Gameplay and Favori Sorular send through a `direct_messages` question-share reference. The archive detail screen retains the explicit `Paylaşılanlara` option for the standalone `question_shares` inbox. A DM share does not create a standalone inbox record; the two stores remain separate and keep question content in `game_incidents`.
 
 ## Deployment
 

@@ -34,6 +34,7 @@ export default function MessagesScreen() {
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const [conversations, setConversations] = useState<DirectConversationSummary[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
+  const [backFocused, setBackFocused] = useState(false);
   const requestIdRef = useRef(0);
   const activeUserIdRef = useRef<string | null>(null);
   const lastUserIdRef = useRef<string | null>(null);
@@ -97,7 +98,7 @@ export default function MessagesScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={styles.container}>
           <View style={styles.header}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Profile dön" hitSlop={8} onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Profile dön" hitSlop={8} onFocus={() => setBackFocused(true)} onBlur={() => setBackFocused(false)} onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))} style={({ pressed }) => [styles.backButton, backFocused && styles.rowFocused, pressed && styles.pressed]}>
               <Ionicons name="arrow-back" size={22} color={tokens.colors.text} />
             </Pressable>
             <View style={styles.headerCopy}>
@@ -113,6 +114,7 @@ export default function MessagesScreen() {
             renderItem={({ item }) => (
               <ConversationRow
                 conversation={item}
+                currentUserId={userId ?? ''}
                 onOpen={() => router.push({ pathname: '/messages/[userId]', params: { userId: item.otherUserId } })}
                 styles={styles}
                 tokens={tokens}
@@ -127,36 +129,43 @@ export default function MessagesScreen() {
     </View>
   );
 }
-function ConversationRow({ conversation, onOpen, styles, tokens }: {
+function ConversationRow({ conversation, currentUserId, onOpen, styles, tokens }: {
   conversation: DirectConversationSummary;
+  currentUserId: string;
   onOpen: () => void;
   styles: ReturnType<typeof makeStyles>;
   tokens: ReturnType<typeof getDashboardTokens>;
 }) {
+  const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const profile = conversation.profile;
   const avatar = profile ? getCosmeticById(profile.avatarId) as AvatarCosmetic : null;
   const frame = profile ? getCosmeticById(profile.avatarFrameId) as AvatarFrameCosmetic : null;
-  const preview = getDirectMessagePreview(conversation.lastMessage);
+  const preview = getDirectMessagePreview(conversation.lastMessage, currentUserId);
   const timestamp = formatConversationTime(conversation.lastMessage?.createdAt ?? conversation.updatedAt);
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${profile?.companyName ?? 'Oyuncu'} ile konuşmayı aç${conversation.unreadCount ? `, ${conversation.unreadCount} okunmamış mesaj` : ''}`}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
       onPress={onOpen}
-      style={({ pressed }) => [styles.row, conversation.unreadCount > 0 && styles.rowUnread, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.row, conversation.unreadCount > 0 && styles.rowUnread, hovered && styles.rowHovered, focused && styles.rowFocused, pressed && styles.pressed]}
     >
       {profile && avatar && frame ? (
-        <CosmeticPreview avatar={avatar} frame={frame} mode="equippedCombo" size={54} accessibilityLabel={`${profile.companyName} avatarı`} />
+        <CosmeticPreview avatar={avatar} frame={frame} mode="equippedCombo" size={tokens.layout.isNarrow ? 46 : 50} accessibilityLabel={`${profile.companyName} avatarı`} />
       ) : (
         <View style={styles.avatarFallback}><Ionicons name="person-outline" size={22} color={tokens.colors.textMuted} /></View>
       )}
       <View style={styles.rowCopy}>
         <View style={styles.rowTitleLine}>
-          <Text numberOfLines={1} style={styles.companyName}>{profile?.companyName ?? 'Oyuncu'}</Text>
+          <Text numberOfLines={1} ellipsizeMode="tail" style={styles.companyName}>{profile?.companyName ?? 'Oyuncu'}</Text>
           <Text style={styles.timestamp}>{timestamp}</Text>
         </View>
-        <Text numberOfLines={1} style={styles.rank}>{profile?.careerRank ?? 'Profil kullanılamıyor'}</Text>
+        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.rank}>{profile?.careerRank ?? 'Profil kullanılamıyor'}</Text>
         <Text numberOfLines={2} style={[styles.preview, conversation.unreadCount > 0 && styles.previewUnread]}>{preview}</Text>
       </View>
       {conversation.unreadCount > 0 ? (
@@ -215,17 +224,19 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     title: { ...tokens.type.display, color: colors.text, fontFamily: fonts.headingBold },
     listContent: { paddingBottom: tokens.layout.pageBottom },
     listContentEmpty: { flexGrow: 1 },
-    separator: { height: 9 },
-    row: { minHeight: 90, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
-    rowUnread: { backgroundColor: colors.secondarySurfaceRaised, borderColor: colors.borderStrong },
-    avatarFallback: { width: 54, height: 54, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.borderSubtle },
+    separator: { height: 8 },
+    row: { minHeight: 88, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isNarrow ? 8 : 11, padding: tokens.layout.isNarrow ? 9 : 11, borderRadius: radius.sm, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
+    rowUnread: { backgroundColor: colors.secondarySurfaceRaised, borderColor: colors.borderStrong, borderLeftWidth: 3, borderLeftColor: colors.primary },
+    rowHovered: { backgroundColor: colors.surfaceHover },
+    rowFocused: { borderColor: colors.primary, outlineColor: colors.primary, outlineStyle: 'solid', outlineWidth: 2 },
+    avatarFallback: { width: tokens.layout.isNarrow ? 46 : 50, height: tokens.layout.isNarrow ? 46 : 50, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.borderSubtle },
     rowCopy: { flex: 1, minWidth: 0 },
     rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     companyName: { flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.headingBold, fontSize: 15, lineHeight: 20 },
-    timestamp: { color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 10, lineHeight: 15 },
-    rank: { marginTop: 1, color: colors.primary, fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 15 },
+    timestamp: { flexShrink: 0, color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 10, lineHeight: 15 },
+    rank: { marginTop: 1, color: colors.textSecondary, fontFamily: fonts.bodyMedium, fontSize: 10, lineHeight: 15 },
     preview: { marginTop: 4, color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, lineHeight: 18 },
-    previewUnread: { color: colors.textSecondary, fontFamily: fonts.bodySemiBold },
+    previewUnread: { color: colors.text, fontFamily: fonts.bodySemiBold },
     badge: { minWidth: 28, height: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7, borderRadius: radius.pill, backgroundColor: colors.primary },
     badgeText: { color: colors.foregroundOnAction, fontFamily: fonts.monoBold, fontSize: 11 },
     state: { flex: 1, minHeight: 280, alignItems: 'center', justifyContent: 'center', padding: 24 },

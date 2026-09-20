@@ -33,6 +33,7 @@ export default function QuestionDetailScreen() {
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const [question, setQuestion] = useState<ArchivedQuestion | null>(null);
   const [favorite, setFavorite] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
   const [favoritePending, setFavoritePending] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
   const [status, setStatus] = useState<LoadStatus>('loading');
@@ -43,21 +44,35 @@ export default function QuestionDetailScreen() {
   const loadQuestion = useCallback(() => {
     const requestId = ++requestIdRef.current;
     if (!questionId || !user?.id) {
+      setQuestion(null);
+      setFavorite(false);
+      setFavoriteLoading(false);
       setStatus('missing');
       return;
     }
+    setQuestion(null);
+    setFavorite(false);
+    setFavoriteLoading(true);
     setStatus('loading');
-    void Promise.all([fetchArchivedQuestion(questionId), getQuestionFavoriteState(user.id, questionId)])
-      .then(([loadedQuestion, isFavorite]) => {
+    void fetchArchivedQuestion(questionId)
+      .then((loadedQuestion) => {
         if (requestId !== requestIdRef.current) return;
         setQuestion(loadedQuestion);
-        setFavorite(isFavorite);
         setStatus(loadedQuestion ? 'ready' : 'missing');
       })
       .catch(() => {
         if (requestId !== requestIdRef.current) return;
         setQuestion(null);
         setStatus('error');
+      });
+    // Favorite state is optional; it must not hold back the read-only question.
+    void getQuestionFavoriteState(user.id, questionId)
+      .then((isFavorite) => {
+        if (requestId === requestIdRef.current) setFavorite(isFavorite);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (requestId === requestIdRef.current) setFavoriteLoading(false);
       });
   }, [questionId, user?.id]);
 
@@ -68,7 +83,7 @@ export default function QuestionDetailScreen() {
   }, [loadQuestion, shareId]);
 
   const handleToggleFavorite = useCallback(async () => {
-    if (!question || !user?.id || favoriteLockRef.current) return;
+    if (!question || !user?.id || favoriteLoading || favoriteLockRef.current) return;
     favoriteLockRef.current = true;
     setFavoritePending(true);
     setActionError('');
@@ -84,7 +99,7 @@ export default function QuestionDetailScreen() {
       favoriteLockRef.current = false;
       setFavoritePending(false);
     }
-  }, [favorite, question, user?.id]);
+  }, [favorite, favoriteLoading, question, user?.id]);
 
   return (
     <View style={styles.background}>
@@ -111,7 +126,7 @@ export default function QuestionDetailScreen() {
               <QuestionDetailSurface
                 colors={tokens.colors}
                 favorite={favorite}
-                favoritePending={favoritePending}
+                favoritePending={favoritePending || favoriteLoading}
                 onShare={() => setShareVisible(true)}
                 onToggleFavorite={() => void handleToggleFavorite()}
                 question={question}
@@ -123,7 +138,7 @@ export default function QuestionDetailScreen() {
           <DetailState status={status} onRetry={loadQuestion} styles={styles} tokens={tokens} />
         )}
       </SafeAreaView>
-      <QuestionShareSheet questionId={question?.id} visible={shareVisible && Boolean(question)} onClose={() => setShareVisible(false)} />
+      <QuestionShareSheet questionId={question?.id} visible={shareVisible && Boolean(question)} allowInboxDelivery onClose={() => setShareVisible(false)} />
     </View>
   );
 }

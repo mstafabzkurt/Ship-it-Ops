@@ -31,6 +31,8 @@ export default function GlobalMessagesShortcut() {
   const { unreadCount, hasLoaded } = useMessagingUnread();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(true);
+  const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const previousUnreadRef = useRef<number | null>(null);
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
@@ -40,6 +42,10 @@ export default function GlobalMessagesShortcut() {
   const bottom = aboveTabBar
     ? tokens.layout.tabBarHeight + Math.max(insets.bottom, tokens.spacing.sm) + 12
     : Math.max(insets.bottom, tokens.spacing.sm) + 20;
+  const right = Math.max(
+    insets.right + tokens.layout.floatingInset,
+    tokens.layout.isCompact ? tokens.layout.pageGutter : (width - tokens.layout.contentMaxWidth) / 2 + tokens.layout.pageGutter,
+  );
   const visible = shouldShowGlobalMessagesShortcut({
     pathname,
     isAuthenticated,
@@ -89,14 +95,18 @@ export default function GlobalMessagesShortcut() {
   if (!visible) return null;
 
   return (
-    <View pointerEvents="box-none" style={[styles.position, { bottom, right: Math.max(insets.right, tokens.layout.pageGutter) }]}>
+    <View pointerEvents="box-none" style={[styles.position, { bottom, right }]}>
       <Animated.View style={{ transform: [{ scale: pulse }] }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={getMessagesShortcutAccessibilityLabel(unreadCount)}
           hitSlop={8}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onHoverIn={() => setHovered(true)}
+          onHoverOut={() => setHovered(false)}
           onPress={() => router.push('/messages')}
-          style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.button, hovered && styles.hovered, focused && styles.focused, pressed && styles.pressed]}
         >
           <Ionicons name="chatbubbles-outline" size={23} color={tokens.colors.secondary} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
           {badge ? (
@@ -113,7 +123,9 @@ export default function GlobalMessagesShortcut() {
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
   return StyleSheet.create({
     position: { position: 'absolute', zIndex: 20, elevation: 12 },
-    button: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center', borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.colors.borderStrong, backgroundColor: tokens.colors.surfaceRaised, ...tokens.shadow.raised },
+    button: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center', borderRadius: tokens.radius.sm, borderWidth: 1, borderColor: tokens.colors.borderStrong, backgroundColor: tokens.colors.surfaceRaised, ...tokens.shadow.card },
+    hovered: { backgroundColor: tokens.colors.surfaceHover, borderColor: tokens.colors.secondary },
+    focused: { borderColor: tokens.colors.primary, outlineColor: tokens.colors.primary, outlineStyle: 'solid', outlineWidth: 2 },
     pressed: { backgroundColor: tokens.colors.surfacePressed, opacity: 0.82 },
     badge: { position: 'absolute', top: -7, right: -8, minWidth: 23, height: 23, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5, borderRadius: tokens.radius.pill, borderWidth: 2, borderColor: tokens.colors.surfaceRaised, backgroundColor: tokens.colors.secondary },
     badgeText: { fontFamily: fonts.monoBold, fontSize: 10, lineHeight: 14, color: tokens.colors.foregroundOnAction },

@@ -26,12 +26,19 @@ export default function FavoriteQuestionsScreen() {
   const [shareQuestionId, setShareQuestionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const requestIdRef = useRef(0);
+  const entriesOwnerRef = useRef<string | null>(null);
 
   const loadFavorites = useCallback(() => {
     const requestId = ++requestIdRef.current;
     if (!user?.id) {
+      entriesOwnerRef.current = null;
+      setEntries([]);
       setStatus('error');
       return;
+    }
+    if (entriesOwnerRef.current !== user.id) {
+      entriesOwnerRef.current = user.id;
+      setEntries([]);
     }
     setStatus('loading');
     setActionError('');
@@ -43,7 +50,6 @@ export default function FavoriteQuestionsScreen() {
       })
       .catch(() => {
         if (requestId !== requestIdRef.current) return;
-        setEntries([]);
         setStatus('error');
       });
   }, [user?.id]);
@@ -81,6 +87,7 @@ export default function FavoriteQuestionsScreen() {
           </View>
 
           {actionError ? <Text accessibilityLiveRegion="polite" style={styles.actionError}>{actionError}</Text> : null}
+          {status === 'error' && entries.length > 0 ? <Text accessibilityLiveRegion="polite" style={styles.actionError}>Favoriler yenilenemedi. Tekrar deneyebilirsin.</Text> : null}
           <FlatList
             data={entries}
             keyExtractor={(entry) => entry.favorite.questionId}

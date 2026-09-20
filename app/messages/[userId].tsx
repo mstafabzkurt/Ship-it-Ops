@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextStyle,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -64,6 +65,9 @@ export default function DirectConversationScreen() {
   const [messages, setMessages] = useState<DirectMessageEntry[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [body, setBody] = useState('');
+  const [inputFocused, setInputFocused] = useState(false);
+  const [sendFocused, setSendFocused] = useState(false);
+  const [focusedControl, setFocusedControl] = useState<string | null>(null);
   const [sendPending, setSendPending] = useState(false);
   const [olderPending, setOlderPending] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
@@ -222,15 +226,17 @@ export default function DirectConversationScreen() {
       <View pointerEvents="none" style={styles.topRule} />
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Mesajlara dön" hitSlop={8} onPress={() => (router.canGoBack() ? router.back() : router.replace('/messages'))} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Mesajlara dön" hitSlop={8} onFocus={() => setFocusedControl('back')} onBlur={() => setFocusedControl(null)} onPress={() => (router.canGoBack() ? router.back() : router.replace('/messages'))} style={({ pressed }) => [styles.headerButton, focusedControl === 'back' && styles.controlFocused, pressed && styles.pressed]}>
             <Ionicons name="arrow-back" size={22} color={tokens.colors.text} />
           </Pressable>
           <Pressable
             accessibilityRole={profile ? 'button' : undefined}
             accessibilityLabel={profile ? `${companyName} profilini aç` : companyName}
             disabled={!profile}
+            onFocus={() => setFocusedControl('profile')}
+            onBlur={() => setFocusedControl(null)}
             onPress={() => router.push({ pathname: '/public-profile/[userId]', params: { userId: targetUserId } })}
-            style={({ pressed }) => [styles.identity, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.identity, focusedControl === 'profile' && styles.controlFocused, pressed && styles.pressed]}
           >
             <HeaderAvatar profile={profile} styles={styles} tokens={tokens} />
             <View style={styles.identityCopy}>
@@ -238,18 +244,18 @@ export default function DirectConversationScreen() {
               <Text numberOfLines={1} style={styles.rank}>{profile?.careerRank ?? 'Doğrudan Mesaj'}</Text>
             </View>
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Konuşma seçeneklerini aç" accessibilityState={{ expanded: menuVisible }} onPress={() => setMenuVisible((current) => !current)} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Konuşma seçeneklerini aç" accessibilityState={{ expanded: menuVisible }} onFocus={() => setFocusedControl('menu')} onBlur={() => setFocusedControl(null)} onPress={() => setMenuVisible((current) => !current)} style={({ pressed }) => [styles.headerButton, focusedControl === 'menu' && styles.controlFocused, pressed && styles.pressed]}>
             <Ionicons name="ellipsis-horizontal" size={23} color={tokens.colors.text} />
           </Pressable>
         </View>
 
         {menuVisible ? (
           <View style={styles.menu}>
-            <Pressable accessibilityRole="button" accessibilityState={{ disabled: safetyPending }} disabled={safetyPending} onPress={() => void toggleBlock()} style={({ pressed }) => [styles.menuAction, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityState={{ disabled: safetyPending }} disabled={safetyPending} onFocus={() => setFocusedControl('block')} onBlur={() => setFocusedControl(null)} onPress={() => void toggleBlock()} style={({ pressed }) => [styles.menuAction, focusedControl === 'block' && styles.controlFocused, pressed && styles.pressed]}>
               <Ionicons name={context?.blockedByViewer ? 'lock-open-outline' : 'ban-outline'} size={19} color={context?.blockedByViewer ? tokens.colors.success : tokens.colors.danger} />
               <Text style={styles.menuText}>{context?.blockedByViewer ? 'Engeli Kaldır' : 'Kullanıcıyı Engelle'}</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => { setMenuVisible(false); setReportVisible(true); }} style={({ pressed }) => [styles.menuAction, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" onFocus={() => setFocusedControl('report')} onBlur={() => setFocusedControl(null)} onPress={() => { setMenuVisible(false); setReportVisible(true); }} style={({ pressed }) => [styles.menuAction, focusedControl === 'report' && styles.controlFocused, pressed && styles.pressed]}>
               <Ionicons name="flag-outline" size={19} color={tokens.colors.warning} />
               <Text style={styles.menuText}>Şikayet Et</Text>
             </Pressable>
@@ -294,7 +300,12 @@ export default function DirectConversationScreen() {
 
           {status === 'ready' ? (
             <View style={styles.composerShell}>
-              {composerMessage ? <Text accessibilityLiveRegion="polite" style={styles.composerStatus}>{composerMessage}</Text> : null}
+              {composerMessage ? (
+                <View style={styles.composerNotice}>
+                  <Ionicons name="information-circle-outline" size={17} color={tokens.colors.textSecondary} />
+                  <Text accessibilityLiveRegion="polite" style={styles.composerStatus}>{composerMessage}</Text>
+                </View>
+              ) : null}
               {actionError ? <Text accessibilityLiveRegion="polite" style={styles.actionError}>{actionError}</Text> : null}
               <View style={styles.composer}>
                 <TextInput
@@ -302,6 +313,8 @@ export default function DirectConversationScreen() {
                   editable={Boolean(context?.canSend) && !sendPending}
                   maxLength={1000}
                   multiline
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
                   onChangeText={(nextBody) => { bodyRef.current = nextBody; setBody(nextBody); }}
                   onKeyPress={(event) => {
                     const webKey = event.nativeEvent as typeof event.nativeEvent & {
@@ -325,7 +338,7 @@ export default function DirectConversationScreen() {
                   }}
                   placeholder={context?.canSend ? 'Mesaj yaz…' : 'Mesaj gönderilemez'}
                   placeholderTextColor={tokens.colors.textMuted}
-                  style={styles.input}
+                  style={[styles.input, !context?.canSend && styles.inputDisabled, inputFocused && context?.canSend && styles.inputFocused]}
                   textAlignVertical="center"
                   value={body}
                 />
@@ -334,10 +347,12 @@ export default function DirectConversationScreen() {
                   accessibilityLabel="Mesajı gönder"
                   accessibilityState={{ disabled: !context?.canSend || !body.trim() || sendPending }}
                   disabled={!context?.canSend || !body.trim() || sendPending}
+                  onFocus={() => setSendFocused(true)}
+                  onBlur={() => setSendFocused(false)}
                   onPress={() => void send()}
-                  style={({ pressed }) => [styles.sendButton, (!context?.canSend || !body.trim() || sendPending) && styles.disabled, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.sendButton, (!context?.canSend || !body.trim() || sendPending) && styles.sendDisabled, sendFocused && styles.controlFocused, pressed && styles.pressed]}
                 >
-                  {sendPending ? <ActivityIndicator size="small" color={tokens.colors.foregroundOnAction} /> : <Ionicons name="send" size={20} color={tokens.colors.foregroundOnAction} />}
+                  {sendPending ? <ActivityIndicator size="small" color={tokens.colors.foregroundOnAction} /> : <Ionicons name="send" size={20} color={!context?.canSend || !body.trim() ? tokens.colors.disabledForeground : tokens.colors.foregroundOnAction} />}
                 </Pressable>
               </View>
               {body.length >= 850 ? <Text style={styles.characterCount}>{body.length}/1000</Text> : null}
@@ -371,9 +386,9 @@ function MessageRow({ currentUserId, entry, onOpenQuestion, styles, tokens }: {
   const own = entry.message.senderId === currentUserId;
   return (
     <View style={[styles.messageLane, own ? styles.messageLaneOwn : styles.messageLaneOther]}>
-      <View style={[styles.messageSurface, own ? styles.messageOwn : styles.messageOther]}>
+      <View style={[styles.messageSurface, own ? styles.messageOwn : styles.messageOther, entry.message.messageType === 'question_share' && styles.questionMessageSurface]}>
         {entry.message.messageType === 'text' ? (
-          <Text selectable style={styles.messageBody}>{entry.message.body}</Text>
+          <Text selectable style={[styles.messageBody, Platform.OS === 'web' && ({ wordBreak: 'break-word' } as TextStyle)]}>{entry.message.body}</Text>
         ) : (
           <DirectQuestionCard question={entry.question} onOpen={onOpenQuestion} />
         )}
@@ -387,7 +402,7 @@ function MessageRow({ currentUserId, entry, onOpenQuestion, styles, tokens }: {
 function getComposerStatus(context: DirectConversationContext | null): string {
   if (!context) return '';
   if (context.blockedByViewer) return 'Bu kullanıcı engellendi.';
-  if (!context.isFriend) return 'Artık arkadaş değilsiniz. Bu konuşmaya yeni mesaj gönderemezsin.';
+  if (!context.isFriend) return 'Artık arkadaş değilsiniz. Yeni mesaj gönderemezsin.';
   if (!context.canSend) return 'Bu kullanıcıyla şu anda mesajlaşamazsın.';
   return '';
 }
@@ -430,36 +445,41 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     menuAction: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 11, borderRadius: radius.sm },
     menuText: { flex: 1, color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 13 },
     keyboardArea: { flex: 1, width: '100%', maxWidth: 820, alignSelf: 'center' },
-    messageList: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: tokens.layout.pageGutter, paddingTop: 12, paddingBottom: 14 },
+    messageList: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: tokens.layout.pageGutter, paddingTop: 14, paddingBottom: 18 },
     messageListEmpty: { justifyContent: 'center' },
-    messageGap: { height: 10 },
+    messageGap: { height: 12 },
     olderButton: { minHeight: 44, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 14, borderRadius: radius.sm, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
     olderText: { color: colors.secondary, fontFamily: fonts.bodySemiBold, fontSize: 12 },
     messageLane: { width: '100%' },
     messageLaneOwn: { alignItems: 'flex-end' },
     messageLaneOther: { alignItems: 'flex-start' },
-    messageSurface: { maxWidth: '84%', minWidth: 88, padding: 11, borderRadius: radius.md, borderWidth: 1 },
-    messageOwn: { backgroundColor: colors.actionSubSurface, borderColor: colors.selectionBorder, borderBottomRightRadius: radius.sm },
-    messageOther: { backgroundColor: colors.secondarySurface, borderColor: colors.borderSubtle, borderBottomLeftRadius: radius.sm },
-    messageBody: { minWidth: 0, color: colors.text, fontFamily: fonts.body, fontSize: 15, lineHeight: 22 },
+    messageSurface: { maxWidth: tokens.layout.isCompact ? '88%' : '74%', minWidth: 88, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 1 },
+    messageOwn: { backgroundColor: colors.actionSubSurface, borderColor: colors.selectionBorder },
+    messageOther: { backgroundColor: colors.secondarySurface, borderColor: colors.borderSubtle },
+    questionMessageSurface: { width: tokens.layout.isCompact ? '88%' : '74%', paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent', borderWidth: 0 },
+    messageBody: { minWidth: 0, flexShrink: 1, color: colors.text, fontFamily: fonts.body, fontSize: 15, lineHeight: 22 },
     messageTime: { marginTop: 6, color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, textAlign: 'left' },
     messageTimeOwn: { textAlign: 'right' },
-    messageSideLabel: { marginTop: 3, paddingHorizontal: 3, color: colors.textMuted, fontFamily: fonts.monoSemiBold, fontSize: 8, lineHeight: 12, letterSpacing: 0.5 },
+    messageSideLabel: { marginTop: 3, paddingHorizontal: 3, color: colors.textMuted, fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, letterSpacing: 0.35 },
     emptyChat: { alignItems: 'center', padding: 24 },
     emptyTitle: { marginTop: 10, color: colors.text, fontFamily: fonts.headingBold, fontSize: 16, lineHeight: 22, textAlign: 'center' },
     emptyText: { maxWidth: 360, marginTop: 5, color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, lineHeight: 20, textAlign: 'center' },
-    composerShell: { paddingHorizontal: tokens.layout.pageGutter, paddingTop: 8, paddingBottom: 4, backgroundColor: colors.canvas, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.dividerSubtle },
-    composerStatus: { marginBottom: 7, color: colors.warning, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+    composerShell: { paddingHorizontal: tokens.layout.pageGutter, paddingTop: 10, paddingBottom: tokens.layout.isCompact ? 8 : 12, backgroundColor: colors.canvas, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.dividerSubtle },
+    composerNotice: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
+    composerStatus: { flex: 1, minWidth: 0, color: colors.textSecondary, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18 },
     actionError: { marginBottom: 7, color: colors.danger, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18, textAlign: 'center' },
     composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-    input: { flex: 1, minWidth: 0, minHeight: 48, maxHeight: 128, color: colors.text, fontFamily: fonts.body, fontSize: 16, lineHeight: 22, paddingHorizontal: 13, paddingVertical: 11, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle },
-    sendButton: { width: 48, height: 48, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.primary },
+    input: { flex: 1, minWidth: 0, minHeight: 48, maxHeight: 132, color: colors.text, fontFamily: fonts.body, fontSize: 16, lineHeight: 22, paddingHorizontal: 13, paddingVertical: 11, borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle },
+    inputFocused: { borderColor: colors.primary, outlineColor: colors.primary, outlineStyle: 'solid', outlineWidth: 2 },
+    inputDisabled: { backgroundColor: colors.disabledBackground, borderColor: colors.disabledBorder, color: colors.disabledForeground },
+    sendButton: { width: 48, height: 48, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primary },
+    sendDisabled: { backgroundColor: colors.disabledBackground, borderWidth: 1, borderColor: colors.disabledBorder },
+    controlFocused: { outlineColor: colors.primary, outlineStyle: 'solid', outlineWidth: 2 },
     characterCount: { marginTop: 4, color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 9, textAlign: 'right' },
     state: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
     stateTitle: { marginTop: 11, color: colors.text, fontFamily: fonts.headingBold, fontSize: 17, lineHeight: 23, textAlign: 'center' },
     retryButton: { minHeight: 48, marginTop: 15, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: radius.sm, backgroundColor: colors.primary },
     retryText: { color: colors.foregroundOnAction, fontFamily: fonts.bodySemiBold, fontSize: 13 },
-    disabled: { opacity: 0.44 },
     pressed: { opacity: 0.72, backgroundColor: colors.surfacePressed },
   });
 }

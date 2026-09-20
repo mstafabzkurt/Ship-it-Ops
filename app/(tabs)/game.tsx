@@ -405,6 +405,7 @@ export default function GameScreen() {
   const resumeTimerAfterExitPromptRef = useRef(false);
   const favoriteRequestIdRef = useRef(0);
   const favoriteMutationLockRef = useRef(false);
+  const favoriteMutationIdRef = useRef(0);
   const attemptedQuestionIdsRef = useRef<CategoryQuestionId[]>(
     categoryId && difficultyStar
       ? getCategoryTierProgress(categoryProgress, categoryId, difficultyStar).attemptedQuestionIds
@@ -1160,6 +1161,7 @@ export default function GameScreen() {
     const requestId = ++favoriteRequestIdRef.current;
     setFavoriteStateLoaded(false);
     setFavoritePending(false);
+    favoriteMutationIdRef.current += 1;
     favoriteMutationLockRef.current = false;
     if (!incident?.id || !user?.id) {
       setIsQuestionFavorite(false);
@@ -1184,25 +1186,28 @@ export default function GameScreen() {
     const currentIncident = incidentRef.current;
     if (!currentIncident || !user?.id || !favoriteStateLoaded || favoriteMutationLockRef.current) return;
     favoriteMutationLockRef.current = true;
+    const mutationId = ++favoriteMutationIdRef.current;
     setFavoritePending(true);
     setQuestionSocialFeedback('');
     const previous = isQuestionFavorite;
     const mutationQuestionId = currentIncident.id;
     setIsQuestionFavorite(!previous);
     try {
-      const persisted = await setQuestionFavorite(user.id, currentIncident.id, !previous);
-      if (incidentRef.current?.id === mutationQuestionId) {
+      const persisted = await setQuestionFavorite(user.id, mutationQuestionId, !previous);
+      if (mutationId === favoriteMutationIdRef.current && incidentRef.current?.id === mutationQuestionId) {
         setIsQuestionFavorite(persisted);
         setQuestionSocialFeedback(persisted ? 'Soru favorilere eklendi.' : 'Soru favorilerden çıkarıldı.');
       }
     } catch {
-      if (incidentRef.current?.id === mutationQuestionId) {
+      if (mutationId === favoriteMutationIdRef.current && incidentRef.current?.id === mutationQuestionId) {
         setIsQuestionFavorite(previous);
         setQuestionSocialFeedback('Favori durumu güncellenemedi.');
       }
     } finally {
-      favoriteMutationLockRef.current = false;
-      if (incidentRef.current?.id === mutationQuestionId) setFavoritePending(false);
+      if (mutationId === favoriteMutationIdRef.current) {
+        favoriteMutationLockRef.current = false;
+        setFavoritePending(false);
+      }
     }
   }, [favoriteStateLoaded, isQuestionFavorite, user?.id]);
 

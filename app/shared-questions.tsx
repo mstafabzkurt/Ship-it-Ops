@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import QuestionArchiveRow from '../src/components/questions/QuestionArchiveRow';
 import { getDashboardTokens } from '../src/components/dashboard/dashboardTokens';
-import { listReceivedQuestionShares, markQuestionShareOpened } from '../src/services/questionSocial';
+import { fetchSharedQuestionSenderProfiles, listReceivedQuestionShares, markQuestionShareOpened } from '../src/services/questionSocial';
 import { useAuth } from '../src/state/AuthContext';
 import { useTheme } from '../src/state/ThemeContext';
 import { fonts } from '../src/theme/typography';
@@ -22,24 +22,46 @@ export default function SharedQuestionsScreen() {
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const [entries, setEntries] = useState<SharedQuestionEntry[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
+  const [sendersLoaded, setSendersLoaded] = useState(false);
   const requestIdRef = useRef(0);
+  const entriesOwnerRef = useRef<string | null>(null);
 
   const loadShares = useCallback(() => {
     const requestId = ++requestIdRef.current;
     if (!user?.id) {
+      entriesOwnerRef.current = null;
+      setEntries([]);
+      setSendersLoaded(false);
       setStatus('error');
       return;
     }
+    if (entriesOwnerRef.current !== user.id) {
+      entriesOwnerRef.current = user.id;
+      setEntries([]);
+    }
+    setSendersLoaded(false);
     setStatus('loading');
     void listReceivedQuestionShares(user.id)
       .then((result) => {
         if (requestId !== requestIdRef.current) return;
         setEntries(result);
         setStatus('ready');
+        void fetchSharedQuestionSenderProfiles(result)
+          .then((profiles) => {
+            if (requestId !== requestIdRef.current) return;
+            setEntries((current) => current.map((entry) => ({
+              ...entry,
+              sender: profiles.get(entry.share.senderId) ?? null,
+            })));
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            if (requestId === requestIdRef.current) setSendersLoaded(true);
+          });
       })
       .catch(() => {
         if (requestId !== requestIdRef.current) return;
-        setEntries([]);
+        setSendersLoaded(true);
         setStatus('error');
       });
   }, [user?.id]);
@@ -76,6 +98,7 @@ export default function SharedQuestionsScreen() {
               <Text accessibilityRole="header" style={styles.title}>Paylaşılan Sorular</Text>
             </View>
           </View>
+          {status === 'error' && entries.length > 0 ? <Text accessibilityLiveRegion="polite" style={styles.loadError}>Paylaşımlar yenilenemedi. Tekrar deneyebilirsin.</Text> : null}
           <FlatList
             data={entries}
             keyExtractor={(entry) => entry.share.id}
@@ -86,7 +109,7 @@ export default function SharedQuestionsScreen() {
                 contextLabel={formatSharedDate(item.share.createdAt)}
                 question={item.question}
                 sender={item.sender}
-                senderUnavailable={!item.sender}
+                senderUnavailable={sendersLoaded && !item.sender}
                 unread={!item.share.openedAt}
                 onOpen={() => handleOpen(item)}
               />
@@ -113,7 +136,7 @@ function InboxState({ status, onRetry, styles, tokens }: {
 }) {
   if (status === 'loading') return <View style={styles.stateBox}><ActivityIndicator color={tokens.colors.secondary} /><Text style={styles.stateTitle}>Paylaşımlar yükleniyor</Text></View>;
   if (status === 'error') return <View style={styles.stateBox}><Ionicons name="cloud-offline-outline" size={30} color={tokens.colors.warning} /><Text style={styles.stateTitle}>Paylaşımlar yüklenemedi</Text><Pressable accessibilityRole="button" onPress={onRetry} style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}><Text style={styles.retryText}>Tekrar Dene</Text></Pressable></View>;
-  return <View style={styles.stateBox}><Ionicons name="paper-plane-outline" size={30} color={tokens.colors.textMuted} /><Text style={styles.stateTitle}>Henüz paylaşılan soru yok.</Text><Text style={styles.stateText}>Arkadaşlarının gönderdiği sorular burada görünür.</Text></View>;
+  return <View style={styles.stateBox}><Ionicons name="paper-plane-outline" size={30} color={tokens.colors.textMuted} /><Text style={styles.stateTitle}>Henüz paylaşılan soru yok.</Text><Text style={styles.stateText}>Paylaşılan Sorular'a gönderilen sorular burada görünür.</Text></View>;
 }
 
 function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
@@ -131,6 +154,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     listContent: { paddingBottom: tokens.layout.pageBottom },
     listContentEmpty: { flexGrow: 1 },
     separator: { height: 10 },
+    loadError: { marginBottom: 10, color: colors.danger, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18 },
     stateBox: { flex: 1, minHeight: 280, alignItems: 'center', justifyContent: 'center', padding: 24 },
     stateTitle: { marginTop: 11, color: colors.text, fontFamily: fonts.headingBold, fontSize: 17, lineHeight: 23, textAlign: 'center' },
     stateText: { maxWidth: 390, marginTop: 5, color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, lineHeight: 20, textAlign: 'center' },

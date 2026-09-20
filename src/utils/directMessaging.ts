@@ -190,8 +190,10 @@ export function getDirectMessageCursor(message: DirectMessage): DirectMessageCur
   return { createdAt: message.createdAt, id: message.id };
 }
 
-export function getDirectMessagePreview(message: DirectMessage | null): string {
+export function getDirectMessagePreview(message: DirectMessage | null, currentUserId: string): string {
   if (!message) return 'Konuşma hazır';
-  if (message.messageType === 'question_share') return 'Bir soru paylaştı';
+  if (message.messageType === 'question_share') {
+    return message.senderId === currentUserId ? 'Bir soru paylaştın' : 'Bir soru paylaştı';
+  }
   return message.body ?? '';
 }

@@ -26,6 +26,7 @@ const ambiguityRepair = readFileSync(resolve(root, 'supabase/migrations/20260919
 const service = readFileSync(resolve(root, 'src/services/directMessaging.ts'), 'utf8');
 const messagesScreen = readFileSync(resolve(root, 'app/messages/index.tsx'), 'utf8');
 const conversationScreen = readFileSync(resolve(root, 'app/messages/[userId].tsx'), 'utf8');
+const questionCard = readFileSync(resolve(root, 'src/components/messaging/DirectQuestionCard.tsx'), 'utf8');
 const profileScreen = readFileSync(resolve(root, 'app/(tabs)/profile.tsx'), 'utf8');
 const friendsScreen = readFileSync(resolve(root, 'app/friends.tsx'), 'utf8');
 const publicProfileScreen = readFileSync(resolve(root, 'app/public-profile/[userId].tsx'), 'utf8');
@@ -124,7 +125,9 @@ const questionMessage = serializeDirectMessage({
   created_at: '2026-09-17T12:00:01.000Z',
 });
 assert(questionMessage);
-assert.equal(getDirectMessagePreview(questionMessage), 'Bir soru paylaştı');
+assert.equal(getDirectMessagePreview(questionMessage, userB), 'Bir soru paylaştın');
+assert.equal(getDirectMessagePreview(questionMessage, userA), 'Bir soru paylaştı');
+assert.equal(getDirectMessagePreview(null, userB), 'Konuşma hazır');
 assert.deepEqual(getDirectMessageCursor(textMessage), { createdAt: textMessage.createdAt, id: textMessage.id });
 
 const entries: DirectMessageEntry[] = [
@@ -168,14 +171,16 @@ const otherConversation = {
 };
 const beforeRefresh = [otherConversation, olderConversation];
 assert.deepEqual(beforeRefresh.map((conversation) => conversation.conversationId), [secondConversationId, conversationId]);
-assert.equal(getDirectMessagePreview(beforeRefresh[1].lastMessage), 'Merhaba');
+assert.equal(getDirectMessagePreview(beforeRefresh[1].lastMessage, userA), 'Merhaba');
 const serverRefresh = uniqueDirectConversationSummaries([
   updatedConversation,
   otherConversation,
   updatedConversation,
 ]);
 assert.deepEqual(serverRefresh.map((conversation) => conversation.conversationId), [conversationId, secondConversationId], 'A refresh must preserve server order and avoid duplicate rows');
-assert.equal(getDirectMessagePreview(serverRefresh[0].lastMessage), 'Bir soru paylaştı', 'Question-share preview must survive list refresh');
+assert.equal(getDirectMessagePreview(serverRefresh[0].lastMessage, userA), 'Bir soru paylaştı', 'Question-share preview must survive list refresh');
+assert.equal(getDirectMessagePreview(serverRefresh[0].lastMessage, userB), 'Bir soru paylaştın', 'Own share preview must survive list refresh');
+assert.equal(getDirectMessagePreview({ ...textMessage, body: 'x'.repeat(1000) }, userA), 'x'.repeat(1000), 'Long messages must retain their content for wrapping');
 assert.equal(serverRefresh[0].updatedAt, questionMessage.createdAt, 'The refreshed row must use the server timestamp');
 assert.equal(serverRefresh[0].unreadCount, 4, 'The refreshed row must use the server unread count');
 
@@ -254,10 +259,13 @@ assert.match(profileScreen, /title="Mesajlar"/);
 assert.match(profileScreen, /badgeCount > 99 \? '99\+' : badgeCount/, 'Profile unread badge must use the same 99+ ceiling');
 assert.match(friendsScreen, /Mesaj Gönder/);
 assert.match(publicProfileScreen, /Mesaj Gönder/);
-assert.match(messagesScreen, /Bir soru paylaştı|useFocusEffect/);
+assert.match(messagesScreen, /getDirectMessagePreview\(conversation\.lastMessage, currentUserId\)/);
 assert.match(conversationScreen, /KeyboardAvoidingView/);
-assert.match(conversationScreen, /Artık arkadaş değilsiniz\. Bu konuşmaya yeni mesaj gönderemezsin\./);
+assert.match(conversationScreen, /Artık arkadaş değilsiniz\. Yeni mesaj gönderemezsin\./);
+assert.match(conversationScreen, /Bu kullanıcı engellendi\./);
 assert.match(conversationScreen, /Bu kullanıcıyla şu anda mesajlaşamazsın\./);
+assert.match(conversationScreen, /editable=\{Boolean\(context\?\.canSend\) && !sendPending\}/, 'Blocked and unfriended chats must keep composer disabled');
+assert.match(conversationScreen, /disabled=\{!context\?\.canSend \|\| !body\.trim\(\) \|\| sendPending\}/, 'Send action must use the same eligibility');
 assert.match(conversationScreen, /Kullanıcıyı Engelle/);
 assert.match(conversationScreen, /Şikayet Et/);
 assert.match(shareSheet, /sendQuestionToDirectMessage/);
@@ -290,6 +298,15 @@ assert.match(messagesScreen, /setConversations\(uniqueDirectConversationSummarie
 assert.match(messagesScreen, /activeUserIdRef\.current !== userId[\s\S]*setConversations\(uniqueDirectConversationSummaries/, 'Old-account RPC results must be ignored');
 assert.match(messagesScreen, /focusedRef\.current = false;[\s\S]*activeUserIdRef\.current = null;[\s\S]*requestIdRef\.current \+= 1/, 'Blur and unmount must invalidate pending list work');
 assert.doesNotMatch(messagesScreen, /subscribeToIncomingDirectMessages|\.channel\(/, 'Messages screen must not create a second global Realtime channel');
+assert.match(messagesScreen, /numberOfLines=\{1\} ellipsizeMode="tail" style=\{styles\.companyName\}/, 'Long company names must truncate inside the flex row');
+assert.match(messagesScreen, /rowCopy: \{ flex: 1, minWidth: 0 \}/);
+assert.match(messagesScreen, /rowUnread: \{[^}]*borderLeftWidth: 3/, 'Unread row must have a distinct non-text cue');
+assert.match(messagesScreen, /rowFocused: \{[^}]*outlineWidth: 2/, 'List actions need a visible keyboard focus state');
+assert.match(messagesScreen, /Math\.min\(99, conversation\.unreadCount\)/, 'Row unread badge ceiling must remain unchanged');
+assert.match(conversationScreen, /messageSurface: \{ maxWidth: tokens\.layout\.isCompact \? '88%' : '74%'[\s\S]*messageBody: \{ minWidth: 0, flexShrink: 1/, 'Long messages must remain within responsive bubbles');
+assert.match(conversationScreen, /wordBreak: 'break-word'/, 'Unbroken web message text must wrap');
+assert.match(conversationScreen, /questionMessageSurface: \{[^}]*borderWidth: 0/, 'Question card must avoid nested bubble borders');
+assert.match(questionCard, /minHeight: 44[\s\S]*focused && styles\.focused|focused && styles\.focused[\s\S]*minHeight: 44/, 'Question card action must be keyboard-visible and touchable');
 
 const visibleBase = {
   pathname: '/', isAuthenticated: true, isPlayerReady: true,
@@ -319,6 +336,8 @@ assert(!shouldAnimateUnreadAttention(0, 1, false, false), 'Hidden shortcut must 
 assert.match(shortcut, /AccessibilityInfo\.isReduceMotionEnabled\(\)/);
 assert.match(shortcut, /onPress=\{\(\) => router\.push\('\/messages'\)\}/);
 assert.match(shortcut, /tokens\.layout\.tabBarHeight \+ Math\.max\(insets\.bottom/, 'Tab routes must position the shortcut above navigation');
+assert.match(shortcut, /width - tokens\.layout\.contentMaxWidth/, 'Desktop shortcut must sit near the shared content edge');
+assert.match(shortcut, /focused && styles\.focused/, 'Shortcut must have a visible keyboard focus state');
 
 // Web keyboard submission uses the same send path as the button. Native input
 // behavior, IME confirmation, and Shift+Enter remain under the platform input.
