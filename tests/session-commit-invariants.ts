@@ -31,6 +31,7 @@ const createPermanentState = (): GameSessionPermanentState => ({
   budget: 10_000,
   correctAnswers: 12,
   wrongAnswers: 8,
+  completedSessions: 2,
   rankingOutcomeStats: normalizeRankingOutcomeStats(null),
   categoryProgress: createDefaultCategoryProgress(),
   uptimeStreak: 0,
@@ -162,6 +163,7 @@ const passedPlan = planCompletedGameSession({
 });
 assert(passedPlan?.totals.reputationDelta === 40 && passedPlan.completion.passed, 'A complete +40 Kolay session must pass and commit');
 assert(passedPlan.permanentState.correctAnswers === 19 && passedPlan.permanentState.wrongAnswers === 11, 'Answer totals must commit once at completion');
+assert(passedPlan.permanentState.completedSessions === 3, 'A complete session must increment the permanent session count exactly once');
 assert(passedPlan.permanentState.rankingOutcomeStats.successCount === 7, 'Ranking outcomes must commit once at completion');
 assert(passedPlan.permanentState.categoryProgress.web_programming[1].solvedCorrectQuestionIds.length === 7, 'Completed sessions must persist stable IDs only for correctly solved questions');
 assert(getTotalCategoryLeaderboardScore(passedPlan.permanentState.categoryProgress) === 700, 'All-time leaderboard progress must use final completed-session result points');

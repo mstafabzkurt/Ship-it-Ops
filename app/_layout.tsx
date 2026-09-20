@@ -11,6 +11,7 @@ import { JetBrainsMono_400Regular, JetBrainsMono_500Medium, JetBrainsMono_600Sem
 import { colors } from '../src/theme/colors';
 import { AuthProvider, useAuth } from '../src/state/AuthContext';
 import { LeaderboardProvider } from '../src/state/LeaderboardContext';
+import { MessagingUnreadProvider } from '../src/state/MessagingUnreadContext';
 import { ReputationProvider, useReputation } from '../src/state/ReputationContext';
 import { ThemeProvider, useTheme } from '../src/state/ThemeContext';
 import { PrivacyConsentProvider } from '../src/state/PrivacyConsentContext';
@@ -20,6 +21,7 @@ import GuidedProductTour from '../src/components/onboarding/GuidedProductTour';
 import OnboardingExperience from '../src/components/onboarding/OnboardingExperience';
 import PrivacyConsentExperience from '../src/components/privacy/PrivacyConsentExperience';
 import AnalyticsLifecycle from '../src/components/analytics/AnalyticsLifecycle';
+import GlobalMessagesShortcut from '../src/components/messaging/GlobalMessagesShortcut';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -42,15 +44,27 @@ export default function RootLayout() {
       <AuthProvider>
         <ThemeProvider>
           <PrivacyConsentProvider>
-            <ReputationProvider>
-              <LeaderboardProvider>
-                <RootNavigator fontsLoaded={fontsLoaded} />
-              </LeaderboardProvider>
-            </ReputationProvider>
+            <AccountScopedApp fontsLoaded={fontsLoaded} />
           </PrivacyConsentProvider>
         </ThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>
+  );
+}
+
+function AccountScopedApp({ fontsLoaded }: { fontsLoaded: boolean }) {
+  const { user } = useAuth();
+
+  // Remount all account-derived runtime state at every auth identity boundary.
+  // Theme and device consent remain mounted outside this boundary.
+  return (
+    <ReputationProvider key={user?.id ?? 'signed-out'}>
+      <LeaderboardProvider>
+        <MessagingUnreadProvider>
+          <RootNavigator fontsLoaded={fontsLoaded} />
+        </MessagingUnreadProvider>
+      </LeaderboardProvider>
+    </ReputationProvider>
   );
 }
 
@@ -153,11 +167,21 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
       <Stack screenOptions={{ headerShown: false, contentStyle: themedBackground }}>
         <Stack.Protected guard={isAuthenticated && isPlayerSaveLoaded}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="company-search" />
+          <Stack.Screen name="public-profile/[userId]" />
+          <Stack.Screen name="friends" />
+          <Stack.Screen name="friend-requests" />
+          <Stack.Screen name="favorite-questions" />
+          <Stack.Screen name="shared-questions" />
+          <Stack.Screen name="question-detail/[questionId]" />
+          <Stack.Screen name="messages/index" />
+          <Stack.Screen name="messages/[userId]" />
         </Stack.Protected>
         <Stack.Protected guard={!isAuthenticated}>
           <Stack.Screen name="(auth)" />
         </Stack.Protected>
       </Stack>
+      <GlobalMessagesShortcut />
       {isAuthenticated && isPlayerSaveLoaded && user ? (
         <>
           <OnboardingExperience key={`onboarding-${user.id}`} />

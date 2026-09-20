@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { getRankingScoreForOutcome } from '../src/utils/ranking';
+import { getLeaderboardProfileDestination } from '../src/utils/leaderboardNavigation';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -10,6 +11,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const root = process.cwd();
 const serviceSource = readFileSync(resolve(root, 'src/services/leaderboard.ts'), 'utf8');
 const rankingSource = readFileSync(resolve(root, 'app/(tabs)/ranking.tsx'), 'utf8');
+const rowSource = readFileSync(resolve(root, 'src/components/ranking/LeaderboardRow.tsx'), 'utf8');
 const gameSource = readFileSync(resolve(root, 'app/(tabs)/game.tsx'), 'utf8');
 const migrationSource = readFileSync(
   resolve(root, 'supabase/migrations/20260903100000_create_leaderboard_score_events.sql'),
@@ -22,9 +24,56 @@ assert(getRankingScoreForOutcome('partial', true) === 15, 'Repeated legacy parti
 assert(getRankingScoreForOutcome('fail', true) === 0, 'Wrong answers must not score when repeated');
 assert(getRankingScoreForOutcome('timeout', true) === 0, 'Timeouts must not score when repeated');
 
+const currentUserId = '00000000-0000-4000-8000-000000000001';
+const otherUserId = '00000000-0000-4000-8000-000000000002';
+const otherDestination = getLeaderboardProfileDestination(otherUserId, currentUserId);
+assert(
+  otherDestination?.kind === 'public-profile'
+    && otherDestination.userId === otherUserId,
+  'Another leaderboard user must navigate to a public profile',
+);
+assert(
+  getLeaderboardProfileDestination(currentUserId, currentUserId)?.kind === 'own-profile',
+  'The current leaderboard user must navigate to the own Profile screen',
+);
+assert(
+  getLeaderboardProfileDestination('', currentUserId) === null
+    && getLeaderboardProfileDestination('not-a-uuid', currentUserId) === null
+    && getLeaderboardProfileDestination(undefined, currentUserId) === null,
+  'Missing or malformed leaderboard user IDs must remain non-interactive',
+);
+
 assert(
   /period === 'all_time'\) return fetchGlobalLeaderboard\(limit\)/.test(serviceSource),
   'General leaderboard must keep using the existing all-time profile score',
+);
+assert(
+  serviceSource.includes(".order('ranking_score', { ascending: false })")
+    && serviceSource.includes(".order('success_rate', { ascending: false })")
+    && serviceSource.includes(".order('success_count', { ascending: false })")
+    && serviceSource.includes(".order('updated_at', { ascending: true })")
+    && serviceSource.includes(".order('user_id', { ascending: true })"),
+  'Profile navigation must not change leaderboard score ordering or tie-breakers',
+);
+assert(
+  rankingSource.includes("router.push('/(tabs)/profile')")
+    && rankingSource.includes("pathname: '/public-profile/[userId]'")
+    && rankingSource.includes('if (!destination) return'),
+  'Leaderboard navigation must route own, other, and missing identities safely',
+);
+assert(
+  rowSource.includes('accessibilityRole="button"')
+    && rowSource.includes('accessibilityLabel={`${entry.companyName} profilini aç`}')
+    && rowSource.includes('onPress={onOpenProfile}')
+    && rowSource.includes('<Text style={styles.scoreValue}>{entry.rankingScore.toLocaleString'),
+  'Only the leaderboard identity area must expose accessible profile navigation while score remains separate',
+);
+const identityActionStart = rowSource.indexOf('accessibilityLabel={`${entry.companyName} profilini aç`}');
+const identityActionEnd = rowSource.indexOf('</Pressable>', identityActionStart);
+const scoreValueStart = rowSource.indexOf('<Text style={styles.scoreValue}>');
+assert(
+  identityActionStart >= 0 && identityActionEnd > identityActionStart && scoreValueStart > identityActionEnd,
+  'Leaderboard score and rank/stat columns must stay outside the interactive identity control',
 );
 assert(
   /p_period = 'weekly'[\s\S]*?date_trunc\('week', timezone\('Europe\/Istanbul', now\(\)\)\)/.test(migrationSource)

@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import AssetIcon from '../../src/components/AssetIcon';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
@@ -29,6 +29,7 @@ import { useAuth } from '../../src/state/AuthContext';
 import { useLeaderboard } from '../../src/state/LeaderboardContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
+import { getLeaderboardProfileDestination } from '../../src/utils/leaderboardNavigation';
 import { trackEvent } from '../../src/utils/telemetry';
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -148,6 +149,19 @@ export default function RankingScreen() {
         ? `CANLI / ${topEntries.length} KAYIT`
         : 'HAZIR';
 
+  const handleOpenProfile = useCallback((entryUserId: unknown) => {
+    const destination = getLeaderboardProfileDestination(entryUserId, user?.id);
+    if (!destination) return;
+    if (destination.kind === 'own-profile') {
+      router.push('/(tabs)/profile');
+      return;
+    }
+    router.push({
+      pathname: '/public-profile/[userId]',
+      params: { userId: destination.userId },
+    });
+  }, [user?.id]);
+
   const renderItem = useCallback(({ item, index }: { item: LeaderboardEntry; index: number }) => (
     <LeaderboardRow
       entry={item}
@@ -155,8 +169,11 @@ export default function RankingScreen() {
       isCurrentUser={item.userId === user?.id}
       compact={compact}
       isLast={index === topEntries.length - 1}
+      onOpenProfile={getLeaderboardProfileDestination(item.userId, user?.id)
+        ? () => handleOpenProfile(item.userId)
+        : undefined}
     />
-  ), [compact, topEntries.length, user?.id]);
+  ), [compact, handleOpenProfile, topEntries.length, user?.id]);
 
   return (
     <View style={styles.background}>
@@ -165,7 +182,7 @@ export default function RankingScreen() {
         <FlatList
           accessibilityLabel={`${periodLabel} Ship It Ops sıralaması`}
           data={loadState === 'ready' ? topEntries : []}
-          keyExtractor={(item) => item.userId}
+          keyExtractor={(item, index) => item.userId || `leaderboard-row-${index}`}
           renderItem={renderItem}
           refreshing={refreshing}
           onRefresh={handleRefresh}
@@ -365,6 +382,9 @@ export default function RankingScreen() {
                 isLast
                 standalone
                 positionFallbackLabel="Top 50 dışında"
+                onOpenProfile={getLeaderboardProfileDestination(pinnedCurrentUser.userId, user?.id)
+                  ? () => handleOpenProfile(pinnedCurrentUser.userId)
+                  : undefined}
               />
             </View>
           ) : null}

@@ -14,7 +14,11 @@
     "test:rank-icons": "node tests/rank-icon-invariants.cjs",
     "test:tour": "node tests/guided-tour-invariants.cjs",
     "test:company-names": "node tests/company-name-validation-invariants.cjs",
-    "test:badges": "node tests/run-typescript-invariant.cjs tests/badge-reward-invariants.ts"
+    "test:badges": "node tests/run-typescript-invariant.cjs tests/badge-reward-invariants.ts",
+    "test:public-profiles": "node tests/run-typescript-invariant.cjs tests/public-profile-invariants.ts",
+    "test:friends": "node tests/run-typescript-invariant.cjs tests/friend-system-invariants.ts",
+    "test:question-social": "node tests/run-typescript-invariant.cjs tests/question-social-invariants.ts",
+    "test:messaging": "node tests/run-typescript-invariant.cjs tests/direct-messaging-invariants.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",

@@ -23,6 +23,7 @@ interface PlayerSaveDatabaseRow {
   company_name: string;
   correct_answers: number | string;
   wrong_answers: number | string;
+  completed_sessions: number | string;
   ranking_success_count: number | string;
   ranking_partial_count: number | string;
   ranking_fail_count: number | string;
@@ -85,6 +86,7 @@ const mapDatabaseRow = (row: PlayerSaveDatabaseRow): PlayerSaveSnapshot => {
     companyName: row.company_name,
     correctAnswers: row.correct_answers,
     wrongAnswers: row.wrong_answers,
+    completedSessions: row.completed_sessions,
     rankingOutcomeStats: {
       successCount: Number(row.ranking_success_count),
       partialCount: Number(row.ranking_partial_count),
@@ -118,6 +120,7 @@ const toDatabaseRow = (userId: string, save: PlayerSaveSnapshot) => ({
   company_name: save.companyName,
   correct_answers: save.correctAnswers,
   wrong_answers: save.wrongAnswers,
+  completed_sessions: save.completedSessions,
   ranking_success_count: save.rankingOutcomeStats.successCount,
   ranking_partial_count: save.rankingOutcomeStats.partialCount,
   ranking_fail_count: save.rankingOutcomeStats.failCount,
@@ -142,7 +145,7 @@ const toDatabaseRow = (userId: string, save: PlayerSaveSnapshot) => ({
 export async function fetchMyPlayerSave(userId: string): Promise<PlayerSaveSnapshot | null> {
   const { data, error } = await supabase
     .from('player_saves')
-    .select('user_id, save_version, career_xp, reputation, company_budget, company_name, correct_answers, wrong_answers, ranking_success_count, ranking_partial_count, ranking_fail_count, ranking_timeout_count, ranking_legacy_positive_count, joker_inventory, owned_item_ids, owned_cosmetic_ids, equipped_avatar_id, equipped_avatar_frame_id, streak_days, streak_last_date, recent_question_ids, category_progress, onboarding_completed, tutorial_completed, selected_interest_areas, claimed_badge_reward_ids, unseen_badge_ids')
+    .select('user_id, save_version, career_xp, reputation, company_budget, company_name, correct_answers, wrong_answers, completed_sessions, ranking_success_count, ranking_partial_count, ranking_fail_count, ranking_timeout_count, ranking_legacy_positive_count, joker_inventory, owned_item_ids, owned_cosmetic_ids, equipped_avatar_id, equipped_avatar_frame_id, streak_days, streak_last_date, recent_question_ids, category_progress, onboarding_completed, tutorial_completed, selected_interest_areas, claimed_badge_reward_ids, unseen_badge_ids')
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw normalizeServiceError(error);

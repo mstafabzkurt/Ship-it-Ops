@@ -1,5 +1,5 @@
-import React, { memo, useMemo } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { memo, useMemo, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import type { LeaderboardEntry } from '../../services/leaderboard';
 import { useTheme } from '../../state/ThemeContext';
@@ -16,6 +16,7 @@ interface LeaderboardRowProps {
   isLast?: boolean;
   standalone?: boolean;
   positionFallbackLabel?: string;
+  onOpenProfile?: () => void;
 }
 
 function LeaderboardRow({
@@ -26,6 +27,7 @@ function LeaderboardRow({
   isLast = false,
   standalone = false,
   positionFallbackLabel = 'Konum bekleniyor',
+  onOpenProfile,
 }: LeaderboardRowProps) {
   const { width } = useWindowDimensions();
   const { theme } = useTheme();
@@ -36,6 +38,7 @@ function LeaderboardRow({
     [entry.avatarFrameId, entry.avatarId],
   );
   const positionLabel = position === null ? positionFallbackLabel : `${position}. sıra`;
+  const [identityFocused, setIdentityFocused] = useState(false);
   const accessibilityLabel = [
     positionLabel,
     entry.companyName,
@@ -45,23 +48,8 @@ function LeaderboardRow({
     `${entry.successCount} başarılı soru`,
     isCurrentUser ? 'senin profilin' : '',
   ].filter(Boolean).join(', ');
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={accessibilityLabel}
-      style={[
-        styles.row,
-        compact && styles.rowCompact,
-        isCurrentUser && styles.currentRow,
-        isLast && styles.lastRow,
-        standalone && styles.standaloneRow,
-      ]}
-    >
-      <Text style={[styles.position, compact && styles.positionCompact]}>
-        {position ?? '—'}
-      </Text>
-
+  const identityContent = (
+    <>
       <CosmeticPreview
         avatar={cosmetics.avatar}
         frame={cosmetics.frame}
@@ -88,6 +76,47 @@ function LeaderboardRow({
           </>
         ) : null}
       </View>
+    </>
+  );
+
+  return (
+    <View
+      accessible={!onOpenProfile}
+      accessibilityLabel={!onOpenProfile ? accessibilityLabel : undefined}
+      style={[
+        styles.row,
+        compact && styles.rowCompact,
+        isCurrentUser && styles.currentRow,
+        isLast && styles.lastRow,
+        standalone && styles.standaloneRow,
+      ]}
+    >
+      <Text style={[styles.position, compact && styles.positionCompact]}>
+        {position ?? '—'}
+      </Text>
+
+      {onOpenProfile ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${entry.companyName} profilini aç`}
+          onBlur={() => setIdentityFocused(false)}
+          onFocus={() => setIdentityFocused(true)}
+          onPress={onOpenProfile}
+          style={({ pressed }) => [
+            styles.identityAction,
+            styles.identityActionInteractive,
+            compact && styles.identityActionCompact,
+            identityFocused && styles.identityActionFocused,
+            pressed && styles.identityActionPressed,
+          ]}
+        >
+          {identityContent}
+        </Pressable>
+      ) : (
+        <View style={[styles.identityAction, compact && styles.identityActionCompact]}>
+          {identityContent}
+        </View>
+      )}
 
       {!compact ? (
         <>
@@ -144,6 +173,22 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       textAlign: 'center',
     },
     positionCompact: { width: 22, fontSize: 12 },
+    identityAction: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 58,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 2,
+      borderRadius: radius.sm,
+    },
+    identityActionInteractive: {
+      ...(Platform.OS === 'web' ? { cursor: 'pointer' as const } : {}),
+    },
+    identityActionCompact: { minHeight: 64, gap: 8, paddingHorizontal: 0 },
+    identityActionFocused: { backgroundColor: colors.surfaceHover, outlineColor: colors.primary, outlineStyle: 'solid', outlineWidth: 2 },
+    identityActionPressed: { opacity: 0.76, backgroundColor: colors.surfacePressed },
     identity: { flex: 1, minWidth: 0 },
     nameLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
     companyName: { flexShrink: 1, fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 19, color: colors.text },

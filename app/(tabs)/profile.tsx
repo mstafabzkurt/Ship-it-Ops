@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import CompanyNameStatus from '../../src/components/company/CompanyNameStatus';
@@ -23,11 +23,13 @@ import ProfileSupport from '../../src/components/profile/ProfileSupport';
 import ProfileSummaryCard from '../../src/components/profile/ProfileSummaryCard';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { useAuth } from '../../src/state/AuthContext';
+import { useMessagingUnread } from '../../src/state/MessagingUnreadContext';
 import { useReputation } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
 import { useCompanyNameAvailability } from '../../src/hooks/useCompanyNameAvailability';
 import type { CompanyNameAvailabilityStatus } from '../../src/services/companyName';
+import { countIncomingFriendRequests } from '../../src/services/friends';
 import { trackEvent } from '../../src/utils/telemetry';
 import { INTEREST_AREA_OPTIONS, type InterestAreaId } from '../../src/utils/onboarding';
 import { COMPANY_NAME_MAX_LENGTH } from '../../src/utils/companyNameValidation';
@@ -40,12 +42,14 @@ export default function ProfileScreen() {
     currentRank,
     addBudget,
     resetProgress,
+    flushPlayerSave,
     equippedAvatar,
     equippedAvatarFrame,
     selectedInterestAreas,
     setInterestAreas,
   } = useReputation();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const { unreadCount: unreadMessageCount } = useMessagingUnread();
   const { theme, resetTheme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
@@ -60,9 +64,14 @@ export default function ProfileScreen() {
   const [isSavingCompany, setIsSavingCompany] = useState(false);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [interestModalVisible, setInterestModalVisible] = useState(false);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
+  const logoutPendingRef = useRef(false);
   const [interestInput, setInterestInput] = useState<InterestAreaId[]>(selectedInterestAreas);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [incomingRequestCount, setIncomingRequestCount] = useState(0);
   const toastAnim = useRef(new Animated.Value(0)).current;
   const companyAvailability = useCompanyNameAvailability(companyInput, {
     currentCompanyName: companyName,
@@ -71,8 +80,18 @@ export default function ProfileScreen() {
   const companyMessage = companySaveFeedback?.message ?? companyAvailability.message;
 
   useFocusEffect(useCallback(() => {
+    let isActive = true;
     void trackEvent('profile_opened');
-  }, []));
+    if (user?.id) {
+      void countIncomingFriendRequests(user.id).then((count) => {
+        if (!isActive) return;
+        setIncomingRequestCount(count);
+      }).catch(() => {
+        if (isActive) setIncomingRequestCount(0);
+      });
+    }
+    return () => { isActive = false; };
+  }, [user?.id]));
 
   useEffect(() => {
     setCompanyInput(companyName);
@@ -142,6 +161,37 @@ export default function ProfileScreen() {
     setInterestModalVisible(false);
   };
 
+  const openLogoutModal = () => {
+    if (logoutPendingRef.current) return;
+    setLogoutError('');
+    setLogoutModalVisible(true);
+  };
+
+  const closeLogoutModal = () => {
+    if (!logoutPendingRef.current) setLogoutModalVisible(false);
+  };
+
+  const handleConfirmLogout = async () => {
+    if (logoutPendingRef.current) return;
+    logoutPendingRef.current = true;
+    setIsLoggingOut(true);
+    setLogoutError('');
+    try {
+      await flushPlayerSave();
+      const result = await signOut();
+      if (!result.ok) {
+        setLogoutError('Çıkış yapılamadı. Tekrar dene.');
+        return;
+      }
+      setLogoutModalVisible(false);
+    } catch {
+      setLogoutError('Çıkış yapılamadı. Tekrar dene.');
+    } finally {
+      logoutPendingRef.current = false;
+      setIsLoggingOut(false);
+    }
+  };
+
   const handleResetProgress = async () => {
     if (Platform.OS === 'web') {
       const isConfirmed = window.confirm('Tüm Kariyer XP, İtibar, bütçe, yakın soru geçmişi ve kullanıcı istatistikleri sıfırlanacak. Emin misiniz?');
@@ -194,6 +244,70 @@ export default function ProfileScreen() {
               equippedAvatar={equippedAvatar}
               equippedAvatarFrame={equippedAvatarFrame}
             />
+
+            <SectionHeading eyebrow="SOSYAL / İÇERİK" title="Bağlantılar ve Arşiv" styles={styles} compact />
+            <View style={styles.socialGroup}>
+              <SocialEntry
+                accessibilityLabel="Şirket Ara. Başka oyuncuların herkese açık şirket profillerini bul."
+                icon="search"
+                onPress={() => router.push('/company-search')}
+                subtitle="Herkese açık şirket profillerini bul"
+                title="Şirket Ara"
+                styles={styles}
+                tokens={tokens}
+              />
+              <SocialEntry
+                accessibilityLabel="Arkadaşlar listesini aç"
+                icon="people-outline"
+                onPress={() => router.push('/friends')}
+                subtitle="Bağlantılarını görüntüle"
+                title="Arkadaşlar"
+                styles={styles}
+                tokens={tokens}
+              />
+              <SocialEntry
+                accessibilityLabel={incomingRequestCount > 0
+                  ? `Gelen İstekler. ${incomingRequestCount} bekleyen arkadaşlık isteği var.`
+                  : 'Gelen İstekler. Bekleyen arkadaşlık isteği yok.'}
+                badgeCount={incomingRequestCount}
+                icon="mail-unread-outline"
+                onPress={() => router.push('/friend-requests')}
+                subtitle="Bekleyen istekleri değerlendir"
+                title="Gelen İstekler"
+                styles={styles}
+                tokens={tokens}
+              />
+              <SocialEntry
+                accessibilityLabel={unreadMessageCount > 0
+                  ? `Mesajlar. ${unreadMessageCount} okunmamış mesaj var.`
+                  : 'Mesajlar. Okunmamış mesaj yok.'}
+                badgeCount={unreadMessageCount}
+                icon="chatbubbles-outline"
+                onPress={() => router.push('/messages')}
+                subtitle="Arkadaşlarınla güvenli sohbet et"
+                title="Mesajlar"
+                styles={styles}
+                tokens={tokens}
+              />
+              <SocialEntry
+                accessibilityLabel="Favori Sorular arşivini aç"
+                icon="star-outline"
+                onPress={() => router.push('/favorite-questions')}
+                subtitle="Kaydettiğin soruları yeniden incele"
+                title="Favori Sorular"
+                styles={styles}
+                tokens={tokens}
+              />
+              <SocialEntry
+                accessibilityLabel="Paylaşılan Sorular gelen kutusunu aç"
+                icon="paper-plane-outline"
+                onPress={() => router.push('/shared-questions')}
+                subtitle="Arkadaşlarından gelen soruları görüntüle"
+                title="Paylaşılan Sorular"
+                styles={styles}
+                tokens={tokens}
+              />
+            </View>
 
             <View style={[styles.settingsGrid, isWide && styles.settingsGridWide]}>
               <View style={[styles.primaryColumn, isWide && styles.primaryColumnWide]}>
@@ -268,6 +382,22 @@ export default function ProfileScreen() {
 
               <View style={[styles.secondaryColumn, isWide && styles.secondaryColumnWide]}>
                 <ProfileSupport accountId={user?.id} />
+
+                <View style={styles.accountActions}>
+                  <Text style={styles.accountEyebrow}>HESAP</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Çıkış Yap"
+                    accessibilityState={{ disabled: isLoggingOut }}
+                    disabled={isLoggingOut}
+                    onPress={openLogoutModal}
+                    style={({ pressed }) => [styles.logoutRow, pressed && styles.pressed]}
+                  >
+                    <Ionicons name="log-out-outline" size={20} color={tokens.colors.danger} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+                    <Text style={styles.logoutLabel}>Çıkış Yap</Text>
+                    <Ionicons name="chevron-forward" size={18} color={tokens.colors.textMuted} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+                  </Pressable>
+                </View>
 
                 {__DEV__ ? (
                   <>
@@ -346,6 +476,36 @@ export default function ProfileScreen() {
           </SafeAreaView>
         </Modal>
 
+        <Modal visible={logoutModalVisible} transparent animationType="fade" onRequestClose={closeLogoutModal}>
+          <SafeAreaView style={styles.logoutScrim}>
+            <View accessibilityViewIsModal style={styles.logoutDialog}>
+              <Text accessibilityRole="header" style={styles.logoutTitle}>Çıkış Yap</Text>
+              <Text style={styles.logoutBody}>Bu hesaptan çıkış yapmak istediğine emin misin?</Text>
+              {logoutError ? <Text accessibilityRole="alert" style={styles.logoutError}>{logoutError}</Text> : null}
+              <View style={styles.logoutActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isLoggingOut }}
+                  disabled={isLoggingOut}
+                  onPress={closeLogoutModal}
+                  style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.cancelButtonText}>Vazgeç</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isLoggingOut, busy: isLoggingOut }}
+                  disabled={isLoggingOut}
+                  onPress={() => void handleConfirmLogout()}
+                  style={({ pressed }) => [styles.logoutConfirm, pressed && styles.pressed, isLoggingOut && styles.logoutConfirmDisabled]}
+                >
+                  <Text style={styles.logoutConfirmText}>{isLoggingOut ? 'Çıkış yapılıyor...' : 'Çıkış Yap'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </SafeAreaView>
+        </Modal>
+
         {showToast ? (
           <Animated.View
             accessibilityLiveRegion="polite"
@@ -390,6 +550,40 @@ function SectionHeading({
   );
 }
 
+function SocialEntry({ accessibilityLabel, badgeCount = 0, icon, onPress, styles, subtitle, title, tokens }: {
+  accessibilityLabel: string;
+  badgeCount?: number;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  subtitle: string;
+  title: string;
+  tokens: DashboardTokens;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      style={({ pressed }) => [styles.socialEntry, pressed && styles.socialEntryPressed]}
+    >
+      <View style={styles.socialEntryIcon}>
+        <Ionicons accessibilityElementsHidden importantForAccessibility="no-hide-descendants" name={icon} size={20} color={tokens.colors.secondary} />
+      </View>
+      <View style={styles.socialEntryCopy}>
+        <Text style={styles.socialEntryTitle}>{title}</Text>
+        <Text style={styles.socialEntryText}>{subtitle}</Text>
+      </View>
+      {badgeCount > 0 ? (
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.socialBadge}>
+          <Text style={styles.socialBadgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+        </View>
+      ) : null}
+      <Ionicons accessibilityElementsHidden importantForAccessibility="no-hide-descendants" name="chevron-forward" size={20} color={tokens.colors.textMuted} />
+    </Pressable>
+  );
+}
+
 function makeStyles(tokens: DashboardTokens) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
@@ -403,6 +597,15 @@ function makeStyles(tokens: DashboardTokens) {
     pageHeader: { marginBottom: tokens.layout.isCompact ? 10 : 18 },
     eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 4 },
     headerTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
+    socialGroup: { overflow: 'hidden', borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
+    socialEntry: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.dividerSubtle },
+    socialEntryPressed: { opacity: 0.82, borderColor: colors.borderStrong, backgroundColor: colors.surfacePressed },
+    socialEntryIcon: { width: 42, height: 42, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySoft },
+    socialEntryCopy: { flex: 1, minWidth: 0 },
+    socialEntryTitle: { fontFamily: fonts.bodySemiBold, fontSize: 15, lineHeight: 20, color: colors.text },
+    socialEntryText: { marginTop: 2, fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
+    socialBadge: { minWidth: 28, height: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7, borderRadius: radius.pill, backgroundColor: colors.primary },
+    socialBadgeText: { color: colors.foregroundOnAction, fontFamily: fonts.monoBold, fontSize: 11, lineHeight: 15 },
     sectionHeading: { flexDirection: 'row', alignItems: 'flex-end', gap: 14, marginTop: tokens.layout.isCompact ? 20 : 32, marginBottom: tokens.layout.isCompact ? 9 : 13 },
     sectionHeadingCompact: { marginTop: tokens.layout.isCompact ? 16 : 24 },
     sectionEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted, marginBottom: 2 },
@@ -428,6 +631,19 @@ function makeStyles(tokens: DashboardTokens) {
     validationSlot: { minHeight: 21, justifyContent: 'flex-end', marginTop: 7 },
     validationHint: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
     settingsDivider: { height: 1, marginVertical: 16, backgroundColor: colors.dividerSubtle },
+    accountActions: { marginTop: 20 },
+    accountEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.textMuted, marginBottom: 8 },
+    logoutRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 15, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurface },
+    logoutLabel: { flex: 1, fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 20, color: colors.danger },
+    logoutScrim: { flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: colors.overlayScrim },
+    logoutDialog: { width: '100%', maxWidth: 420, alignSelf: 'center', padding: 20, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
+    logoutTitle: { fontFamily: fonts.headingBold, fontSize: 20, lineHeight: 26, color: colors.text },
+    logoutBody: { marginTop: 8, fontFamily: fonts.body, fontSize: 14, lineHeight: 21, color: colors.textSecondary },
+    logoutError: { marginTop: 12, fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 19, color: colors.danger },
+    logoutActions: { flexDirection: 'row', gap: 10, marginTop: 22 },
+    logoutConfirm: { flex: 1, minHeight: tokens.control.height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft },
+    logoutConfirmDisabled: { opacity: 0.6 },
+    logoutConfirmText: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: colors.danger },
     interestPreferenceRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurfaceRaised },
     preferenceIcon: { width: 38, height: 38, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primarySoft },
     preferenceCopy: { flex: 1, minWidth: 0 },

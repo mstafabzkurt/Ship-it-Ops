@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
@@ -44,6 +45,7 @@ export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  signOutNotice: string | null;
   signInWithPassword: (
     credentials: EmailPasswordCredentials,
   ) => Promise<AuthActionResult<SignInResult>>;
@@ -59,14 +61,22 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [signOutNotice, setSignOutNotice] = useState<string | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const signOutInFlightRef = useRef(false);
+  sessionRef.current = session;
 
   useEffect(() => {
     let isMounted = true;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => {
+      (event, nextSession) => {
         if (!isMounted) return;
+        // auth-js can emit SIGNED_OUT even when signOut returns an API error.
+        // Defer the UI boundary until the result is known and recovery is attempted.
+        if (signOutInFlightRef.current && event === 'SIGNED_OUT') return;
         setSession(nextSession);
+        if (nextSession) setSignOutNotice(null);
         setIsLoading(false);
       },
     );
@@ -212,12 +222,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async (): Promise<AuthActionResult<void>> => {
+    const previousSession = sessionRef.current;
+    signOutInFlightRef.current = true;
+    setSignOutNotice(null);
+    const recoverFailedSignOut = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          setSession(data.session);
+          return true;
+        }
+      } catch {
+        // Still try restoring the prior session if reading storage failed.
+      }
+      if (previousSession) {
+        try {
+          const restored = await supabase.auth.setSession({
+            access_token: previousSession.access_token,
+            refresh_token: previousSession.refresh_token,
+          });
+          if (restored.data.session) {
+            setSession(restored.data.session);
+            return true;
+          }
+        } catch {
+          // A missing local session cannot be represented as authenticated.
+        }
+      }
+      setSession(null);
+      setSignOutNotice('Çıkış tamamlanamadı. Oturum geri yüklenemedi; yeniden giriş yap.');
+      return false;
+    };
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) return { ok: false, error: normalizeAuthError(error) };
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) {
+        await recoverFailedSignOut();
+        return { ok: false, error: normalizeAuthError(error) };
+      }
+      setSession(null);
       return { ok: true, data: undefined };
     } catch (error) {
+      await recoverFailedSignOut();
       return { ok: false, error: normalizeAuthError(error) };
+    } finally {
+      signOutInFlightRef.current = false;
     }
   }, []);
 
@@ -226,11 +274,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user: session?.user ?? null,
     isAuthenticated: Boolean(session?.user),
     isLoading,
+    signOutNotice,
     signInWithPassword,
     signUpWithPassword,
     signInWithGoogle,
     signOut,
-  }), [isLoading, session, signInWithGoogle, signInWithPassword, signOut, signUpWithPassword]);
+  }), [isLoading, session, signInWithGoogle, signInWithPassword, signOut, signOutNotice, signUpWithPassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

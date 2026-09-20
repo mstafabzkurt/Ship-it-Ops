@@ -39,6 +39,7 @@ for (const outcome of ['fail', 'timeout'] as const) {
         budget: initialBudget,
         correctAnswers: 0,
         wrongAnswers: 0,
+        completedSessions: 0,
         rankingOutcomeStats: normalizeRankingOutcomeStats(null),
         categoryProgress: createDefaultCategoryProgress(),
         uptimeStreak: 0,

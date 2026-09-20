@@ -15,7 +15,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-assert(PLAYER_SAVE_VERSION === 4, 'Badge reward persistence must use player save version 4');
+assert(PLAYER_SAVE_VERSION === 5, 'Completed-session persistence must use player save version 5');
 assert(ACHIEVEMENTS.length === 19, 'Badge rewards must extend the existing 19-badge catalog');
 assert(new Set(ACHIEVEMENTS.map((badge) => badge.id)).size === ACHIEVEMENTS.length, 'Badge IDs must remain stable and unique');
 assert(

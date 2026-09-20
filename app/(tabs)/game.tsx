@@ -25,9 +25,11 @@ import GameBackdrop from '../../src/components/game/GameBackdrop';
 import GameResultPanel, { type GameResultTone } from '../../src/components/game/GameResultPanel';
 import JokerUseOverlay, { type JokerUseActivation } from '../../src/components/game/JokerUseOverlay';
 import UptimeMilestoneCard from '../../src/components/game/UptimeMilestoneCard';
+import QuestionShareSheet from '../../src/components/social/QuestionShareSheet';
 import ProgressSweep from '../../src/components/ProgressSweep';
 import { getDashboardTokens, type DashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { createLeaderboardSessionId, writeLeaderboardScoreEvent } from '../../src/services/leaderboard';
+import { getQuestionFavoriteState, setQuestionFavorite } from '../../src/services/questionSocial';
 import { useAuth } from '../../src/state/AuthContext';
 import { useReputation, type SessionCommitCompletion } from '../../src/state/ReputationContext';
 import { useTheme } from '../../src/state/ThemeContext';
@@ -357,6 +359,11 @@ export default function GameScreen() {
   const [sessionResults, setSessionResults] = useState<SessionResolvedResult[]>([]);
   const [sessionUptimeStreak, setSessionUptimeStreak] = useState(uptimeStreak);
   const [exitConfirmationVisible, setExitConfirmationVisible] = useState(false);
+  const [isQuestionFavorite, setIsQuestionFavorite] = useState(false);
+  const [favoriteStateLoaded, setFavoriteStateLoaded] = useState(false);
+  const [favoritePending, setFavoritePending] = useState(false);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [questionSocialFeedback, setQuestionSocialFeedback] = useState('');
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeLeftRef = useRef(TIMER_DURATION);
@@ -396,6 +403,8 @@ export default function GameScreen() {
   const sessionAbandonedRef = useRef(false);
   const leaderboardSessionIdRef = useRef(createLeaderboardSessionId());
   const resumeTimerAfterExitPromptRef = useRef(false);
+  const favoriteRequestIdRef = useRef(0);
+  const favoriteMutationLockRef = useRef(false);
   const attemptedQuestionIdsRef = useRef<CategoryQuestionId[]>(
     categoryId && difficultyStar
       ? getCategoryTierProgress(categoryProgress, categoryId, difficultyStar).attemptedQuestionIds
@@ -638,6 +647,7 @@ export default function GameScreen() {
     setActiveChoice(null);
     setIsAnswered(false);
     setTimedOut(false);
+    setQuestionSocialFeedback('');
     startTimer();
   }, [codeReviewEmphasis, snapshotStatusPulse, startTimer]);
 
@@ -1146,6 +1156,68 @@ export default function GameScreen() {
     return () => animation.stop();
   }, [isScaleUpUsed, reduceMotion, timerColorProgress, timerScale]);
 
+  useEffect(() => {
+    const requestId = ++favoriteRequestIdRef.current;
+    setFavoriteStateLoaded(false);
+    setFavoritePending(false);
+    favoriteMutationLockRef.current = false;
+    if (!incident?.id || !user?.id) {
+      setIsQuestionFavorite(false);
+      return;
+    }
+    void getQuestionFavoriteState(user.id, incident.id)
+      .then((favorite) => {
+        if (requestId !== favoriteRequestIdRef.current) return;
+        setIsQuestionFavorite(favorite);
+        setFavoriteStateLoaded(true);
+      })
+      .catch(() => {
+        if (requestId !== favoriteRequestIdRef.current) return;
+        setIsQuestionFavorite(false);
+        setFavoriteStateLoaded(true);
+        setQuestionSocialFeedback('Favori durumu yüklenemedi.');
+      });
+    return () => { favoriteRequestIdRef.current += 1; };
+  }, [incident?.id, user?.id]);
+
+  const handleToggleQuestionFavorite = useCallback(async () => {
+    const currentIncident = incidentRef.current;
+    if (!currentIncident || !user?.id || !favoriteStateLoaded || favoriteMutationLockRef.current) return;
+    favoriteMutationLockRef.current = true;
+    setFavoritePending(true);
+    setQuestionSocialFeedback('');
+    const previous = isQuestionFavorite;
+    const mutationQuestionId = currentIncident.id;
+    setIsQuestionFavorite(!previous);
+    try {
+      const persisted = await setQuestionFavorite(user.id, currentIncident.id, !previous);
+      if (incidentRef.current?.id === mutationQuestionId) {
+        setIsQuestionFavorite(persisted);
+        setQuestionSocialFeedback(persisted ? 'Soru favorilere eklendi.' : 'Soru favorilerden çıkarıldı.');
+      }
+    } catch {
+      if (incidentRef.current?.id === mutationQuestionId) {
+        setIsQuestionFavorite(previous);
+        setQuestionSocialFeedback('Favori durumu güncellenemedi.');
+      }
+    } finally {
+      favoriteMutationLockRef.current = false;
+      if (incidentRef.current?.id === mutationQuestionId) setFavoritePending(false);
+    }
+  }, [favoriteStateLoaded, isQuestionFavorite, user?.id]);
+
+  const handleOpenQuestionShare = useCallback(() => {
+    if (!incidentRef.current) return;
+    if (!isAnswered) stopTimer();
+    setQuestionSocialFeedback('');
+    setShareVisible(true);
+  }, [isAnswered, stopTimer]);
+
+  const handleCloseQuestionShare = useCallback(() => {
+    setShareVisible(false);
+    if (!isAnswered && timeLeftRef.current > 0) startTimer(false);
+  }, [isAnswered, startTimer]);
+
   if (isLoading) return <LoadingScreen styles={styles} color={colors.warning} />;
   if (error) return <ErrorScreen styles={styles} message={error} onRetry={fetchIncidents} />;
   if (!incident && category && difficultyStar) return (
@@ -1345,11 +1417,40 @@ export default function GameScreen() {
               >
                 <View style={styles.incidentCard}>
                   <View style={styles.deskStrip}>
-                    <Text style={styles.deskEyebrow}>OPERASYON HATTI</Text>
-                    <Text style={styles.deskIdentity}>
-                      <Text style={styles.deskTitle}>{category.operation.title}</Text>
-                      {' · '}{category.operation.activeSubtitle}
-                    </Text>
+                    <View style={styles.deskActionRow}>
+                      <View style={styles.deskCopy}>
+                        <Text style={styles.deskEyebrow}>OPERASYON HATTI</Text>
+                        <Text style={styles.deskIdentity}>
+                          <Text style={styles.deskTitle}>{category.operation.title}</Text>
+                          {' · '}{category.operation.activeSubtitle}
+                        </Text>
+                      </View>
+                      <View style={styles.questionUtilities}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={isQuestionFavorite ? 'Soruyu favorilerden çıkar' : 'Soruyu favorilere ekle'}
+                          accessibilityState={{ disabled: !favoriteStateLoaded || favoritePending, selected: isQuestionFavorite }}
+                          disabled={!favoriteStateLoaded || favoritePending}
+                          onPress={() => void handleToggleQuestionFavorite()}
+                          style={({ pressed }) => [styles.questionUtilityButton, isQuestionFavorite && styles.questionUtilitySelected, (!favoriteStateLoaded || favoritePending) && styles.questionUtilityDisabled, pressed && styles.controlPressed]}
+                        >
+                          {favoritePending ? (
+                            <ActivityIndicator size="small" color={colors.warning} />
+                          ) : (
+                            <Ionicons name={isQuestionFavorite ? 'star' : 'star-outline'} size={20} color={isQuestionFavorite ? colors.warning : colors.textMuted} />
+                          )}
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Soruyu arkadaşa gönder"
+                          onPress={handleOpenQuestionShare}
+                          style={({ pressed }) => [styles.questionUtilityButton, pressed && styles.controlPressed]}
+                        >
+                          <Ionicons name="paper-plane-outline" size={20} color={colors.textMuted} />
+                        </Pressable>
+                      </View>
+                    </View>
+                    {questionSocialFeedback ? <Text accessibilityLiveRegion="polite" style={styles.questionSocialFeedback}>{questionSocialFeedback}</Text> : null}
                   </View>
                   <View style={styles.incidentGradient}>
                     <Text style={styles.tag}>TEKNİK KARAR</Text>
@@ -1431,6 +1532,12 @@ export default function GameScreen() {
         styles={styles}
         onCancel={handleCancelExit}
         onConfirm={handleConfirmExit}
+      />
+      <QuestionShareSheet
+        questionId={incident.id}
+        visible={shareVisible}
+        onClose={handleCloseQuestionShare}
+        onSent={(companyName) => setQuestionSocialFeedback(`${companyName} şirketine gönderildi.`)}
       />
     </GameBackdrop>
   );
@@ -2155,6 +2262,13 @@ function makeStyles(tokens: DashboardTokens) {
       borderBottomWidth: 1,
       borderBottomColor: colors.gameDivider,
     },
+    deskActionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    deskCopy: { flex: 1, minWidth: 0, gap: 2 },
+    questionUtilities: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    questionUtilityButton: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised, borderWidth: 1, borderColor: colors.gameDivider },
+    questionUtilitySelected: { backgroundColor: colors.warningSoft, borderColor: colors.warning },
+    questionUtilityDisabled: { opacity: 0.48 },
+    questionSocialFeedback: { marginTop: 4, color: colors.textMuted, fontFamily: fonts.bodyMedium, fontSize: 10, lineHeight: 15 },
     deskEyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.monoMedium, color: colors.gameLabelAccent },
     deskIdentity: { ...tokens.type.bodySmall, flexShrink: 1, fontFamily: fonts.bodyMedium, color: colors.textMuted },
     deskTitle: { fontFamily: fonts.headingBold, color: colors.text },

@@ -23,7 +23,7 @@ import {
 import { normalizeInterestAreas, type InterestAreaId } from './onboarding';
 import { deriveAchievements } from './achievements';
 
-export const PLAYER_SAVE_VERSION = 4;
+export const PLAYER_SAVE_VERSION = 5;
 const DEFAULT_PLAYER_BUDGET = 1_000;
 export const LEGACY_SAVE_CLAIM_VERSION = 1;
 export const PLAYER_SAVE_CACHE_PREFIX = '@shipit_account_save:';
@@ -55,6 +55,7 @@ export interface PlayerSaveSnapshot {
   companyName: string;
   correctAnswers: number;
   wrongAnswers: number;
+  completedSessions: number;
   rankingOutcomeStats: RankingOutcomeStats;
   jokerInventory: JokerInventory;
   ownedItemIds: string[];
@@ -152,6 +153,7 @@ export function createDefaultPlayerSave(): PlayerSaveSnapshot {
     companyName: DEFAULT_COMPANY_NAME,
     correctAnswers: 0,
     wrongAnswers: 0,
+    completedSessions: 0,
     rankingOutcomeStats: normalizeRankingOutcomeStats(null),
     jokerInventory: createDefaultJokerInventory(),
     ownedItemIds: [],
@@ -197,6 +199,7 @@ export function hasMeaningfulPlayerProgress(value: unknown): boolean {
     || normalizeNonNegativeInteger(input.reputation) > 0
     || normalizeNonNegativeInteger(input.correctAnswers) > 0
     || normalizeNonNegativeInteger(input.wrongAnswers) > 0
+    || normalizeNonNegativeInteger(input.completedSessions) > 0
     || normalizeNonNegativeInteger(input.companyBudget, DEFAULT_PLAYER_BUDGET) !== DEFAULT_PLAYER_BUDGET
     || Object.values(rankingStats).some((count) => count > 0)
     || normalizeStringIds(input.ownedItemIds).length > 0
@@ -214,6 +217,10 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
   const correctAnswers = normalizeNonNegativeInteger(input.correctAnswers);
   const careerXp = normalizeNonNegativeInteger(input.careerXp);
   const wrongAnswers = normalizeNonNegativeInteger(input.wrongAnswers);
+  const storedVersion = Number(input.saveVersion);
+  const completedSessions = Number.isFinite(storedVersion) && storedVersion >= 5
+    ? normalizeNonNegativeInteger(input.completedSessions)
+    : Math.floor((correctAnswers + wrongAnswers) / 10);
   const rankingOutcomeStats = normalizeRankingOutcomeStats(input.rankingOutcomeStats, correctAnswers);
   let categoryProgress = normalizeCategoryProgress(input.categoryProgress);
   // Saves created before repeat-aware scoring have no category leaderboard
@@ -236,7 +243,6 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
   // added. Meaningful progress is a compatibility signal only for those rows;
   // otherwise a new player who postpones the tutorial by entering a game could
   // be mistaken for an established player after completing that first session.
-  const storedVersion = Number(input.saveVersion);
   const predatesOnboardingSchema = !Number.isFinite(storedVersion) || storedVersion < 3;
   const predatesBadgeRewardSchema = !Number.isFinite(storedVersion) || storedVersion < 4;
   const legacyPlayer = predatesOnboardingSchema && hasMeaningfulPlayerProgress(input);
@@ -261,6 +267,7 @@ export function normalizePlayerSave(value: unknown): PlayerSaveSnapshot {
     companyName: normalizeCompanyName(input.companyName),
     correctAnswers,
     wrongAnswers,
+    completedSessions,
     rankingOutcomeStats,
     jokerInventory: normalizeJokerInventory(input.jokerInventory),
     ownedItemIds: normalizeStringIds(input.ownedItemIds),

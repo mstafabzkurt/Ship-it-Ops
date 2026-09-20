@@ -23,7 +23,7 @@ export default function LoginScreen() {
   const { theme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
-  const { signInWithGoogle, signInWithPassword } = useAuth();
+  const { signInWithGoogle, signInWithPassword, signOutNotice } = useAuth();
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
 
@@ -129,7 +129,7 @@ export default function LoginScreen() {
           value={password}
         />
 
-        {actionError ? <AuthNotice message={actionError} /> : null}
+        {actionError || signOutNotice ? <AuthNotice message={actionError || signOutNotice || ''} /> : null}
 
         <AuthButton
           accessibilityHint="E-posta ve şifreyle Ship It Ops oturumunu açar"

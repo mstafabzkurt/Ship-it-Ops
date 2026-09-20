@@ -69,6 +69,7 @@ export interface GameSessionPermanentState {
   budget: number;
   correctAnswers: number;
   wrongAnswers: number;
+  completedSessions: number;
   rankingOutcomeStats: RankingOutcomeStats;
   categoryProgress: CategoryProgress;
   uptimeStreak: number;
@@ -217,6 +218,7 @@ export function planCompletedGameSession({
       budget: clampBudget(budget),
       correctAnswers: permanentState.correctAnswers + totals.correctCount,
       wrongAnswers: permanentState.wrongAnswers + totals.wrongCount,
+      completedSessions: permanentState.completedSessions + 1,
       rankingOutcomeStats,
       categoryProgress: completion.progress,
       uptimeStreak: totals.finalUptimeStreak,

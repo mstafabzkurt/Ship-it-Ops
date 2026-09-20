@@ -53,6 +53,12 @@ assert.equal(cachedAccount.save.careerXp, 120, 'Only the matching user-scoped ca
 const cloudAccount = saves.selectAuthenticatedSaveSource(accountACloud, accountACache);
 assert.equal(cloudAccount.source, 'cloud');
 assert.equal(cloudAccount.save.careerXp, 420, 'An existing cloud save must win over device state');
+const accountBCloud = saves.normalizePlayerSave({ careerXp: 17, reputation: 4, companyBudget: 1_250 });
+const switchedAccount = saves.selectAuthenticatedSaveSource(accountBCloud, null);
+assert.equal(switchedAccount.save.careerXp, 17, 'User B must hydrate from B cloud state');
+assert.notEqual(switchedAccount.save.companyBudget, accountACloud.companyBudget, 'User B must not inherit A budget');
+const returnedAccount = saves.selectAuthenticatedSaveSource(accountACloud, accountACache);
+assert.equal(returnedAccount.save.careerXp, 420, 'Signing back into A must restore A cloud state');
 
 assert(saves.isAuthenticatedSaveVisible('user-a', 'user-a'), 'A hydrated active user may see its save');
 assert(!saves.isAuthenticatedSaveVisible('user-b', 'user-a'), 'User A state must be hidden after switching to user B');
@@ -70,6 +76,30 @@ assert.notEqual(
 
 const contextSource = fs.readFileSync(path.join(root, 'src/state/ReputationContext.tsx'), 'utf8');
 assert(!contextSource.includes('claimAndLoadLegacySave'), 'Authenticated hydration must not claim generic legacy saves');
+assert(contextSource.includes('clearRuntimeForAccountBoundary();'), 'Account changes must clear hydrated player runtime');
+assert(contextSource.includes('activeUserIdRef.current = null;'), 'Unmounted account saves must stop queued writes');
+
+const authSource = fs.readFileSync(path.join(root, 'src/state/AuthContext.tsx'), 'utf8');
+assert(authSource.includes("supabase.auth.signOut({ scope: 'local' })"), 'Logout must call Supabase signOut for the current session');
+assert(authSource.includes("event === 'SIGNED_OUT'"), 'An in-flight signOut error must not prematurely clear UI auth state');
+assert(authSource.includes('await recoverFailedSignOut();'), 'A failed signOut must attempt to retain or restore the session');
+assert(/if \(error\) \{[\s\S]*?return \{ ok: false,[\s\S]*?setSession\(null\)/.test(authSource), 'Only successful signOut may commit the normal auth clear');
+assert(authSource.includes("setSignOutNotice('Çıkış tamamlanamadı."), 'Unrecoverable signOut errors must remain visible on the auth screen');
+const loginSource = fs.readFileSync(path.join(root, 'app/(auth)/login.tsx'), 'utf8');
+assert(loginSource.includes('actionError || signOutNotice'), 'Login must surface unrecoverable signOut feedback');
+
+const layoutSource = fs.readFileSync(path.join(root, 'app/_layout.tsx'), 'utf8');
+assert(layoutSource.includes("key={user?.id ?? 'signed-out'}"), 'Player, leaderboard, and route runtime must remount per auth identity');
+assert(layoutSource.indexOf('<ThemeProvider>') < layoutSource.indexOf('<AccountScopedApp'), 'Theme must survive account switches');
+assert(layoutSource.indexOf('<PrivacyConsentProvider>') < layoutSource.indexOf('<AccountScopedApp'), 'Device consent must survive account switches');
+assert(layoutSource.includes('<Stack.Protected guard={!isAuthenticated}>'), 'Logout must route into the unauthenticated stack');
+
+const profileSource = fs.readFileSync(path.join(root, 'app/(tabs)/profile.tsx'), 'utf8');
+assert(profileSource.includes('>Çıkış Yap</Text>'), 'Production Profile must expose a visible logout action');
+assert(profileSource.includes('Bu hesaptan çıkış yapmak istediğine emin misin?'), 'Logout must require the specified confirmation');
+assert(profileSource.indexOf('await flushPlayerSave();') < profileSource.indexOf('const result = await signOut();'), 'Logout must finish the current save queue before signing out');
+assert(profileSource.includes('if (logoutPendingRef.current) return;'), 'Duplicate logout presses must be ignored');
+assert(profileSource.includes("setLogoutError('Çıkış yapılamadı. Tekrar dene.');"), 'Logout failure must show Turkish error feedback');
 
 assert.equal(
   getWebOAuthRedirectUrl('https://ship-it-ops.vercel.app'),

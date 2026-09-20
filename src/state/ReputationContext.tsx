@@ -263,6 +263,8 @@ interface ReputationContextValue {
   correctAnswers: number;
   /** Kullanıcının yanlış cevapladığı soru sayısı */
   wrongAnswers: number;
+  /** Tamamlanan 10 soruluk oyun oturumu sayısı. */
+  completedSessions: number;
   /** Global leaderboard'dan bağımsız, yerel kriz karar puanı. */
   rankingScore: number;
   /** Success/partial ayrımını ve güvenli legacy başlangıç kredisini tutar. */
@@ -340,6 +342,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   // User statistics & game incident state
   const [correctAnswers, setCorrectAnswers] = useState<number>(DEFAULT_CORRECT_ANSWERS);
   const [wrongAnswers, setWrongAnswers] = useState<number>(DEFAULT_WRONG_ANSWERS);
+  const [completedSessions, setCompletedSessions] = useState(0);
   const [rankingOutcomeStats, setRankingOutcomeStats] = useState<RankingOutcomeStats>(() => (
     normalizeRankingOutcomeStats(null)
   ));
@@ -349,6 +352,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
   const seenIdsRef = useRef<number[]>(DEFAULT_SEEN_IDS);
   const correctAnswersRef = useRef(DEFAULT_CORRECT_ANSWERS);
   const wrongAnswersRef = useRef(DEFAULT_WRONG_ANSWERS);
+  const completedSessionsRef = useRef(0);
   const uptimeStreakRef = useRef(DEFAULT_UPTIME_STREAK);
   const rankingOutcomeStatsRef = useRef<RankingOutcomeStats>(normalizeRankingOutcomeStats(null));
   const categoryProgressRef = useRef<CategoryProgress>(createDefaultCategoryProgress());
@@ -409,6 +413,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     categoryProgressRef.current = save.categoryProgress;
     correctAnswersRef.current = save.correctAnswers;
     wrongAnswersRef.current = save.wrongAnswers;
+    completedSessionsRef.current = save.completedSessions;
     claimedBadgeRewardIdsRef.current = save.claimedBadgeRewardIds;
     unseenBadgeIdsRef.current = save.unseenBadgeIds;
 
@@ -429,6 +434,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setEquippedAvatarFrameId(save.equippedAvatarFrameId);
     setCorrectAnswers(save.correctAnswers);
     setWrongAnswers(save.wrongAnswers);
+    setCompletedSessions(save.completedSessions);
     setRankingOutcomeStats(save.rankingOutcomeStats);
     setSeenIds(save.recentQuestionIds);
     setStreakDays(save.streakDays);
@@ -540,6 +546,13 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     };
   }, [clearRuntimeForAccountBoundary, hydrateRuntime, initializationAttempt, user?.id]);
 
+  useEffect(() => () => {
+    activeUserIdRef.current = null;
+    hydratedUserIdRef.current = null;
+    initializationIdRef.current += 1;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  }, []);
+
   const saveSnapshot = useMemo(() => buildPlayerSaveSnapshot({
     saveVersion: PLAYER_SAVE_VERSION,
     careerXp,
@@ -548,6 +561,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     companyName,
     correctAnswers,
     wrongAnswers,
+    completedSessions,
     rankingOutcomeStats,
     jokerInventory: { codeReview, gitRevert, serverScaleUp, snapshotBackup },
     ownedItemIds: inventory,
@@ -582,6 +596,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     streakLastDate,
     correctAnswers,
     wrongAnswers,
+    completedSessions,
     categoryProgress,
     onboardingCompleted,
     tutorialCompleted,
@@ -818,6 +833,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
         budget: budgetRef.current,
         correctAnswers: correctAnswersRef.current,
         wrongAnswers: wrongAnswersRef.current,
+        completedSessions: completedSessionsRef.current,
         rankingOutcomeStats: rankingOutcomeStatsRef.current,
         categoryProgress: categoryProgressRef.current,
         uptimeStreak: uptimeStreakRef.current,
@@ -850,6 +866,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     budgetRef.current = nextBudget;
     correctAnswersRef.current = next.correctAnswers;
     wrongAnswersRef.current = next.wrongAnswers;
+    completedSessionsRef.current = next.completedSessions;
     rankingOutcomeStatsRef.current = next.rankingOutcomeStats;
     categoryProgressRef.current = next.categoryProgress;
     uptimeStreakRef.current = next.uptimeStreak;
@@ -859,6 +876,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     setBudget(nextBudget);
     setCorrectAnswers(next.correctAnswers);
     setWrongAnswers(next.wrongAnswers);
+    setCompletedSessions(next.completedSessions);
     setRankingOutcomeStats(next.rankingOutcomeStats);
     setCategoryProgress(next.categoryProgress);
     setUptimeStreakState(next.uptimeStreak);
@@ -985,6 +1003,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     seenIdsRef.current = [];
     correctAnswersRef.current = DEFAULT_CORRECT_ANSWERS;
     wrongAnswersRef.current = DEFAULT_WRONG_ANSWERS;
+    completedSessionsRef.current = 0;
     rankingOutcomeStatsRef.current = normalizeRankingOutcomeStats(null);
     streakDaysRef.current = [false, false, false, false, false, false, false];
     categoryProgressRef.current = createDefaultCategoryProgress();
@@ -1009,6 +1028,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     // 3. EKSİK OLANLARI BURAYA EKLE (Kendi değişken isimlerine göre düzelt)
     setCorrectAnswers(DEFAULT_CORRECT_ANSWERS);
     setWrongAnswers(DEFAULT_WRONG_ANSWERS);
+    setCompletedSessions(0);
     setRankingOutcomeStats(normalizeRankingOutcomeStats(null));
     setSeenIds([]);
     setStreakDays([false, false, false, false, false, false, false]);
@@ -1254,6 +1274,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
       claimStreakDay,
       correctAnswers,
       wrongAnswers,
+      completedSessions,
       rankingScore,
       rankingOutcomeStats,
       recordRankingOutcome: recordRankingOutcomeHandler,
@@ -1296,6 +1317,7 @@ export function ReputationProvider({ children }: { children: React.ReactNode }) 
     streakDays,
     correctAnswers,
     wrongAnswers,
+    completedSessions,
     rankingOutcomeStats,
     seenIds,
     categoryProgress,
