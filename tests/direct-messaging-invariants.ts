@@ -9,8 +9,10 @@ import {
   serializeDirectConversationContext,
   serializeDirectConversationSummary,
   serializeDirectMessage,
+  uniqueDirectConversationSummaries,
   type DirectMessageEntry,
 } from '../src/utils/directMessaging';
+import { getComposerEnterAction, runDirectMessageSendOnce } from '../src/utils/directMessageComposer';
 import {
   formatGlobalUnreadBadge,
   getMessagesShortcutAccessibilityLabel,
@@ -151,6 +153,31 @@ const summary = serializeDirectConversationSummary({
   unread_count: '3',
 });
 assert(summary && summary.unreadCount === 3);
+const olderConversation = { ...summary, profile: null };
+const secondConversationId = '00000000-0000-4000-8000-000000000020';
+const updatedConversation = {
+  ...olderConversation,
+  updatedAt: questionMessage.createdAt,
+  lastMessage: questionMessage,
+  unreadCount: 4,
+};
+const otherConversation = {
+  ...olderConversation,
+  conversationId: secondConversationId,
+  otherUserId: userA,
+};
+const beforeRefresh = [otherConversation, olderConversation];
+assert.deepEqual(beforeRefresh.map((conversation) => conversation.conversationId), [secondConversationId, conversationId]);
+assert.equal(getDirectMessagePreview(beforeRefresh[1].lastMessage), 'Merhaba');
+const serverRefresh = uniqueDirectConversationSummaries([
+  updatedConversation,
+  otherConversation,
+  updatedConversation,
+]);
+assert.deepEqual(serverRefresh.map((conversation) => conversation.conversationId), [conversationId, secondConversationId], 'A refresh must preserve server order and avoid duplicate rows');
+assert.equal(getDirectMessagePreview(serverRefresh[0].lastMessage), 'Bir soru paylaştı', 'Question-share preview must survive list refresh');
+assert.equal(serverRefresh[0].updatedAt, questionMessage.createdAt, 'The refreshed row must use the server timestamp');
+assert.equal(serverRefresh[0].unreadCount, 4, 'The refreshed row must use the server unread count');
 
 // Canonical one-pair conversation and strict payload constraints.
 assert.match(migration, /constraint direct_conversations_canonical_pair check \(user_low_id < user_high_id\)/);
@@ -241,9 +268,10 @@ assert.doesNotMatch(questionDetail, /useReputation|commitGameSession|setSelected
 // Global unread count is always fetched from the authenticated RPC; Realtime
 // only invalidates it. The existing conversation channel remains separate.
 assert.match(unreadProvider, /getDirectMessageUnreadTotal\(\)/, 'Hydrated account mount must fetch the authoritative unread total');
-assert.match(unreadProvider, /subscribeToIncomingDirectMessages\(userId, scheduleRefresh/, 'Incoming Realtime inserts must schedule a global refresh');
+assert.match(unreadProvider, /subscribeToIncomingDirectMessages\(userId, \(\) => scheduleRefresh\(true\)/, 'Incoming Realtime inserts must invalidate unread and list data through the existing channel');
 assert.match(unreadProvider, /REALTIME_REFRESH_DEBOUNCE_MS = 180/);
-assert.match(unreadProvider, /status === 'SUBSCRIBED'[\s\S]*scheduleRefresh\(\)/, 'Channel join/reconnect must reconcile missed events');
+assert.match(unreadProvider, /status === 'SUBSCRIBED'[\s\S]*scheduleRefresh\(true\)/, 'Channel join/reconnect must reconcile missed list events');
+assert.match(unreadProvider, /if \(listInvalidationPending\)[\s\S]*setIncomingMessageVersion\(\(version\) => version \+ 1\)/, 'A burst must produce one debounced list invalidation');
 assert.match(unreadProvider, /activeUserIdRef\.current !== userId[\s\S]*requestSequence !== requestSequenceRef\.current/, 'Old-account or stale RPC results must be discarded');
 assert.match(unreadProvider, /activeUserIdRef\.current = null;[\s\S]*unsubscribe\(\)/, 'Logout/account switch must invalidate work and remove the channel');
 assert.doesNotMatch(unreadProvider, /setInterval|setUnreadCount\(\(current\)\s*=>\s*current\s*\+/, 'Unread must not poll or use an invented local counter');
@@ -255,6 +283,13 @@ assert.match(rootLayout, /<GlobalMessagesShortcut \/>/);
 assert.match(conversationScreen, /markConversationRead\(conversationId\)[\s\S]*refreshUnread\(\)/, 'Reading a chat must reconcile global unread');
 assert.match(conversationScreen, /subscribeToDirectMessages\(conversationId/, 'Active-chat Realtime must remain intact');
 assert.doesNotMatch(tabsLayout, /<Tabs\.Screen\s+name="messages"/, 'Messages must not become another tab');
+assert.match(messagesScreen, /useMessagingUnread\(\)[\s\S]*incomingMessageVersion/, 'Messages screen must observe global incoming-message invalidations');
+assert.match(messagesScreen, /useEffect\(\(\) => \{[\s\S]*handledIncomingVersionRef\.current = incomingMessageVersion;[\s\S]*load\(true\)/, 'Focused realtime invalidation must refetch the conversation list');
+assert.match(messagesScreen, /if \(!background\) setStatus\('loading'\)/, 'Background refresh must keep visible rows out of the loading state');
+assert.match(messagesScreen, /setConversations\(uniqueDirectConversationSummaries\(result\)\)/, 'Server list must replace rows and remain authoritative');
+assert.match(messagesScreen, /activeUserIdRef\.current !== userId[\s\S]*setConversations\(uniqueDirectConversationSummaries/, 'Old-account RPC results must be ignored');
+assert.match(messagesScreen, /focusedRef\.current = false;[\s\S]*activeUserIdRef\.current = null;[\s\S]*requestIdRef\.current \+= 1/, 'Blur and unmount must invalidate pending list work');
+assert.doesNotMatch(messagesScreen, /subscribeToIncomingDirectMessages|\.channel\(/, 'Messages screen must not create a second global Realtime channel');
 
 const visibleBase = {
   pathname: '/', isAuthenticated: true, isPlayerReady: true,
@@ -285,4 +320,42 @@ assert.match(shortcut, /AccessibilityInfo\.isReduceMotionEnabled\(\)/);
 assert.match(shortcut, /onPress=\{\(\) => router\.push\('\/messages'\)\}/);
 assert.match(shortcut, /tokens\.layout\.tabBarHeight \+ Math\.max\(insets\.bottom/, 'Tab routes must position the shortcut above navigation');
 
-console.log('Direct messaging, global unread, account isolation, route visibility, and UI invariants passed.');
+// Web keyboard submission uses the same send path as the button. Native input
+// behavior, IME confirmation, and Shift+Enter remain under the platform input.
+const composerKey = { isWeb: true, key: 'Enter', body: 'Merhaba', canSend: true, inFlight: false };
+assert.equal(getComposerEnterAction(composerKey), 'send');
+assert.equal(getComposerEnterAction({ ...composerKey, shiftKey: true }), 'native');
+assert.equal(getComposerEnterAction({ ...composerKey, body: ' \n\t ' }), 'ignore');
+assert.equal(getComposerEnterAction({ ...composerKey, canSend: false }), 'ignore');
+assert.equal(getComposerEnterAction({ ...composerKey, isComposing: true }), 'native');
+assert.equal(getComposerEnterAction({ ...composerKey, keyCode: 229 }), 'native');
+assert.equal(getComposerEnterAction({ ...composerKey, inFlight: true }), 'ignore');
+assert.equal(getComposerEnterAction({ ...composerKey, key: 'a' }), 'native');
+assert.equal(getComposerEnterAction({ ...composerKey, isWeb: false }), 'native');
+assert.match(conversationScreen, /onKeyPress=\{\(event\) => \{[\s\S]*getComposerEnterAction\([\s\S]*event\.preventDefault\(\);[\s\S]*if \(action === 'send'\) void send\(\)/);
+assert.match(conversationScreen, /onPress=\{\(\) => void send\(\)\}/, 'Send button and Enter must share send()');
+assert.match(conversationScreen, /runDirectMessageSendOnce\(sendInFlightRef/, 'send() must use the synchronous ref guard');
+assert.match(conversationScreen, /maxLength=\{1000\}[\s\S]*multiline/, 'Composer must keep multiline input and the 1000-character limit');
+assert.doesNotMatch(conversationScreen, /onSubmitEditing=|\.blur\(\)/, 'Web Enter must not blur the composer or override native submit behavior');
+
+void (async () => {
+  const gate = { current: false };
+  let releaseFirst: () => void = () => undefined;
+  const firstPending = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let persisted = 0;
+  const first = runDirectMessageSendOnce(gate, async () => {
+    persisted += 1;
+    await firstPending;
+  });
+  assert.equal(gate.current, true, 'First send must lock synchronously');
+  await runDirectMessageSendOnce(gate, async () => { persisted += 1; });
+  assert.equal(persisted, 1, 'Repeated Enter/button sends must not persist twice');
+  releaseFirst();
+  await first;
+  assert.equal(gate.current, false, 'Successful send must release the lock');
+  await assert.rejects(runDirectMessageSendOnce(gate, async () => { throw new Error('network'); }));
+  assert.equal(gate.current, false, 'Failed send must release the lock');
+  await runDirectMessageSendOnce(gate, async () => { persisted += 1; });
+  assert.equal(persisted, 2, 'Retry after failure must remain possible');
+  console.log('Direct messaging, global unread, composer keyboard, account isolation, route visibility, and UI invariants passed.');
+})().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -37,6 +37,7 @@ import { useAuth } from '../../src/state/AuthContext';
 import { useMessagingUnread } from '../../src/state/MessagingUnreadContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
+import { getComposerEnterAction, runDirectMessageSendOnce } from '../../src/utils/directMessageComposer';
 import {
   getDirectMessageCursor,
   mergeDirectMessageEntries,
@@ -73,6 +74,8 @@ export default function DirectConversationScreen() {
   const requestIdRef = useRef(0);
   const listRef = useRef<FlatList<DirectMessageEntry>>(null);
   const shouldScrollToEndRef = useRef(false);
+  const bodyRef = useRef('');
+  const sendInFlightRef = useRef(false);
 
   const markReadAndRefresh = useCallback(async (conversationId: string) => {
     try {
@@ -141,23 +144,29 @@ export default function DirectConversationScreen() {
   }, [targetUserId]);
 
   const send = useCallback(async () => {
-    const trimmed = body.trim();
-    if (!context?.canSend || !trimmed || sendPending) return;
-    setSendPending(true);
-    setActionError('');
-    try {
-      const entry = await sendDirectMessage(targetUserId, trimmed);
-      shouldScrollToEndRef.current = true;
-      setMessages((current) => mergeDirectMessageEntries(current, [entry]));
-      setBody('');
-      if (!context.conversationId) await refreshContext();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Mesaj gönderilemedi.');
-      await refreshContext().catch(() => undefined);
-    } finally {
-      setSendPending(false);
-    }
-  }, [body, context?.canSend, context?.conversationId, refreshContext, sendPending, targetUserId]);
+    const submittedBody = bodyRef.current;
+    const trimmed = submittedBody.trim();
+    if (!context?.canSend || !trimmed) return;
+    await runDirectMessageSendOnce(sendInFlightRef, async () => {
+      setSendPending(true);
+      setActionError('');
+      try {
+        const entry = await sendDirectMessage(targetUserId, trimmed);
+        shouldScrollToEndRef.current = true;
+        setMessages((current) => mergeDirectMessageEntries(current, [entry]));
+        if (bodyRef.current === submittedBody) {
+          bodyRef.current = '';
+          setBody('');
+        }
+        if (!context.conversationId) await refreshContext();
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : 'Mesaj gönderilemedi.');
+        await refreshContext().catch(() => undefined);
+      } finally {
+        setSendPending(false);
+      }
+    });
+  }, [context?.canSend, context?.conversationId, refreshContext, targetUserId]);
 
   const loadOlder = useCallback(async () => {
     const conversationId = context?.conversationId;
@@ -293,7 +302,27 @@ export default function DirectConversationScreen() {
                   editable={Boolean(context?.canSend) && !sendPending}
                   maxLength={1000}
                   multiline
-                  onChangeText={setBody}
+                  onChangeText={(nextBody) => { bodyRef.current = nextBody; setBody(nextBody); }}
+                  onKeyPress={(event) => {
+                    const webKey = event.nativeEvent as typeof event.nativeEvent & {
+                      shiftKey?: boolean;
+                      isComposing?: boolean;
+                      keyCode?: number;
+                    };
+                    const action = getComposerEnterAction({
+                      isWeb: Platform.OS === 'web',
+                      key: webKey.key,
+                      shiftKey: webKey.shiftKey,
+                      isComposing: webKey.isComposing,
+                      keyCode: webKey.keyCode,
+                      body: bodyRef.current,
+                      canSend: Boolean(context?.canSend),
+                      inFlight: sendInFlightRef.current,
+                    });
+                    if (action === 'native') return;
+                    event.preventDefault();
+                    if (action === 'send') void send();
+                  }}
                   placeholder={context?.canSend ? 'Mesaj yaz…' : 'Mesaj gönderilemez'}
                   placeholderTextColor={tokens.colors.textMuted}
                   style={styles.input}

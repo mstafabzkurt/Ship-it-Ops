@@ -173,6 +173,19 @@ export function mergeDirectMessageEntries(
   return [...byId.values()].sort((left, right) => compareDirectMessages(left.message, right.message));
 }
 
+// Keep the RPC's authoritative ordering and values while guarding FlatList
+// against duplicate keys if a response ever contains a repeated conversation.
+export function uniqueDirectConversationSummaries(
+  conversations: DirectConversationSummary[],
+): DirectConversationSummary[] {
+  const seen = new Set<string>();
+  return conversations.filter((conversation) => {
+    if (seen.has(conversation.conversationId)) return false;
+    seen.add(conversation.conversationId);
+    return true;
+  });
+}
+
 export function getDirectMessageCursor(message: DirectMessage): DirectMessageCursor {
   return { createdAt: message.createdAt, id: message.id };
 }

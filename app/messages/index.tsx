@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -16,13 +16,18 @@ import CosmeticPreview from '../../src/components/cosmetics/CosmeticPreview';
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
 import { getCosmeticById, type AvatarCosmetic, type AvatarFrameCosmetic } from '../../src/config/cosmetics';
 import { listDirectConversations } from '../../src/services/directMessaging';
+import { useAuth } from '../../src/state/AuthContext';
+import { useMessagingUnread } from '../../src/state/MessagingUnreadContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
-import { getDirectMessagePreview, type DirectConversationSummary } from '../../src/utils/directMessaging';
+import { getDirectMessagePreview, uniqueDirectConversationSummaries, type DirectConversationSummary } from '../../src/utils/directMessaging';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
 export default function MessagesScreen() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const { incomingMessageVersion } = useMessagingUnread();
   const { width } = useWindowDimensions();
   const { theme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
@@ -30,27 +35,61 @@ export default function MessagesScreen() {
   const [conversations, setConversations] = useState<DirectConversationSummary[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
   const requestIdRef = useRef(0);
+  const activeUserIdRef = useRef<string | null>(null);
+  const lastUserIdRef = useRef<string | null>(null);
+  const hasLoadedRef = useRef(false);
+  const focusedRef = useRef(false);
+  const incomingVersionRef = useRef(incomingMessageVersion);
+  const handledIncomingVersionRef = useRef(incomingMessageVersion);
+  incomingVersionRef.current = incomingMessageVersion;
 
-  const load = useCallback(() => {
+  const load = useCallback((background = false) => {
+    if (!userId || activeUserIdRef.current !== userId) return;
     const requestId = ++requestIdRef.current;
-    setStatus('loading');
+    if (!background) setStatus('loading');
     void listDirectConversations()
       .then((result) => {
-        if (requestId !== requestIdRef.current) return;
-        setConversations(result);
+        if (requestId !== requestIdRef.current || activeUserIdRef.current !== userId) return;
+        setConversations(uniqueDirectConversationSummaries(result));
+        hasLoadedRef.current = true;
         setStatus('ready');
       })
       .catch(() => {
-        if (requestId !== requestIdRef.current) return;
-        setConversations([]);
-        setStatus('error');
+        if (requestId !== requestIdRef.current || activeUserIdRef.current !== userId) return;
+        if (!background || !hasLoadedRef.current) {
+          hasLoadedRef.current = false;
+          setConversations([]);
+          setStatus('error');
+        } else {
+          // A failed background fetch leaves the last successful list visible.
+          setStatus('ready');
+        }
       });
-  }, []);
+  }, [userId]);
 
   useFocusEffect(useCallback(() => {
+    if (lastUserIdRef.current !== userId) {
+      lastUserIdRef.current = userId;
+      hasLoadedRef.current = false;
+      setConversations([]);
+      setStatus('loading');
+    }
+    activeUserIdRef.current = userId;
+    focusedRef.current = true;
+    handledIncomingVersionRef.current = incomingVersionRef.current;
     load();
-    return () => { requestIdRef.current += 1; };
-  }, [load]));
+    return () => {
+      focusedRef.current = false;
+      activeUserIdRef.current = null;
+      requestIdRef.current += 1;
+    };
+  }, [load, userId]));
+
+  useEffect(() => {
+    if (!focusedRef.current || handledIncomingVersionRef.current === incomingMessageVersion) return;
+    handledIncomingVersionRef.current = incomingMessageVersion;
+    load(true);
+  }, [incomingMessageVersion, load]);
 
   return (
     <View style={styles.background}>
@@ -80,7 +119,7 @@ export default function MessagesScreen() {
               />
             )}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
-            ListEmptyComponent={<MessagesState status={status} onRetry={load} styles={styles} tokens={tokens} />}
+            ListEmptyComponent={<MessagesState status={status} onRetry={() => load()} styles={styles} tokens={tokens} />}
             showsVerticalScrollIndicator={false}
           />
         </View>

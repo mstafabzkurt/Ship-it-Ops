@@ -8,6 +8,7 @@ import { useReputation } from './ReputationContext';
 interface MessagingUnreadContextValue {
   unreadCount: number;
   hasLoaded: boolean;
+  incomingMessageVersion: number;
   refreshUnread: () => Promise<void>;
 }
 
@@ -20,6 +21,7 @@ export function MessagingUnreadProvider({ children }: { children: React.ReactNod
   const userId = user?.id ?? null;
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [incomingMessageVersion, setIncomingMessageVersion] = useState(0);
   const activeUserIdRef = useRef<string | null>(null);
   const requestSequenceRef = useRef(0);
 
@@ -42,23 +44,31 @@ export function MessagingUnreadProvider({ children }: { children: React.ReactNod
       requestSequenceRef.current += 1;
       setUnreadCount(0);
       setHasLoaded(false);
+      setIncomingMessageVersion(0);
       return undefined;
     }
 
     activeUserIdRef.current = userId;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRefresh = () => {
+    let listInvalidationPending = false;
+    const scheduleRefresh = (invalidateList = false) => {
+      if (invalidateList) listInvalidationPending = true;
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
+        if (activeUserIdRef.current !== userId) return;
+        if (listInvalidationPending) {
+          listInvalidationPending = false;
+          setIncomingMessageVersion((version) => version + 1);
+        }
         void refreshUnread();
       }, REALTIME_REFRESH_DEBOUNCE_MS);
     };
 
     // Subscribe first, then fetch. SUBSCRIBED also reconciles events that may
     // have arrived between the initial RPC and the Realtime channel joining.
-    const unsubscribe = subscribeToIncomingDirectMessages(userId, scheduleRefresh, (status) => {
-      if (status === 'SUBSCRIBED') scheduleRefresh();
+    const unsubscribe = subscribeToIncomingDirectMessages(userId, () => scheduleRefresh(true), (status) => {
+      if (status === 'SUBSCRIBED') scheduleRefresh(true);
     });
     void refreshUnread();
 
@@ -67,8 +77,9 @@ export function MessagingUnreadProvider({ children }: { children: React.ReactNod
       : AppState.addEventListener('change', (state) => {
         if (state === 'active') scheduleRefresh();
       });
+    const onWindowFocus = () => scheduleRefresh();
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.addEventListener('focus', scheduleRefresh);
+      window.addEventListener('focus', onWindowFocus);
     }
 
     return () => {
@@ -78,7 +89,7 @@ export function MessagingUnreadProvider({ children }: { children: React.ReactNod
       unsubscribe();
       appStateSubscription?.remove();
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.removeEventListener('focus', scheduleRefresh);
+        window.removeEventListener('focus', onWindowFocus);
       }
     };
   }, [isLoaded, refreshUnread, userId]);
@@ -86,8 +97,9 @@ export function MessagingUnreadProvider({ children }: { children: React.ReactNod
   const value = useMemo<MessagingUnreadContextValue>(() => ({
     unreadCount,
     hasLoaded,
+    incomingMessageVersion,
     refreshUnread,
-  }), [hasLoaded, refreshUnread, unreadCount]);
+  }), [hasLoaded, incomingMessageVersion, refreshUnread, unreadCount]);
 
   return <MessagingUnreadContext.Provider value={value}>{children}</MessagingUnreadContext.Provider>;
 }
