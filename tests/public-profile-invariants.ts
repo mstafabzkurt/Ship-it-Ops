@@ -62,17 +62,83 @@ const searchFixMigration = readFileSync(
   resolve(root, 'supabase/migrations/20260917150000_remove_public_profile_search_identity_gate.sql'),
   'utf8',
 );
+const projectionLockdownMigration = readFileSync(
+  resolve(root, 'supabase/migrations/20260926120000_lock_down_public_profile_projection.sql'),
+  'utf8',
+);
 const service = readFileSync(resolve(root, 'src/services/publicProfile.ts'), 'utf8');
 const profileScreen = readFileSync(resolve(root, 'app/public-profile/[userId].tsx'), 'utf8');
 
 assert(migration.includes('alter table public.public_profiles enable row level security'), 'Public profiles must have RLS enabled');
-assert(migration.includes('(select auth.uid()) = user_id'), 'Insert/update policies must scope writes to the authenticated user');
+assert(
+  migration.includes('grant select, insert, update on table public.public_profiles to authenticated')
+    && migration.includes('(select auth.uid()) = user_id'),
+  'The applied Phase 1 migration must document the formerly owner-scoped, all-column write surface',
+);
 assert(migration.includes('where profile.user_id <> caller_id'), 'Server search must exclude the current user');
 assert(service.includes('profile?.userId !== currentUserId'), 'Client search must defensively exclude the current user');
 assert(migration.includes('limit safe_limit'), 'Server search must enforce its bounded result limit');
 assert(migration.includes('on conflict (user_id) do update set'), 'Company-name changes must update the same public profile row');
 assert(migration.includes('after insert or update of') && migration.includes('player_saves_sync_public_profile'), 'Public sync must run after meaningful player-save commits');
 assert(!profileScreen.includes('email') && !profileScreen.includes('companyBudget') && !profileScreen.includes('ownedCosmeticIds'), 'The public screen must not reference private account or save fields');
+
+const projectedColumns = [
+  'user_id',
+  'company_name',
+  'avatar_id',
+  'avatar_frame_id',
+  'career_rank',
+  'career_xp',
+  'reputation',
+  'success_rate',
+  'completed_sessions',
+  'selected_badge_ids',
+  'updated_at',
+];
+
+assert(
+  projectionLockdownMigration.includes('revoke all on table public.public_profiles from public, anon, authenticated'),
+  'Public profiles must expose no table-level client writes',
+);
+assert(
+  projectionLockdownMigration.includes('grant select on table public.public_profiles to authenticated'),
+  'Authenticated public-profile reads must remain available',
+);
+assert(
+  projectionLockdownMigration.includes('drop policy if exists "Users can insert their public profile"')
+    && projectionLockdownMigration.includes('drop policy if exists "Users can update their public profile"'),
+  'Obsolete owner-scoped client write policies must be removed',
+);
+assert(
+  !/grant\s+(?:[^;]*\s)?(?:insert|update|delete)\b[^;]*public_profiles/is.test(projectionLockdownMigration),
+  'The lockdown must not regrant any public-profile mutation privilege',
+);
+for (const column of projectedColumns) {
+  assert(
+    new RegExp(`revoke insert \\([\\s\\S]*?\\b${column}\\b[\\s\\S]*?\\), update \\(`, 'i').test(projectionLockdownMigration)
+      && new RegExp(`update \\([\\s\\S]*?\\b${column}\\b[\\s\\S]*?\\) on public\\.public_profiles`, 'i').test(projectionLockdownMigration),
+    `Column-level INSERT and UPDATE must be revoked for projected column ${column}`,
+  );
+}
+assert(
+  migration.includes('create or replace function private.sync_public_profile_from_player_save()')
+    && migration.includes('security definer')
+    && migration.includes("set search_path = ''")
+    && migration.includes('insert into public.public_profiles (')
+    && migration.includes('on conflict (user_id) do update set'),
+  'The trusted SECURITY DEFINER projection must retain its insert/update path',
+);
+assert(
+  !projectionLockdownMigration.includes('alter table public.player_saves')
+    && !projectionLockdownMigration.includes('grant select on table public.player_saves'),
+  'The lockdown must not expose or alter private player-save data',
+);
+assert(
+  service.includes(".from('public_profiles')")
+    && service.includes(`.select(PUBLIC_PROFILE_SELECT)`)
+    && !service.includes(".from('player_saves')"),
+  'Public profile rendering must continue to read only the public projection',
+);
 
 assert(
   searchFixMigration.includes('create or replace function public.search_public_profiles('),

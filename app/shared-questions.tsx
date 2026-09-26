@@ -72,7 +72,7 @@ export default function SharedQuestionsScreen() {
   }, [loadShares]));
 
   const handleOpen = useCallback((entry: SharedQuestionEntry) => {
-    if (!entry.share.openedAt) {
+    if (entry.source === 'legacy' && !entry.share.openedAt) {
       setEntries((current) => current.map((item) => item.share.id === entry.share.id
         ? { ...item, share: { ...item.share, openedAt: new Date().toISOString() } }
         : item));
@@ -80,7 +80,7 @@ export default function SharedQuestionsScreen() {
     }
     router.push({
       pathname: '/question-detail/[questionId]',
-      params: { questionId: entry.question.id, shareId: entry.share.id, source: 'shared' },
+      params: { questionId: entry.question.id, source: 'shared', ...(entry.source === 'legacy' ? { shareId: entry.share.id } : {}) },
     });
   }, []);
 
@@ -101,18 +101,24 @@ export default function SharedQuestionsScreen() {
           {status === 'error' && entries.length > 0 ? <Text accessibilityLiveRegion="polite" style={styles.loadError}>Paylaşımlar yenilenemedi. Tekrar deneyebilirsin.</Text> : null}
           <FlatList
             data={entries}
-            keyExtractor={(entry) => entry.share.id}
+            keyExtractor={(entry) => `${entry.source}:${entry.share.id}`}
             contentContainerStyle={[styles.listContent, entries.length === 0 && styles.listContentEmpty]}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
-            renderItem={({ item }) => (
+            renderItem={({ item }) => 'answerOptions' in item.question ? (
               <QuestionArchiveRow
                 contextLabel={formatSharedDate(item.share.createdAt)}
                 question={item.question}
                 sender={item.sender}
                 senderUnavailable={sendersLoaded && !item.sender}
-                unread={!item.share.openedAt}
+                unread={item.source === 'legacy' && !item.share.openedAt}
                 onOpen={() => handleOpen(item)}
               />
+            ) : (
+              <Pressable accessibilityRole="button" accessibilityLabel={`${item.question.title}. Soru detayını aç.`} onPress={() => handleOpen(item)} style={({ pressed }) => [styles.previewRow, item.source === 'legacy' && !item.share.openedAt && styles.previewUnread, pressed && styles.pressed]}>
+                <Text style={styles.previewSender}>{item.sender?.companyName ?? (sendersLoaded ? 'Şirket profili kullanılamıyor' : 'Paylaşılan soru')}</Text>
+                <Text style={styles.previewTitle}>{item.question.title}</Text>
+                <Text style={styles.previewMeta}>{item.source === 'legacy' && !item.share.openedAt ? 'YENİ · ' : ''}Paylaşılan soru · {formatSharedDate(item.share.createdAt)}</Text>
+              </Pressable>
             )}
             ListEmptyComponent={<InboxState status={status} onRetry={loadShares} styles={styles} tokens={tokens} />}
             showsVerticalScrollIndicator={false}
@@ -154,6 +160,11 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     listContent: { paddingBottom: tokens.layout.pageBottom },
     listContentEmpty: { flexGrow: 1 },
     separator: { height: 10 },
+    previewRow: { minHeight: 88, padding: 13, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurface },
+    previewUnread: { borderLeftWidth: 3, borderLeftColor: colors.primary, backgroundColor: colors.secondarySurfaceRaised },
+    previewSender: { color: colors.textSecondary, fontFamily: fonts.bodySemiBold, fontSize: 12 },
+    previewTitle: { marginTop: 8, color: colors.text, fontFamily: fonts.headingMedium, fontSize: 15 },
+    previewMeta: { marginTop: 6, color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 10 },
     loadError: { marginBottom: 10, color: colors.danger, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18 },
     stateBox: { flex: 1, minHeight: 280, alignItems: 'center', justifyContent: 'center', padding: 24 },
     stateTitle: { marginTop: 11, color: colors.text, fontFamily: fonts.headingBold, fontSize: 17, lineHeight: 23, textAlign: 'center' },

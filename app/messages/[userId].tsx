@@ -78,6 +78,7 @@ export default function DirectConversationScreen() {
   const requestIdRef = useRef(0);
   const listRef = useRef<FlatList<DirectMessageEntry>>(null);
   const shouldScrollToEndRef = useRef(false);
+  const nearBottomRef = useRef(true);
   const bodyRef = useRef('');
   const sendInFlightRef = useRef(false);
 
@@ -91,6 +92,8 @@ export default function DirectConversationScreen() {
 
   const load = useCallback(() => {
     const requestId = ++requestIdRef.current;
+    shouldScrollToEndRef.current = false;
+    nearBottomRef.current = true;
     setStatus('loading');
     setActionError('');
     void Promise.allSettled([
@@ -114,10 +117,11 @@ export default function DirectConversationScreen() {
       try {
         const initial = await listDirectMessages(nextContext.conversationId, null, PAGE_SIZE);
         if (requestId !== requestIdRef.current) return;
+        // Arm before rendering the page: its first content-size event positions the list.
+        shouldScrollToEndRef.current = initial.length > 0;
         setMessages(initial);
         setHasOlder(initial.length === PAGE_SIZE);
         setStatus('ready');
-        shouldScrollToEndRef.current = true;
         void markReadAndRefresh(nextContext.conversationId);
       } catch {
         if (requestId === requestIdRef.current) setStatus('error');
@@ -134,7 +138,7 @@ export default function DirectConversationScreen() {
     const conversationId = context?.conversationId;
     if (!conversationId || status !== 'ready') return undefined;
     return subscribeToDirectMessages(conversationId, (entry) => {
-      shouldScrollToEndRef.current = true;
+      shouldScrollToEndRef.current = nearBottomRef.current;
       setMessages((current) => mergeDirectMessageEntries(current, [entry]));
       if (entry.message.senderId !== user?.id) {
         void markReadAndRefresh(conversationId);
@@ -176,6 +180,7 @@ export default function DirectConversationScreen() {
     const conversationId = context?.conversationId;
     const first = messages[0]?.message;
     if (!conversationId || !first || olderPending || !hasOlder) return;
+    shouldScrollToEndRef.current = false;
     setOlderPending(true);
     setActionError('');
     try {
@@ -272,6 +277,7 @@ export default function DirectConversationScreen() {
               ref={listRef}
               contentContainerStyle={[styles.messageList, messages.length === 0 && styles.messageListEmpty]}
               data={messages}
+              initialNumToRender={PAGE_SIZE}
               keyExtractor={(entry) => entry.message.id}
               renderItem={({ item }) => (
                 <MessageRow
@@ -294,6 +300,11 @@ export default function DirectConversationScreen() {
                 shouldScrollToEndRef.current = false;
                 listRef.current?.scrollToEnd({ animated: false });
               }}
+              onScroll={(event) => {
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                nearBottomRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
+              }}
+              scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
             />
           )}
@@ -313,10 +324,11 @@ export default function DirectConversationScreen() {
                   editable={Boolean(context?.canSend) && !sendPending}
                   maxLength={1000}
                   multiline
+                  submitBehavior={Platform.OS === 'web' ? undefined : 'newline'}
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                   onChangeText={(nextBody) => { bodyRef.current = nextBody; setBody(nextBody); }}
-                  onKeyPress={(event) => {
+                  onKeyPress={Platform.OS === 'web' ? (event) => {
                     const webKey = event.nativeEvent as typeof event.nativeEvent & {
                       shiftKey?: boolean;
                       isComposing?: boolean;
@@ -335,7 +347,7 @@ export default function DirectConversationScreen() {
                     if (action === 'native') return;
                     event.preventDefault();
                     if (action === 'send') void send();
-                  }}
+                  } : undefined}
                   placeholder={context?.canSend ? 'Mesaj yaz…' : 'Mesaj gönderilemez'}
                   placeholderTextColor={tokens.colors.textMuted}
                   style={[styles.input, !context?.canSend && styles.inputDisabled, inputFocused && context?.canSend && styles.inputFocused]}

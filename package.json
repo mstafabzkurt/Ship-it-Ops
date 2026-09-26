@@ -8,6 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
     "test:production-readiness": "node tests/production-readiness-invariants.cjs",
     "test:onboarding": "node tests/onboarding-invariants.cjs",
     "test:themes": "node tests/theme-invariants.cjs",

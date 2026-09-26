@@ -60,21 +60,34 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
       <Ionicons name="chevron-forward" size={18} color={tokens.colors.textMuted} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
     </Pressable>
   );
+  const footerLink = (title: string, onPress: () => void) => (
+    <Pressable key={title} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.footerLink, pressed && styles.pressed]}>
+      <Text style={styles.footerLinkText}>{title}</Text>
+      <Ionicons name="chevron-forward" size={14} color={tokens.colors.textMuted} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+    </Pressable>
+  );
   const legal = sheet && sheet in LEGAL_DRAFTS ? LEGAL_DRAFTS[sheet as keyof typeof LEGAL_DRAFTS] : null;
   const title = legal?.title ?? (sheet === 'delete' ? 'Hesabı Sil' : 'Geri Bildirim');
 
   return (
     <>
-      <Text accessibilityRole="header" style={styles.heading}>Yardım ve Yasal</Text>
-      <View style={styles.group}>
-        {row('Geri Bildirim Gönder', () => {
-          void trackAnalyticsEvent('feedback_opened');
-          openSheet('feedback');
-        }, 'Soru, öneri veya yeni soru isteği', false, 'chatbubble-ellipses-outline')}
-        {row('Gizlilik Tercihleri', openPreferences, undefined, false, 'options-outline')}
-        {row(LEGAL_DRAFTS.privacy.title, () => openSheet('privacy'), undefined, false, 'shield-checkmark-outline')}
-        {row(LEGAL_DRAFTS.terms.title, () => openSheet('terms'), undefined, false, 'document-text-outline')}
-        {row(LEGAL_DRAFTS.licenses.title, () => openSheet('licenses'), undefined, false, 'library-outline')}
+      <View style={styles.supportFooter}>
+        <View style={[styles.footerColumns, width < 360 && styles.footerColumnsNarrow]}>
+          <View style={styles.footerColumn}>
+            <Text accessibilityRole="header" style={styles.footerHeading}>YARDIM</Text>
+            {footerLink('Geri Bildirim Gönder', () => {
+              void trackAnalyticsEvent('feedback_opened');
+              openSheet('feedback');
+            })}
+            {footerLink('Gizlilik Tercihleri', openPreferences)}
+          </View>
+          <View style={styles.footerColumn}>
+            <Text accessibilityRole="header" style={styles.footerHeading}>YASAL</Text>
+            {footerLink(LEGAL_DRAFTS.privacy.title, () => openSheet('privacy'))}
+            {footerLink(LEGAL_DRAFTS.terms.title, () => openSheet('terms'))}
+            {footerLink(LEGAL_DRAFTS.licenses.title, () => openSheet('licenses'))}
+          </View>
+        </View>
         <View style={styles.aboutInline}>
           <Text style={styles.aboutVersion}>Ship It Ops v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
           <Text style={styles.about}>Bilgisayar mühendisliği konularını operasyon senaryolarıyla çalıştıran eğitim amaçlı karar oyunu.</Text>
@@ -157,6 +170,13 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
 function makeStyles({ colors, radius }: ReturnType<typeof getDashboardTokens>) {
   return StyleSheet.create({
     heading: { fontFamily: fonts.headingBold, fontSize: 18, color: colors.text, marginTop: 20, marginBottom: 9 },
+    supportFooter: { marginTop: 24, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.dividerSubtle },
+    footerColumns: { maxWidth: 560, flexDirection: 'row', gap: 20 },
+    footerColumnsNarrow: { flexDirection: 'column', gap: 12 },
+    footerColumn: { flex: 1, minWidth: 0 },
+    footerHeading: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 16, letterSpacing: 1, color: colors.textSecondary, marginBottom: 4 },
+    footerLink: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingRight: 3 },
+    footerLinkText: { flexShrink: 1, fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 19, color: colors.text },
     group: { borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.secondarySurface, borderRadius: radius.md, overflow: 'hidden' },
     row: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.dividerSubtle },
     rowIcon: { width: 34, height: 34, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurfaceRaised },
@@ -164,7 +184,7 @@ function makeStyles({ colors, radius }: ReturnType<typeof getDashboardTokens>) {
     rowCopy: { flex: 1, minWidth: 0 },
     rowTitle: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 21, color: colors.text },
     body: { fontFamily: fonts.body, fontSize: 12, lineHeight: 19, color: colors.textMuted, marginTop: 3 },
-    aboutInline: { paddingHorizontal: 13, paddingVertical: 11, backgroundColor: colors.secondarySurfaceRaised },
+    aboutInline: { maxWidth: 560, marginTop: 12, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.dividerSubtle },
     aboutVersion: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 18, color: colors.textSecondary },
     about: { fontFamily: fonts.body, fontSize: 11, lineHeight: 17, color: colors.textMuted, marginTop: 2 },
     account: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 13, paddingRight: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.dividerSubtle },

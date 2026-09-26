@@ -65,9 +65,48 @@ export interface QuestionShareDatabaseRow {
 }
 
 export interface SharedQuestionEntry {
+  source: SharedQuestionSource;
   share: QuestionShare;
   sender: PublicProfile | null;
-  question: ArchivedQuestion;
+  question: ArchivedQuestion | SharedQuestionPreview;
+}
+
+export type SharedQuestionSource = 'legacy' | 'direct_message';
+export interface SharedQuestionDelivery {
+  source: SharedQuestionSource;
+  share: QuestionShare;
+}
+
+/** Prefer the DM record only when two sources have the exact same delivery timestamp. */
+export function mergeReceivedQuestionDeliveries(
+  legacy: QuestionShare[],
+  directMessages: QuestionShare[],
+): SharedQuestionDelivery[] {
+  const legacyRows = legacy.map((share) => ({ source: 'legacy' as const, share }));
+  const directRows = directMessages.map((share) => ({ source: 'direct_message' as const, share }));
+  const directTimestamps = new Set(directMessages.flatMap((share) => {
+    const time = Date.parse(share.createdAt);
+    return Number.isFinite(time) ? [`${share.senderId}:${share.questionId}:${time}`] : [];
+  }));
+  const unique = new Map<string, SharedQuestionDelivery>();
+  for (const delivery of [...legacyRows, ...directRows]) {
+    const time = Date.parse(delivery.share.createdAt);
+    if (delivery.source === 'legacy' && Number.isFinite(time)
+      && directTimestamps.has(`${delivery.share.senderId}:${delivery.share.questionId}:${time}`)) continue;
+    unique.set(`${delivery.source}:${delivery.share.id}`, delivery);
+  }
+  return [...unique.values()].sort((left, right) => {
+    const leftTime = Date.parse(left.share.createdAt);
+    const rightTime = Date.parse(right.share.createdAt);
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+      || right.share.id.localeCompare(left.share.id);
+  });
+}
+
+/** Enough primary content to show a share whose optional archive metadata is absent. */
+export interface SharedQuestionPreview {
+  id: string;
+  title: string;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -99,6 +138,13 @@ function deterministicAnswerOrder(questionId: string, answers: string[]): string
     .map(({ answer }) => answer);
 }
 
+function parseAnswerOptions(row: ArchivedQuestionDatabaseRow): string[] | null {
+  const answers = [row.optimal_text, row.acceptable_text, row.wrong_text, row.fatal_text]
+    .map((answer) => typeof answer === 'string' ? answer.trim() : '')
+    .filter(Boolean);
+  return answers.length === 4 && new Set(answers).size === 4 ? answers : null;
+}
+
 export function serializeArchivedQuestion(
   row: ArchivedQuestionDatabaseRow,
 ): ArchivedQuestion | null {
@@ -107,10 +153,8 @@ export function serializeArchivedQuestion(
   const difficultyStar = parseDifficultyStar(row.difficulty_star);
   if (!difficultyStar || typeof row.title !== 'string' || !row.title.trim()) return null;
 
-  const answers = [row.optimal_text, row.acceptable_text, row.wrong_text, row.fatal_text]
-    .map((answer) => typeof answer === 'string' ? answer.trim() : '')
-    .filter(Boolean);
-  if (answers.length !== 4 || new Set(answers).size !== 4) return null;
+  const answers = parseAnswerOptions(row);
+  if (!answers) return null;
 
   return {
     id,
@@ -121,6 +165,13 @@ export function serializeArchivedQuestion(
     title: row.title.trim(),
     answerOptions: deterministicAnswerOrder(id, answers),
   };
+}
+
+export function serializeSharedQuestionPreview(row: ArchivedQuestionDatabaseRow): SharedQuestionPreview | null {
+  const id = normalizeQuestionId(row.id);
+  return id && typeof row.title === 'string' && row.title.trim() && parseAnswerOptions(row)
+    ? { id, title: row.title.trim() }
+    : null;
 }
 
 export function serializeQuestionFavorite(

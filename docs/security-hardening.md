@@ -1,5 +1,9 @@
 # Security Hardening
 
+## Automated baseline
+
+The GitHub security workflow runs on pull requests, pushes to `main`, and weekly. CodeQL checks JavaScript/TypeScript source for known code-level security patterns; `npm run security:audit` checks the lockfile's production dependencies against npm advisories and fails on high or critical findings (without applying fixes). After a push, see **Actions** for both job results and **Security → Code scanning** for CodeQL alerts. These checks complement, not replace, later Supabase/RLS review and runtime security testing.
+
 ## Release mode
 
 Ship It Ops is currently prepared for a limited public playtest. The leaderboard and economy are not treated as secure competitive systems yet because scoring, economy changes, and session results are currently client-authoritative.
@@ -11,7 +15,7 @@ No real-money rewards or official competition should rely on the current scoring
 - The password minimum remains 6 for now. Revisit an 8+ character minimum after the public test or before a broader release.
 - CAPTCHA or Turnstile is deferred until signup abuse appears or the signup risk materially increases.
 - Cloudflare or additional WAF controls are deferred until a custom domain is introduced or abuse risk increases.
-- Content Security Policy should be introduced later, starting with `Content-Security-Policy-Report-Only` and production flow verification before enforcement.
+- Content Security Policy is currently configured in report-only mode. Production QA must verify authentication, Google OAuth, Supabase Realtime, assets and fonts, and analytics; after reported violations are reviewed, promote the same policy to enforcing mode.
 
 ## Secret handling
 

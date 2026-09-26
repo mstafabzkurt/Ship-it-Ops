@@ -37,5 +37,5 @@ export function shouldAnimateUnreadAttention(
   reduceMotion: boolean,
   visible: boolean,
 ): boolean {
-  return previousCount === 0 && unreadCount > 0 && !reduceMotion && visible;
+  return previousCount !== null && unreadCount > previousCount && !reduceMotion && visible;
 }

@@ -1,11 +1,20 @@
 import { supabase } from '../supabase';
 import { isUuid } from '../utils/friends';
 import {
+  getDirectMessageCursor,
+  serializeDirectConversationSummary,
+  serializeDirectMessage,
+  type DirectConversationSummaryDatabaseRow,
+  type DirectMessageDatabaseRow,
+} from '../utils/directMessaging';
+import {
   ARCHIVED_QUESTION_SELECT,
+  mergeReceivedQuestionDeliveries,
   normalizeQuestionId,
   serializeArchivedQuestion,
   serializeQuestionFavorite,
   serializeQuestionShare,
+  serializeSharedQuestionPreview,
   type ArchivedQuestion,
   type ArchivedQuestionDatabaseRow,
   type FavoriteQuestionEntry,
@@ -74,6 +83,53 @@ async function fetchPublicProfilesById(userIds: string[]): Promise<Map<string, P
     if (profile) result.set(profile.userId, profile);
   }
   return result;
+}
+
+async function fetchReceivedDirectQuestionShares(currentUserId: string): Promise<QuestionShare[]> {
+  // Both existing RPCs enforce conversation participation. Read every cursor page;
+  // a newer text message must not push an older question share out of the inbox.
+  const { data: conversationRows, error: conversationError } = await supabase.rpc('list_direct_conversations');
+  if (conversationError || !Array.isArray(conversationRows)) throw new QuestionSocialServiceError(unavailableMessage);
+  const conversations = conversationRows
+    .map((row) => serializeDirectConversationSummary(row as DirectConversationSummaryDatabaseRow))
+    .filter((summary): summary is NonNullable<typeof summary> => Boolean(summary));
+
+  const readConversation = async (conversation: (typeof conversations)[number]): Promise<QuestionShare[]> => {
+    const received: QuestionShare[] = [];
+    let cursor: { createdAt: string; id: string } | null = null;
+    while (true) {
+      const { data, error } = await supabase.rpc('list_direct_messages', {
+        target_conversation_id: conversation.conversationId,
+        before_created_at: cursor?.createdAt ?? null,
+        before_message_id: cursor?.id ?? null,
+        requested_limit: 50,
+      });
+      if (error || !Array.isArray(data)) throw new QuestionSocialServiceError(unavailableMessage);
+      for (const row of data) {
+        const message = serializeDirectMessage(row as DirectMessageDatabaseRow);
+        if (message?.messageType !== 'question_share' || !message.questionId
+          || message.senderId === currentUserId || message.senderId !== conversation.otherUserId) continue;
+        received.push({
+          id: message.id,
+          senderId: message.senderId,
+          recipientId: currentUserId,
+          questionId: message.questionId,
+          createdAt: message.createdAt,
+          openedAt: null,
+        });
+      }
+      if (data.length < 50) break;
+      const oldest = serializeDirectMessage(data[data.length - 1] as DirectMessageDatabaseRow);
+      if (!oldest) throw new QuestionSocialServiceError(unavailableMessage);
+      cursor = getDirectMessageCursor(oldest);
+    }
+    return received;
+  };
+  const pages: QuestionShare[][] = [];
+  for (let start = 0; start < conversations.length; start += 4) {
+    pages.push(...await Promise.all(conversations.slice(start, start + 4).map(readConversation)));
+  }
+  return pages.flat();
 }
 
 export async function getQuestionFavoriteState(
@@ -180,26 +236,41 @@ export async function shareQuestionWithFriend(
 
 export async function listReceivedQuestionShares(currentUserId: string): Promise<SharedQuestionEntry[]> {
   if (!isUuid(currentUserId)) throw new QuestionSocialServiceError(unavailableMessage);
-  const { data, error } = await supabase
-    .from('question_shares')
-    .select('id, sender_id, recipient_id, question_id, created_at, opened_at')
-    .eq('recipient_id', currentUserId)
-    .order('created_at', { ascending: false });
-  if (error) throw new QuestionSocialServiceError(unavailableMessage);
-  if (!Array.isArray(data)) throw new QuestionSocialServiceError(unavailableMessage);
+  const [legacyResult, directShares] = await Promise.all([
+    supabase.from('question_shares')
+      .select('id, sender_id, recipient_id, question_id, created_at, opened_at')
+      .eq('recipient_id', currentUserId)
+      .order('created_at', { ascending: false }),
+    fetchReceivedDirectQuestionShares(currentUserId),
+  ]);
+  if (legacyResult.error || !Array.isArray(legacyResult.data)) throw new QuestionSocialServiceError(unavailableMessage);
 
-  const shares = data
+  const legacyShares = legacyResult.data
     .map((row) => serializeQuestionShare(row as QuestionShareDatabaseRow))
-    .filter((share): share is QuestionShare => Boolean(share));
-  const questions = await fetchQuestionsById(shares.map((share) => share.questionId));
+    .filter((share): share is QuestionShare => Boolean(share) && share?.recipientId === currentUserId);
+  const deliveries = mergeReceivedQuestionDeliveries(legacyShares, directShares);
+  const questionIds = [...new Set(deliveries.map(({ share }) => share.questionId))];
+  const questions = new Map<string, SharedQuestionEntry['question']>();
+  if (questionIds.length > 0) {
+    const { data: questionRows, error: questionError } = await supabase
+      .from('game_incidents')
+      .select(ARCHIVED_QUESTION_SELECT)
+      .in('id', questionIds);
+    if (questionError || !Array.isArray(questionRows)) throw new QuestionSocialServiceError(unavailableMessage);
+    for (const row of questionRows) {
+      const question = serializeArchivedQuestion(row as ArchivedQuestionDatabaseRow)
+        ?? serializeSharedQuestionPreview(row as ArchivedQuestionDatabaseRow);
+      if (question) questions.set(question.id, question);
+    }
+  }
 
-  const entries = shares
-    .map((share) => {
+  const entries = deliveries
+    .map(({ source, share }) => {
       const question = questions.get(share.questionId);
-      return question ? { share, question, sender: null } as SharedQuestionEntry : null;
+      return question ? { source, share, question, sender: null } as SharedQuestionEntry : null;
     })
     .filter((entry): entry is SharedQuestionEntry => Boolean(entry));
-  if (data.length > 0 && entries.length === 0) throw new QuestionSocialServiceError(unavailableMessage);
+  if (deliveries.length > 0 && entries.length === 0) throw new QuestionSocialServiceError(unavailableMessage);
   return entries;
 }
 

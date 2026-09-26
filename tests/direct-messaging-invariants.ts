@@ -330,10 +330,17 @@ assert.equal(formatGlobalUnreadBadge(100), '99+');
 assert.equal(getMessagesShortcutAccessibilityLabel(0), 'Mesajlar');
 assert.equal(getMessagesShortcutAccessibilityLabel(3), 'Mesajlar, 3 okunmamış mesaj');
 assert(shouldAnimateUnreadAttention(0, 1, false, true));
+assert(shouldAnimateUnreadAttention(1, 2, false, true), 'Each authoritative unread increase must replay the pulse');
+assert(shouldAnimateUnreadAttention(2, 3, false, true), 'Repeated incoming messages must each replay the pulse');
+assert(!shouldAnimateUnreadAttention(2, 2, false, true), 'Refetching the same count must not pulse');
+assert(!shouldAnimateUnreadAttention(3, 2, false, true), 'Decreasing unread must not pulse');
+assert(!shouldAnimateUnreadAttention(1, 0, false, true), 'Clearing unread must not pulse');
 assert(!shouldAnimateUnreadAttention(null, 3, false, true), 'Initial unread load must not pulse');
 assert(!shouldAnimateUnreadAttention(0, 1, true, true), 'Reduced motion must disable the pulse');
+assert(!shouldAnimateUnreadAttention(1, 2, true, true), 'Reduced motion must suppress subsequent increases too');
 assert(!shouldAnimateUnreadAttention(0, 1, false, false), 'Hidden shortcut must not pulse');
 assert.match(shortcut, /AccessibilityInfo\.isReduceMotionEnabled\(\)/);
+assert.match(shortcut, /shouldAnimateUnreadAttention\(previousUnreadRef\.current, unreadCount, reduceMotion, visible\)/, 'The rendered shortcut must compare consecutive authoritative counts');
 assert.match(shortcut, /onPress=\{\(\) => router\.push\('\/messages'\)\}/);
 assert.match(shortcut, /tokens\.layout\.tabBarHeight \+ Math\.max\(insets\.bottom/, 'Tab routes must position the shortcut above navigation');
 assert.match(shortcut, /width - tokens\.layout\.contentMaxWidth/, 'Desktop shortcut must sit near the shared content edge');
@@ -341,6 +348,11 @@ assert.match(shortcut, /focused && styles\.focused/, 'Shortcut must have a visib
 
 // Web keyboard submission uses the same send path as the button. Native input
 // behavior, IME confirmation, and Shift+Enter remain under the platform input.
+assert.match(conversationScreen, /shouldScrollToEndRef\.current = initial\.length > 0;[\s\S]*setMessages\(initial\)/, 'Initial page must arm latest-message scroll before rendering');
+assert.match(conversationScreen, /initialNumToRender=\{PAGE_SIZE\}/, 'Initial scroll must measure the complete first page');
+assert.match(conversationScreen, /onContentSizeChange=\{\(\) => \{[\s\S]*shouldScrollToEndRef\.current = false;[\s\S]*scrollToEnd\(\{ animated: false \}\)/, 'First rendered page must scroll to the latest message once');
+assert.match(conversationScreen, /const loadOlder = useCallback\([\s\S]*shouldScrollToEndRef\.current = false;[\s\S]*listDirectMessages\(conversationId, getDirectMessageCursor\(first\)/, 'Older-page loading must not trigger a bottom scroll');
+assert.match(conversationScreen, /shouldScrollToEndRef\.current = nearBottomRef\.current;[\s\S]*mergeDirectMessageEntries\(current, \[entry\]\)/, 'Incoming messages should scroll only when already near the bottom');
 const composerKey = { isWeb: true, key: 'Enter', body: 'Merhaba', canSend: true, inFlight: false };
 assert.equal(getComposerEnterAction(composerKey), 'send');
 assert.equal(getComposerEnterAction({ ...composerKey, shiftKey: true }), 'native');
@@ -351,8 +363,9 @@ assert.equal(getComposerEnterAction({ ...composerKey, keyCode: 229 }), 'native')
 assert.equal(getComposerEnterAction({ ...composerKey, inFlight: true }), 'ignore');
 assert.equal(getComposerEnterAction({ ...composerKey, key: 'a' }), 'native');
 assert.equal(getComposerEnterAction({ ...composerKey, isWeb: false }), 'native');
-assert.match(conversationScreen, /onKeyPress=\{\(event\) => \{[\s\S]*getComposerEnterAction\([\s\S]*event\.preventDefault\(\);[\s\S]*if \(action === 'send'\) void send\(\)/);
-assert.match(conversationScreen, /onPress=\{\(\) => void send\(\)\}/, 'Send button and Enter must share send()');
+assert.match(conversationScreen, /submitBehavior=\{Platform\.OS === 'web' \? undefined : 'newline'\}/, 'Native Return must insert a newline');
+assert.match(conversationScreen, /onKeyPress=\{Platform\.OS === 'web' \? \(event\) => \{[\s\S]*getComposerEnterAction\([\s\S]*event\.preventDefault\(\);[\s\S]*if \(action === 'send'\) void send\(\)[\s\S]*\} : undefined\}/, 'Enter-to-send handler must exist only on web');
+assert.match(conversationScreen, /onPress=\{\(\) => void send\(\)\}/, 'Mobile send button and web Enter must share send()');
 assert.match(conversationScreen, /runDirectMessageSendOnce\(sendInFlightRef/, 'send() must use the synchronous ref guard');
 assert.match(conversationScreen, /maxLength=\{1000\}[\s\S]*multiline/, 'Composer must keep multiline input and the 1000-character limit');
 assert.doesNotMatch(conversationScreen, /onSubmitEditing=|\.blur\(\)/, 'Web Enter must not blur the composer or override native submit behavior');

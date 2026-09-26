@@ -233,11 +233,6 @@ export default function ProfileScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.container, isWide && styles.containerWide]}>
-            <View style={styles.pageHeader}>
-              <Text style={styles.eyebrow}>OYUNCU VE ŞİRKET</Text>
-              <Text style={styles.headerTitle}>Kullanıcı Profili</Text>
-            </View>
-
             <ProfileSummaryCard
               companyName={companyName}
               currentRank={currentRank}
@@ -245,7 +240,7 @@ export default function ProfileScreen() {
               equippedAvatarFrame={equippedAvatarFrame}
             />
 
-            <SectionHeading eyebrow="SOSYAL / İÇERİK" title="Bağlantılar ve Arşiv" styles={styles} compact />
+            <SectionHeading title="Bağlantılar ve Arşiv" styles={styles} compact />
             <View style={styles.socialGroup}>
               <SocialEntry
                 accessibilityLabel="Şirket Ara. Başka oyuncuların herkese açık şirket profillerini bul."
@@ -534,7 +529,7 @@ function SectionHeading({
   styles,
   compact = false,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   styles: ReturnType<typeof makeStyles>;
   compact?: boolean;
@@ -542,7 +537,7 @@ function SectionHeading({
   return (
     <View style={[styles.sectionHeading, compact && styles.sectionHeadingCompact]}>
       <View>
-        <Text style={styles.sectionEyebrow}>{eyebrow}</Text>
+        {eyebrow ? <Text style={styles.sectionEyebrow}>{eyebrow}</Text> : null}
         <Text style={styles.sectionTitle}>{title}</Text>
       </View>
       <View style={styles.sectionRule} />
@@ -594,9 +589,6 @@ function makeStyles(tokens: DashboardTokens) {
     scrollContent: { paddingBottom: tokens.layout.pageBottom },
     container: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: tokens.layout.pageGutter, paddingTop: tokens.layout.pageTop },
     containerWide: { paddingHorizontal: tokens.layout.pageGutterWide },
-    pageHeader: { marginBottom: tokens.layout.isCompact ? 10 : 18 },
-    eyebrow: { ...tokens.type.eyebrow, fontFamily: fonts.bodySemiBold, color: colors.secondary, marginBottom: 4 },
-    headerTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
     socialGroup: { overflow: 'hidden', borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
     socialEntry: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.dividerSubtle },
     socialEntryPressed: { opacity: 0.82, borderColor: colors.borderStrong, backgroundColor: colors.surfacePressed },
