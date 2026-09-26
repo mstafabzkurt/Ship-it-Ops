@@ -26,7 +26,7 @@
           "value": "DENY"
         },
         {
-          "key": "Content-Security-Policy-Report-Only",
+          "key": "Content-Security-Policy",
           "value": "default-src 'none'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://www.googletagmanager.com https://*.google-analytics.com; connect-src 'self' https://hpppzrxkgjdmswhtmcyu.supabase.co wss://hpppzrxkgjdmswhtmcyu.supabase.co https://www.googletagmanager.com https://*.google-analytics.com https://*.google.com; manifest-src 'self'; frame-src 'none'; media-src 'none'; worker-src 'none'; upgrade-insecure-requests"
         }
       ]

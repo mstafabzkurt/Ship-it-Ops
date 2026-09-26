@@ -15,7 +15,7 @@ No real-money rewards or official competition should rely on the current scoring
 - The password minimum remains 6 for now. Revisit an 8+ character minimum after the public test or before a broader release.
 - CAPTCHA or Turnstile is deferred until signup abuse appears or the signup risk materially increases.
 - Cloudflare or additional WAF controls are deferred until a custom domain is introduced or abuse risk increases.
-- Content Security Policy is currently configured in report-only mode. Production QA must verify authentication, Google OAuth, Supabase Realtime, assets and fonts, and analytics; after reported violations are reviewed, promote the same policy to enforcing mode.
+- Content Security Policy is enforced after production validation of authentication, Google OAuth, Supabase Realtime, assets and fonts, and analytics consent flows found no actionable violations.
 
 ## Secret handling
 
