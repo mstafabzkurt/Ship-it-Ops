@@ -8,18 +8,18 @@ export interface JokerDisplayDefinition {
 export const JOKER_DISPLAY: Record<JokerId, JokerDisplayDefinition> = {
   codeReview: {
     name: 'Debug Lens',
-    description: 'İki hatalı seçeneği eler.',
+    description: 'İki yanlış seçeneği eler.',
   },
   gitRevert: {
     name: 'Rollback',
-    description: 'Son kararı geri alır.',
+    description: 'Yanlış karar veya süre aşımından sonra soruyu yeniden denemeni sağlar.',
   },
   serverScaleUp: {
     name: 'Overclock',
-    description: 'Bu soru için süre kazandırır.',
+    description: 'Bu soruya 15 saniye ekler.',
   },
   snapshotBackup: {
     name: 'Snapshot',
-    description: 'Kaybedilen seriyi geri getirir.',
+    description: 'Yanlış yanıttan sonra kaybettiğin Uptime serisini geri getirir.',
   },
 };

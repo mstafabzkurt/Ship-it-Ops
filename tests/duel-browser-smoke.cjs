@@ -1,0 +1,226 @@
+/* Local exported-build QA. Every non-local request is intercepted; no real account or backend writes. */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+let playwright;
+try { playwright = require(process.env.PLAYWRIGHT_MODULE || 'playwright'); }
+catch { throw new Error('Set PLAYWRIGHT_MODULE to an installed Playwright module; this test installs no dependencies.'); }
+
+const root = path.resolve(__dirname, '..');
+const dist = path.join(root, 'dist');
+const output = path.join(root, 'docs', 'duel-qa');
+const USER = '11111111-1111-4111-8111-111111111111';
+const FRIEND = '22222222-2222-4222-8222-222222222222';
+const MATCH = '33333333-3333-4333-8333-333333333333';
+const REMATCH = '44444444-4444-4444-8444-444444444444';
+const iso = (ms = Date.now()) => new Date(ms).toISOString();
+const prompt = 'Bir API isteğinin gecikmesi artıyor. İlk olarak hangi veriyi incelemelisin?';
+const options = ['İstek sürelerini ve trace verilerini incele', 'Tüm logları sil', 'Üretim veritabanını yeniden başlat', 'Rate limit kontrolünü kapat'];
+const save = { user_id: USER, save_version: 5, company_name: 'Fixture Ops', career_xp: 0, reputation: 0, company_budget: 1000, correct_answers: 0, wrong_answers: 0, completed_sessions: 0, joker_inventory: { codeReview: 3, gitRevert: 3, serverScaleUp: 3, snapshotBackup: 3 }, owned_item_ids: [], owned_cosmetic_ids: ['avatar_default', 'avatar_frame_default'], equipped_avatar_id: 'avatar_default', equipped_avatar_frame_id: 'avatar_frame_default', streak_days: [false, false, false, false, false, false, false], recent_question_ids: [], category_progress: {}, onboarding_completed: true, tutorial_completed: true, selected_interest_areas: [], claimed_badge_reward_ids: [], unseen_badge_ids: [] };
+const profile = { user_id: FRIEND, company_name: 'Latency Labs', avatar_id: 'avatar_default', avatar_frame_id: 'avatar_frame_default', career_rank: 'Junior Developer', career_xp: 0, reputation: 0, success_rate: 0, completed_sessions: 0, selected_badge_ids: [], updated_at: iso() };
+let mode = 'hub';
+let startsAt = Date.now() - 2000;
+let answer = null;
+let rejectCreate = false;
+let createCount = 0;
+let answerCount = 0;
+let forfeitCount = 0;
+let expiresAt = Date.now() + 8 * 60000;
+let noFriends = false;
+const requests = [];
+
+function snapshot(id = MATCH) {
+  const incoming = mode === 'incoming';
+  const completed = mode === 'completed' || mode === 'forfeited';
+  const status = completed ? mode : mode === 'active' || mode === 'countdown' ? 'active' : 'pending';
+  const row = { id, inviter_id: incoming ? FRIEND : USER, invitee_id: incoming ? USER : FRIEND, opponent_id: FRIEND, status, created_at: iso(Date.now() - 60000), expires_at: iso(expiresAt), starts_at: status === 'active' || completed ? iso(startsAt) : null, completed_at: completed ? iso() : null, winner_id: completed ? USER : null, forfeited_by: mode === 'forfeited' ? FRIEND : null, my_score: completed ? 5 : 0, opponent_score: completed ? 3 : 0, my_response_ms: completed ? 54250 : 0, opponent_response_ms: completed ? 80100 : 0, server_now: iso(), current_round_index: status === 'active' && Date.now() >= startsAt ? 0 : null, current_question: null, my_answer: answer, results: null };
+  if (status === 'active' && Date.now() >= startsAt) row.current_question = { round_index: 0, category: 'operations', prompt, options, round_starts_at: iso(startsAt), round_ends_at: iso(startsAt + 20000) };
+  if (completed) row.results = Array.from({ length: 7 }, (_, round_index) => ({ round_index, category: 'operations', prompt, options, correct_index: 0, explanation: 'Trace verileri gecikmenin hangi aşamada oluştuğunu gösterir.', my_option_index: round_index < 5 ? 0 : 1, opponent_option_index: round_index < 3 ? 0 : null, my_response_ms: 7750, opponent_response_ms: 11400 }));
+  return row;
+}
+
+async function main() {
+  assert.ok(fs.existsSync(path.join(dist, 'index.html')), 'Run expo export --platform web before this test.');
+  fs.mkdirSync(output, { recursive: true });
+  const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+  const entry = html.match(/src="([^"]+\.js)"/)[1];
+  const bundle = fs.readFileSync(path.join(dist, entry), 'utf8');
+  const supabaseUrl = bundle.match(/https:\/\/[a-z0-9-]+\.supabase\.co/)[0];
+  const storageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
+  const server = http.createServer((req, res) => {
+    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    let file = path.resolve(dist, `.${pathname}`);
+    if (!file.startsWith(`${dist}${path.sep}`) && file !== dist) { res.writeHead(403); res.end(); return; }
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) file = path.join(dist, 'index.html');
+    const ext = path.extname(file);
+    const types = { '.html': 'text/html', '.js': 'application/javascript', '.png': 'image/png', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.json': 'application/json' };
+    res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+    fs.createReadStream(file).pipe(res);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
+    const context = await browser.newContext({ viewport: { width: 360, height: 800 }, reducedMotion: 'reduce', permissions: ['clipboard-read', 'clipboard-write'] });
+    if (context.routeWebSocket) await context.routeWebSocket('**/*', (socket) => socket.close());
+    await context.route('**/*', async (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      if (url.origin === origin) return route.continue();
+      requests.push({ path: url.pathname, method: req.method() });
+      if (url.origin !== supabaseUrl) return route.abort();
+      let data = [];
+      if (url.pathname.startsWith('/auth/')) data = { id: USER, email: 'fixture@example.invalid', aud: 'authenticated', role: 'authenticated' };
+      if (url.pathname === '/rest/v1/player_saves') data = save;
+      if (url.pathname === '/rest/v1/friend_relationships') data = noFriends ? [] : [{ id: '55555555-5555-4555-8555-555555555555', requester_id: USER, addressee_id: FRIEND, status: 'accepted', created_at: iso(), updated_at: iso() }];
+      if (url.pathname === '/rest/v1/public_profiles') data = [profile];
+      if (url.pathname.includes('/rpc/')) {
+        const rpc = url.pathname.split('/').pop();
+        const body = req.postDataJSON() || {};
+        if (rpc === 'get_direct_message_unread_total') data = 0;
+        if (rpc === 'list_friend_duels') data = noFriends ? [] : [snapshot()];
+        if (rpc === 'get_friend_duel') data = snapshot(body.match_id);
+        if (rpc === 'get_friend_duel_head_to_head') data = { opponent_id: FRIEND, wins: 3, losses: 1, draws: 1, total: 5 };
+        if (rpc === 'create_friend_duel') {
+          createCount++;
+          if (rejectCreate) return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ code: 'P0001', message: 'duel_busy' }) });
+          const id = mode === 'completed' ? REMATCH : MATCH;
+          mode = 'outgoing'; answer = null;
+          data = snapshot(id);
+        }
+        if (rpc === 'respond_friend_duel') {
+          mode = body.response_action === 'accept' ? 'countdown' : body.response_action === 'decline' ? 'declined' : 'cancelled';
+          startsAt = Date.now() + 5000;
+          data = snapshot();
+          if (mode === 'declined' || mode === 'cancelled') data.status = mode;
+        }
+        if (rpc === 'answer_friend_duel') {
+          answerCount++;
+          answer = { round_index: body.round_index, option_index: body.option_index, answered_at: iso(), response_ms: Date.now() - startsAt };
+          data = snapshot();
+        }
+        if (rpc === 'forfeit_friend_duel') { forfeitCount++; mode = 'forfeited'; data = snapshot(); }
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data), headers: { 'access-control-allow-origin': '*', 'content-range': '0-0/1' } });
+    });
+    await context.addInitScript(({ storageKey, user }) => {
+      const payload = btoa(JSON.stringify({ sub: user, exp: Math.floor(Date.now() / 1000) + 86400, role: 'authenticated' }));
+      localStorage.setItem(storageKey, JSON.stringify({ access_token: `e30.${payload}.fixture`, refresh_token: 'fixture-refresh-token', expires_at: Math.floor(Date.now() / 1000) + 86400, expires_in: 86400, token_type: 'bearer', user: { id: user, email: 'fixture@example.invalid', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {} } }));
+      localStorage.setItem('@shipit_privacy_consent', JSON.stringify({ necessary: true, analytics: false, advertising: false, consentVersion: 1, updatedAt: new Date().toISOString() }));
+      localStorage.setItem('@shipit_theme_id', localStorage.getItem('fixture-theme') || 'default');
+    }, { storageKey, user: USER });
+    const page = await context.newPage();
+    page.setDefaultTimeout(12000);
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    async function shot(name) {
+      await page.evaluate(() => document.fonts.ready);
+      const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth);
+      assert.equal(overflow, false, `Horizontal overflow: ${name}`);
+      await page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true });
+    }
+    await page.goto(`${origin}/duels`);
+    const challenge = page.getByRole('button', { name: /Latency Labs.*Meydan Oku/ });
+    await challenge.waitFor();
+    assert.equal(await challenge.isEnabled(), true, 'The only friend is selected without an extra click');
+    const challengeHeading = await page.getByRole('heading', { name: 'Meydan oku', exact: true }).boundingBox();
+    const activityHeading = await page.getByRole('heading', { name: 'Kapışmaların', exact: true }).boundingBox();
+    const challengeBox = await challenge.boundingBox();
+    assert.ok(activityHeading.y > challengeBox.y + challengeBox.height && activityHeading.y > challengeHeading.y, 'Mobile activity must follow the challenge panel without overlap');
+    await page.getByRole('button', { name: 'Devam eden', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await page.getByText('Sıradaki kapışma seni bekliyor', { exact: true }).waitFor();
+    assert.equal(await page.getByText('İlk kapışma, ilk hikâye', { exact: true }).count(), 0, 'Only the selected activity empty state is shown');
+    await page.getByRole('button', { name: 'Geçmiş', exact: true }).click();
+    await page.getByText('İlk kapışma, ilk hikâye', { exact: true }).waitFor();
+    await page.getByRole('button', { name: /^Davetler/ }).click();
+    await page.getByRole('button', { name: 'Nasıl oynanır?', exact: true }).click();
+    await page.getByRole('button', { name: 'Kuralları kapat', exact: true }).waitFor();
+    await shot('rules-360-dark');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Kuralları kapat', exact: true }).waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.activeElement?.textContent?.includes('Nasıl oynanır'));
+    assert.equal(await page.getByRole('button', { name: 'Nasıl oynanır?', exact: true }).evaluate(el => el === document.activeElement), true, 'Closing rules restores keyboard focus');
+    await shot('hub-360-dark');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.evaluate(() => localStorage.setItem('fixture-theme', 'daylight'));
+    await page.reload();
+    await challenge.waitFor();
+    const desktopChallenge = await page.getByRole('heading', { name: 'Meydan oku', exact: true }).boundingBox();
+    const desktopActivity = await page.getByRole('heading', { name: 'Kapışmaların', exact: true }).boundingBox();
+    assert.ok(desktopActivity.x > desktopChallenge.x + desktopChallenge.width, 'Desktop activity is arranged beside the challenge');
+    await shot('hub-1280-light');
+    rejectCreate = true;
+    await challenge.click();
+    await page.getByText('Oyunculardan biri başka bir düelloda. Sonra tekrar dene.', { exact: true }).waitFor();
+    await page.waitForTimeout(5500);
+    assert.equal(await page.getByText('Oyunculardan biri başka bir düelloda. Sonra tekrar dene.', { exact: true }).isVisible(), true, 'Action errors must survive automatic polling');
+    rejectCreate = false;
+    await challenge.click();
+    await page.getByText('Rakibin bekleniyor', { exact: true }).waitFor();
+    assert.ok(page.url().includes(`/duel/${MATCH}`));
+    await page.getByRole('button', { name: 'Davet Bağlantısını Kopyala', exact: true }).waitFor();
+    await page.getByText('VS', { exact: true }).waitFor();
+    await page.getByText('Aranızda 3–1 · 1 beraberlik', { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Davet \d+ dakika geçerli/).count(), 1, 'Lobby shows relative invite expiry');
+    await shot('lobby-1280-light');
+    await page.getByRole('button', { name: 'Davet Bağlantısını Kopyala', exact: true }).click();
+    await page.getByRole('button', { name: /Kopyalandı/ }).waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `${origin}/duel/${MATCH}`);
+    await page.getByRole('button', { name: 'Davet Bağlantısını Kopyala', exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    mode = 'incoming';
+    await page.evaluate(() => localStorage.setItem('fixture-theme', 'default'));
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto(`${origin}/duel/${MATCH}`);
+    await page.getByRole('button', { name: 'Daveti Kabul Et', exact: true }).waitFor();
+    await shot('pending-390-dark');
+    await page.getByRole('button', { name: 'Daveti Kabul Et', exact: true }).click();
+    await page.getByText('Maç başlıyor', { exact: true }).waitFor();
+    await page.getByText(prompt, { exact: true }).waitFor({ timeout: 15000 });
+    mode = 'active';
+    await page.setViewportSize({ width: 430, height: 932 });
+    await page.getByRole('radio').first().click();
+    await shot('active-430-dark');
+    assert.equal(await page.getByText(/ · Doğru yanıt$/).count(), 0, 'Correctness leaked before completion');
+    await page.getByRole('button', { name: 'Yanıtı Kilitle', exact: true }).click();
+    await page.getByText('Yanıtın kaydedildi. Süre bitince sıradaki soru otomatik açılır.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('radio').first().getAttribute('aria-disabled'), 'true');
+    assert.equal(answerCount, 1);
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.getByRole('button', { name: 'Maçtan Çekil', exact: true }).click();
+    assert.equal(forfeitCount, 0, 'Dismissed forfeit dialog must not mutate');
+    await page.getByRole('button', { name: 'Geri dön', exact: true }).click();
+    await challenge.waitFor();
+    assert.equal(forfeitCount, 0, 'Leaving screen must not forfeit');
+    mode = 'completed';
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/duel/${MATCH}`);
+    await page.getByText('Kazandın', { exact: true }).waitFor();
+    await page.getByText('Aranızdaki 5 maç: 3 galibiyet · 1 mağlubiyet · 1 beraberlik', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Soru 1, yanıtları göster', exact: true }).click();
+    await shot('result-1280-dark');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(() => localStorage.setItem('fixture-theme', 'daylight'));
+    await page.reload();
+    await page.getByText('Kazandın', { exact: true }).waitFor();
+    await shot('result-390-light');
+    await page.getByRole('button', { name: 'Rövanş Daveti Gönder', exact: true }).click();
+    await page.getByText('Rakibin bekleniyor', { exact: true }).waitFor();
+    assert.ok(page.url().includes(`/duel/${REMATCH}`));
+    assert.equal(createCount, 3);
+    noFriends = true;
+    await page.goto(`${origin}/duels`);
+    await page.getByRole('button', { name: 'Şirket Ara', exact: true }).waitFor();
+    await shot('empty-390-light');
+    assert.deepEqual(errors, [], 'Uncaught browser errors');
+    console.log(JSON.stringify({ passed: true, screenshots: 9, widths: [360, 390, 430, 1280], themes: ['default', 'daylight'], motion: ['reduce', 'no-preference'], answerCount, forfeitCount, createCount, mockedBackendRequests: requests.length, externalRequestsAllowed: 0 }));
+  } finally {
+    if (browser) await browser.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });

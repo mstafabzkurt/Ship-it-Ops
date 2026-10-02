@@ -38,7 +38,7 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
   };
   const openSource = async (url: string) => {
     try { await Linking.openURL(url); }
-    catch { setMailError('Kaynak bağlantısı açılamadı. Detaylar docs/asset-credits.md dosyasında yer alır.'); }
+    catch { setMailError('Kaynak bağlantısı açılamadı. Lütfen daha sonra tekrar dene.'); }
   };
   const row = (title: string, onPress: () => void, subtitle?: string, danger = false, icon?: RowIcon) => (
     <Pressable key={title} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
@@ -67,7 +67,7 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
     </Pressable>
   );
   const legal = sheet && sheet in LEGAL_DRAFTS ? LEGAL_DRAFTS[sheet as keyof typeof LEGAL_DRAFTS] : null;
-  const title = legal?.title ?? (sheet === 'delete' ? 'Hesabı Sil' : 'Geri Bildirim');
+  const title = legal?.title ?? (sheet === 'delete' ? 'Hesap Silme Talebi' : 'Destek ve Geri Bildirim');
 
   return (
     <>
@@ -75,7 +75,7 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
         <View style={[styles.footerColumns, width < 360 && styles.footerColumnsNarrow]}>
           <View style={styles.footerColumn}>
             <Text accessibilityRole="header" style={styles.footerHeading}>YARDIM</Text>
-            {footerLink('Geri Bildirim Gönder', () => {
+            {footerLink('Destek ve Geri Bildirim', () => {
               void trackAnalyticsEvent('feedback_opened');
               openSheet('feedback');
             })}
@@ -90,7 +90,7 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
         </View>
         <View style={styles.aboutInline}>
           <Text style={styles.aboutVersion}>Ship It Ops v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
-          <Text style={styles.about}>Bilgisayar mühendisliği konularını operasyon senaryolarıyla çalıştıran eğitim amaçlı karar oyunu.</Text>
+          <Text style={styles.about}>Bilgisayar mühendisliği konularını operasyon senaryolarıyla çalışabileceğin bir karar oyunu.</Text>
         </View>
       </View>
 
@@ -113,7 +113,7 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
           </Pressable>
         </View>
         {message ? <Text accessibilityLiveRegion="polite" style={styles.accountMessage}>{message}</Text> : null}
-        {row('Hesabı Sil', () => openSheet('delete'), undefined, true, 'trash-outline')}
+        {row('Hesap Silme Talebi', () => openSheet('delete'), undefined, true, 'trash-outline')}
       </View>
 
       <Modal visible={sheet !== null} transparent animationType="none" onRequestClose={() => setSheet(null)}>
@@ -150,12 +150,12 @@ export default function ProfileSupport({ accountId }: { accountId?: string }) {
                 <>
                   {sheet === 'feedback' ? FEEDBACK_OPTIONS.map(option => row(option.title, () => void openMail(option.subject, option.body), option.subtitle)) : (
                     <>
-                      <Text style={styles.paragraph}>Bu işlem hesabını hemen silmez. E-posta uygulamanda bir silme talebi taslağı açar; göndermeden önce inceleyebilirsin. Otomatik hesap silme henüz kullanıma açık değildir.</Text>
-                      {row('Silme Talebi Oluştur', () => void openMail('Ship It Ops - Hesap Silme Talebi', `Merhaba, Ship It Ops hesabımın ve ilişkili verilerimin silinmesini talep ediyorum.\n\nHesap ID: ${accountId ?? 'Belirtilmedi'}`))}
+                      <Text style={styles.paragraph}>Hesabın burada doğrudan silinmez. Aşağıdaki düğme e-posta uygulamanda bir silme talebi taslağı açar; göndermeden önce inceleyebilirsin.</Text>
+                      {row('E-posta Taslağını Aç', () => void openMail('Ship It Ops - Hesap Silme Talebi', `Merhaba, Ship It Ops hesabımın ve ilişkili verilerimin silinmesini talep ediyorum.\n\nHesap ID: ${accountId ?? 'Belirtilmedi'}`))}
                     </>
                   )}
                   <Text selectable style={styles.paragraph}>Destek adresi: {SHIP_IT_OPS_SUPPORT_EMAIL}</Text>
-                  <Text style={styles.body}>E-posta uygulaman açılır; gönderme kararını sen verirsin.</Text>
+                  {sheet === 'feedback' ? <Text style={styles.body}>E-posta taslağını göndermeden önce inceleyebilirsin.</Text> : null}
                 </>
               )}
               {mailError ? <Text selectable accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.paragraph, styles.danger]}>{mailError}</Text> : null}

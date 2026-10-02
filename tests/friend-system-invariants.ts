@@ -132,7 +132,7 @@ for (const screen of [publicProfileScreen, friendsScreen, requestsScreen]) {
 }
 assert.match(publicProfileScreen, /profile\.userId !== currentUserId \? \(/, 'A user must not see friend actions on their own profile');
 assert.match(publicProfileScreen, /!isOwnProfile \? \(/, 'A self-profile must hide the mutual-friend metric');
-for (const label of ['Arkadaş Ekle', 'Kabul Et', 'Reddet', 'Arkadaşlıktan Çıkar']) {
+for (const label of ['Arkadaşlık İsteği Gönder', 'Kabul Et', 'Reddet', 'Arkadaşlıktan Çıkar']) {
   assert.equal(publicProfileScreen.includes(label), true, `Missing friendship action label: ${label}`);
 }
 assert.match(publicProfileScreen, /getFriendshipStatusLabel\(direction\)/, 'Friendship status labels must use the tested mapping');

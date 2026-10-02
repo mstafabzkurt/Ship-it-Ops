@@ -140,8 +140,7 @@ export const THEME_ITEMS: StoreItem[] = [
     category: 'theme',
     icon: '⚡',
     title: 'Cyberpunk Tema',
-    description:
-      'Neon Cyan, Neon Pembe ve Neon Sarı renk paletiyle keskin köşeler ve agresif glow efektleri. Gerçek bir hackerin çalışma ortamı.',
+    description: 'Siyaha yakın zemin ve keskin neon çizgiler.',
     price: 500,
     themeIdKey: 'cyberpunk',
   },
@@ -150,8 +149,7 @@ export const THEME_ITEMS: StoreItem[] = [
     category: 'theme',
     icon: '🖥️',
     title: 'Hardware Tema',
-    description:
-      'Derin orman yeşili, taktik tablo ve keskin sıfır-border-radius estetiği. Saha operasyonları ruhunu ekrana taşır.',
+    description: 'Orman yeşili paneller ve köşeli hatlar.',
     price: 350,
     themeIdKey: 'hardware',
   },
@@ -160,8 +158,7 @@ export const THEME_ITEMS: StoreItem[] = [
     category: 'theme',
     icon: '🌌',
     title: 'Nebula Tema',
-    description:
-      'Derin uzay morları, premium yuvarlak köşeler ve magenta-violet gradyan arka plan. Gece yarısı evreni hissini ekrana taşıyan en premium tema.',
+    description: 'Derin mor zemin ve geniş yuvarlak köşeler.',
     price: 800,
     themeIdKey: 'nebula',
   },

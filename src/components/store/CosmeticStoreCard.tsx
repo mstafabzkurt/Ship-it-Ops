@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
-import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   COSMETIC_RARITY_LABELS,
@@ -7,6 +8,7 @@ import {
   type CosmeticCatalogItem,
 } from '../../config/cosmetics';
 import { useTheme } from '../../state/ThemeContext';
+import { useReputation } from '../../state/ReputationContext';
 import { fonts } from '../../theme/typography';
 import { formatCurrency } from '../../utils/format';
 import CosmeticPreview from '../cosmetics/CosmeticPreview';
@@ -39,7 +41,9 @@ export default function CosmeticStoreCard({
   ownershipOnly = false,
 }: CosmeticStoreCardProps) {
   const { theme } = useTheme();
-  const { width } = useWindowDimensions();
+  const { equippedAvatar } = useReputation();
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const { width, height } = useWindowDimensions();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const { rail, pulseStyle } = useAcquisitionMotion(feedback?.id, reduceMotion);
@@ -77,7 +81,8 @@ export default function CosmeticStoreCard({
             {item.type === 'avatar' ? (
               <CosmeticPreview mode="avatarOnly" avatar={item} variant="store" accessibilityLabel={`${item.name} kozmetik önizlemesi`} />
             ) : (
-              <CosmeticPreview mode="frameOnly" frame={item} variant="store" accessibilityLabel={`${item.name} kozmetik önizlemesi`} />
+              <CosmeticPreview mode="equippedCombo" avatar={equippedAvatar} frame={item} variant="store"
+                accessibilityLabel={`${equippedAvatar.name} avatarında ${item.name} çerçevesi önizlemesi`} />
             )}
           </Animated.View>
         </View>
@@ -90,6 +95,13 @@ export default function CosmeticStoreCard({
               style={[styles.rarityChip, { borderColor: rarityColor }, rarity === 'prestige' && styles.prestigeChip, rarity === 'legendary' && styles.legendaryChip]}>
               <Text style={[styles.rarityText, { color: rarityColor }]}>{COSMETIC_RARITY_LABELS[rarity]}</Text>
             </View>
+          ) : null}
+          {item.type === 'avatar_frame' ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`${item.name} çerçevesini avatarımda önizle`}
+              onPress={() => setPreviewVisible(true)}
+              style={({ pressed }) => [styles.previewAction, pressed && styles.pressedStill]}>
+              <Text style={styles.previewActionText}>Avatarımda Önizle</Text>
+            </Pressable>
           ) : null}
         </View>
       </View>
@@ -125,6 +137,31 @@ export default function CosmeticStoreCard({
           )}
         </Pressable>
       </View>
+      {item.type === 'avatar_frame' ? (
+        <Modal visible={previewVisible} transparent animationType={reduceMotion ? 'none' : 'fade'}
+          onRequestClose={() => setPreviewVisible(false)}>
+          <SafeAreaView style={styles.modalBackdrop} edges={['top', 'bottom']}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Önizlemeyi kapat"
+              onPress={() => setPreviewVisible(false)} style={StyleSheet.absoluteFill} />
+            <View style={styles.modalPanel} accessibilityViewIsModal>
+              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}
+                showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalEyebrow}>AVATARINDA ÖNİZLEME</Text>
+                <Text style={styles.modalTitle}>{item.name}</Text>
+                <CosmeticPreview mode="equippedCombo" avatar={equippedAvatar} frame={item}
+                  size={Math.max(96, Math.min(width - 96, height * 0.38, 240))} variant="profile"
+                  accessibilityLabel={`${equippedAvatar.name} avatarında ${item.name} çerçevesi`} />
+                <Text style={styles.modalHint}>Şu anki avatarın: {equippedAvatar.name}</Text>
+              </ScrollView>
+              <Pressable accessibilityRole="button" accessibilityLabel="Önizlemeyi kapat"
+                onPress={() => setPreviewVisible(false)}
+                style={({ pressed }) => [styles.modalClose, pressed && styles.pressedStill]}>
+                <Text style={styles.modalCloseText}>Kapat</Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -164,17 +201,19 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     premiumStage: { borderColor: colors.warningSoft },
     stageCorner: { position: 'absolute', left: 5, top: 5, width: 10, height: 10, borderLeftWidth: 1, borderTopWidth: 1, opacity: 0.5 },
     metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 5, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 5 },
-    category: { fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, letterSpacing: 0.6, color: colors.textMuted },
+    category: { fontFamily: fonts.monoMedium, fontSize: 11, lineHeight: 16, letterSpacing: 0.4, color: colors.textMuted },
     statusChip: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 22, paddingHorizontal: 7, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSubtle },
     statusOwned: { borderColor: colors.secondary },
     statusEquipped: { backgroundColor: colors.secondarySoft },
     statusDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.textMuted },
-    state: { fontFamily: fonts.bodySemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.45, color: colors.textMuted },
+    state: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 15, letterSpacing: 0.3, color: colors.textMuted },
     stateEquipped: { color: colors.secondary },
     name: { fontFamily: fonts.headingBold, fontSize: tokens.layout.isCompact ? 16 : 17, lineHeight: tokens.layout.isCompact ? 21 : 22, color: colors.text, marginBottom: 3 },
     description: { ...tokens.type.bodySmall, fontFamily: fonts.body, color: colors.textMuted },
     rarityChip: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderRadius: radius.sm, marginTop: 7 },
-    rarityText: { fontFamily: fonts.monoMedium, fontSize: 10, lineHeight: 14 },
+    rarityText: { fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 16 },
+    previewAction: { alignSelf: 'flex-start', justifyContent: 'center', minHeight: 44, marginTop: 2, paddingRight: 8 },
+    previewActionText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.primary },
     legendaryChip: { backgroundColor: colors.primarySoft },
     prestigeChip: { backgroundColor: colors.warningSoft },
     footer: {
@@ -189,7 +228,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
       backgroundColor: colors.secondarySurface,
     },
     priceReadout: { flexShrink: 1, minWidth: 0 },
-    priceLabel: { fontFamily: fonts.bodySemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.5, color: colors.textMuted },
+    priceLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 15, letterSpacing: 0.3, color: colors.textMuted },
     price: { fontFamily: fonts.monoBold, fontSize: 15, lineHeight: 20, color: colors.warning },
     priceUnavailable: { color: colors.textMuted },
     action: {
@@ -211,5 +250,17 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     actionText: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.onAccent, textAlign: 'center' },
     actionTextEquipped: { color: colors.secondary },
     actionTextDisabled: { color: colors.textMuted },
+    modalBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 16, backgroundColor: colors.overlayScrim },
+    modalPanel: { width: '100%', maxWidth: 340, maxHeight: '100%', gap: 12, padding: 20,
+      borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceRaised,
+      ...shadow.raised },
+    modalScroll: { flexShrink: 1, width: '100%' },
+    modalContent: { alignItems: 'center', gap: 12 },
+    modalEyebrow: { fontFamily: fonts.monoMedium, fontSize: 11, lineHeight: 16, letterSpacing: 0.4, color: colors.textMuted },
+    modalTitle: { fontFamily: fonts.headingBold, fontSize: 19, lineHeight: 25, color: colors.text, textAlign: 'center' },
+    modalHint: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: 'center' },
+    modalClose: { alignSelf: 'stretch', minHeight: 48, alignItems: 'center', justifyContent: 'center',
+      borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.secondarySurface },
+    modalCloseText: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 19, color: colors.text },
   });
 }

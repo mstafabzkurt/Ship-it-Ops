@@ -23,6 +23,7 @@ import {
 const root = process.cwd();
 const migration = readFileSync(resolve(root, 'supabase/migrations/20260917200000_create_friend_direct_messaging.sql'), 'utf8');
 const ambiguityRepair = readFileSync(resolve(root, 'supabase/migrations/20260919170000_fix_direct_conversation_plpgsql_ambiguity.sql'), 'utf8');
+const correctedBlockSemantics = readFileSync(resolve(root, 'supabase/migrations/20260927120000_correct_block_semantics.sql'), 'utf8');
 const service = readFileSync(resolve(root, 'src/services/directMessaging.ts'), 'utf8');
 const messagesScreen = readFileSync(resolve(root, 'app/messages/index.tsx'), 'utf8');
 const conversationScreen = readFileSync(resolve(root, 'app/messages/[userId].tsx'), 'utf8');
@@ -41,6 +42,7 @@ const functionDefinitions = (sql: string) => [...sql.matchAll(/create or replace
   .map((match) => ({ name: match[1].toLowerCase(), body: match[0] }));
 const originalFunctions = functionDefinitions(migration);
 const repairFunctions = functionDefinitions(ambiguityRepair);
+const correctedBlockFunctions = functionDefinitions(correctedBlockSemantics);
 assert.deepEqual(repairFunctions.map((item) => item.name), ['private.require_direct_message_conversation'], 'Repair must replace only the affected helper');
 assert.doesNotMatch(ambiguityRepair, /#variable_conflict|plpgsql\.variable_conflict/i, 'Repair must resolve names explicitly');
 assert.match(ambiguityRepair, /security definer\s+set search_path = ''/i);
@@ -73,6 +75,7 @@ assert(originalHelper);
 assert.deepEqual(ambiguousSqlNames(originalHelper.body), ['conversation_id'], 'Regression test must identify the applied migration failure');
 const effectiveFunctions = new Map(originalFunctions.map((item) => [item.name, item.body]));
 for (const item of repairFunctions) effectiveFunctions.set(item.name, item.body);
+for (const item of correctedBlockFunctions) effectiveFunctions.set(item.name, item.body);
 for (const name of [
   'private.require_direct_message_conversation',
   'public.get_or_create_direct_conversation',
@@ -214,11 +217,18 @@ assert.match(migration, /alter table public\.direct_messages enable row level se
 assert.doesNotMatch(migration, /grant (insert|update|delete).*direct_messages.*authenticated/i, 'Message writes must remain RPC-only');
 assert.doesNotMatch(migration, /to anon/, 'Anonymous roles must receive no messaging grants');
 
-// Blocks deny both directions but stay separate from friendship/history.
+// The original messaging migration established bidirectional send denial and
+// history preservation; the corrective migration also terminates friendship.
 assert.match(migration, /block\.blocker_id = actor_id and block\.blocked_user_id = target_user_id[\s\S]*block\.blocker_id = target_user_id and block\.blocked_user_id = actor_id/);
 assert.match(migration, /create table public\.user_blocks[\s\S]*primary key \(blocker_id, blocked_user_id\)/);
-assert.doesNotMatch(migration.match(/create or replace function public\.block_user[\s\S]*?\$\$;/)?.[0] ?? '', /delete from public\.friend_relationships/, 'Blocking must not silently delete friendship');
+assert.doesNotMatch(migration.match(/create or replace function public\.block_user[\s\S]*?\$\$;/)?.[0] ?? '', /delete from public\.friend_relationships/, 'The applied messaging migration must remain unchanged');
 assert.match(migration, /delete from public\.user_blocks as block[\s\S]*block\.blocker_id = caller_id/);
+const correctedBlockUser = correctedBlockFunctions.find((item) => item.name === 'public.block_user')?.body ?? '';
+assert.match(correctedBlockUser, /caller_id uuid := \(select auth\.uid\(\)\)/, 'Blocking identity must remain auth-derived');
+assert.match(correctedBlockUser, /insert into public\.user_blocks \(blocker_id, blocked_user_id\)[\s\S]*values \(caller_id, target_user_id\)/);
+assert.match(correctedBlockUser, /delete from public\.friend_relationships as relationship[\s\S]*relationship\.pair_low_id = least\(caller_id, target_user_id\)[\s\S]*relationship\.pair_high_id = greatest\(caller_id, target_user_id\)/, 'Blocking must remove every canonical relationship state for the pair');
+assert.doesNotMatch(correctedBlockSemantics, /delete from public\.direct_(?:conversations|messages)|update public\.direct_(?:conversations|messages)/, 'Corrected blocking must preserve all conversation and message rows');
+assert.doesNotMatch(correctedBlockSemantics, /create or replace function public\.unblock_user/, 'Unblocking must keep its delete-only behavior and must not recreate friendship');
 
 // Reports are private, fixed-reason, trimmed, bounded, and non-automatic.
 assert.match(migration, /reason in \('spam', 'harassment', 'inappropriate', 'other'\)/);

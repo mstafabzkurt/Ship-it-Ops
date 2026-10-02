@@ -170,6 +170,8 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
           <Stack.Screen name="company-search" />
           <Stack.Screen name="public-profile/[userId]" />
           <Stack.Screen name="friends" />
+          <Stack.Screen name="duels" />
+          <Stack.Screen name="duel/[matchId]" />
           <Stack.Screen name="friend-requests" />
           <Stack.Screen name="favorite-questions" />
           <Stack.Screen name="shared-questions" />

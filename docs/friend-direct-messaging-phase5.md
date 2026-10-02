@@ -5,14 +5,14 @@
 - `direct_conversations` stores one canonical row for each unordered user pair.
 - `direct_messages` stores only text or a `game_incidents.id` reference. It never snapshots question content, answers, company names, or avatars.
 - `direct_conversation_state` stores a private conversation-level `last_read_at` cursor per participant. It supports unread totals without exposing message-level read receipts.
-- `user_blocks` is independent from friendship. Either direction disables new messages while preserving the friendship row and all history.
+- `user_blocks` preserves all conversation/message history, but creating a block removes the pair's canonical friendship/request row. Either block direction disables new messages, question shares, and friendship actions; unblocking does not restore the old friendship.
 - `user_reports` is private moderation intake. A report does not block, ban, or delete automatically.
 
 All sensitive mutations use security-definer RPCs with an empty `search_path`. The caller always comes from `auth.uid()`. Direct table writes are not granted to authenticated clients.
 
 ## Sending rules
 
-Text and DM question shares require a current accepted friendship and no block in either direction. Removing a friendship or adding a block disables new sends but participants may still read their existing conversation. Text is trimmed and limited to 1000 characters. Question shares store only the question ID and rapid repeats are idempotent for five minutes.
+Text and DM question shares require a current accepted friendship and no block in either direction. Removing a friendship or adding a block disables new sends but participants may still read their existing conversation. A block also removes any pending, rejected, or accepted relationship row for the pair, so an unblock requires a fresh friend request. Text is trimmed and limited to 1000 characters. Question shares store only the question ID and rapid repeats are idempotent for five minutes.
 
 Rate checks are serialized per sender with a transaction advisory lock and cap persisted sends at 10 per 10 seconds and 60 per minute.
 

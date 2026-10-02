@@ -1,0 +1,15 @@
+# Kıdemli Mühendis artwork
+
+Generated with the built-in image_gen tool, using engineer-v2.png as the visual family reference. One asset shared by Senior I, II and III. Saved separately from the existing application asset.
+
+## Generation prompt
+
+Use case: stylized-concept.
+Create ONE finished SENIOR ENGINEER / Kıdemli Mühendis career-rank badge for Ship It Ops, a software engineering company crisis-management game. Shared artwork for Senior I, II and III; no level markings.
+Input image: the approved Engineer badge is the base design and style reference. Make a matching Senior sibling. Preserve its exact badge silhouette, warm ivory front rim, deep ink-navy thick shell and inset face, integrated short brushed steel top attachment clip, broad lower department stripe, clean manufactured lower-right chamfer, slight three-quarter perspective, composition and refined hand-painted 2.5D material language.
+Change only the rank emblem and accent color. Replace the copper source-control symbol entirely with a bespoke SYSTEM ARCHITECTURE emblem: three broad horizontal rhombus-shaped plates stacked vertically with clear dark negative-space gaps, reading as one coherent layered software platform. Top plate is a solid rounded rhombus; the two lower plates show their bold forward V-shaped edges under the plate above. Large simple geometric shapes, restrained shallow relief, precise spacing, subtle edge bevels. No nodes, branches, arrows, circuitry, letters or extra pictograms. This represents depth of engineering experience and building reliable systems, not military authority. At 48px the tier should be recognizable by this single clear stack silhouette.
+Accent palette: rich subdued petrol teal #398F91 with lighter teal #72B9B4 on lit faces for legibility against navy. Use the same petrol teal on the broad lower inset department stripe. Preserve navy #171E2E and warm ivory #EAE5D8 and brushed steel from reference. No orange or mint-green accent. Matte enamel with subtle painterly shading; coherent surfaces, not plastic gloss or neon.
+All edges pristine, smooth and continuous, especially bottom-right. Absolutely no chipped paint, broken corners, scratches, scuffs, distressed surfaces, cracks or missing pieces. Keep the deliberate geometric chamfer smooth and intact.
+Art direction: same calm premium collectible company-access badge as reference, personal indie game illustration with disciplined industrial graphic design. Confident forms, intentional negative space, mature game aesthetic. Soft upper-left light, object-only shading. Do not increase ornament to indicate seniority. No fantasy medal, shield, laurels, crowns, wings, stars, gemstones, glow, particles, tiny details, generic corporate clipart or emoji appearance.
+Composition: same 1254 x 1254 pixel square canvas as reference if supported, centered fully visible single object with balanced transparent margins, same scale and tilt as reference. Genuine transparent alpha background, no floor or cast shadow outside object, no backdrop, no checkerboard.
+No text, labels, numbers, watermarks, layout or presentation sheet. Only the one finished Senior Engineer asset.

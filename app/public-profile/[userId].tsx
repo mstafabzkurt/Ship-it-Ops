@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import CosmeticPreview from '../../src/components/cosmetics/CosmeticPreview';
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
+import ReportUserSheet from '../../src/components/messaging/ReportUserSheet';
 import RankIcon from '../../src/components/rank/RankIcon';
 import { ACHIEVEMENTS } from '../../src/config/achievements';
 import { getCosmeticById, type AvatarCosmetic, type AvatarFrameCosmetic } from '../../src/config/cosmetics';
@@ -28,6 +29,12 @@ import {
   removeFriend,
   sendFriendRequest,
 } from '../../src/services/friends';
+import {
+  blockDirectMessageUser,
+  getDirectConversationContext,
+  reportDirectMessageUser,
+  unblockDirectMessageUser,
+} from '../../src/services/directMessaging';
 import { fetchPublicProfile } from '../../src/services/publicProfile';
 import { useAuth } from '../../src/state/AuthContext';
 import { useTheme } from '../../src/state/ThemeContext';
@@ -38,6 +45,7 @@ import {
   type FriendRelationship,
   type SocialProfileStats,
 } from '../../src/utils/friends';
+import type { UserReportReason } from '../../src/utils/directMessaging';
 import type { PublicProfile } from '../../src/utils/publicProfile';
 
 type LoadStatus = 'loading' | 'ready' | 'missing' | 'error';
@@ -55,17 +63,24 @@ export default function PublicProfileScreen() {
   const [socialStats, setSocialStats] = useState<SocialProfileStats | null>(null);
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [isSocialPending, setIsSocialPending] = useState(false);
+  const [isSafetyPending, setIsSafetyPending] = useState(false);
+  const [blockedByViewer, setBlockedByViewer] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
   const [socialError, setSocialError] = useState('');
+  const [safetyError, setSafetyError] = useState('');
   const [socialStatsError, setSocialStatsError] = useState('');
   const requestIdRef = useRef(0);
   const socialActionPendingRef = useRef(false);
+  const safetyActionPendingRef = useRef(false);
 
   const loadProfile = useCallback(() => {
     requestIdRef.current += 1;
     const requestId = requestIdRef.current;
     if (!userId) {
       setProfile(null);
+      setRelationship(null);
       setSocialStats(null);
+      setBlockedByViewer(false);
       setStatus('missing');
       return;
     }
@@ -76,13 +91,17 @@ export default function PublicProfileScreen() {
     const socialStatsPromise = user?.id
       ? getSocialProfileStats(userId)
       : Promise.resolve(null);
-    void Promise.allSettled([fetchPublicProfile(userId), relationshipPromise, socialStatsPromise])
-      .then(([profileResult, relationshipResult, socialStatsResult]) => {
+    const safetyContextPromise = user?.id && user.id !== userId
+      ? getDirectConversationContext(userId)
+      : Promise.resolve(null);
+    void Promise.allSettled([fetchPublicProfile(userId), relationshipPromise, socialStatsPromise, safetyContextPromise])
+      .then(([profileResult, relationshipResult, socialStatsResult, safetyContextResult]) => {
         if (requestIdRef.current !== requestId) return;
         if (profileResult.status === 'rejected') {
           setProfile(null);
           setRelationship(null);
           setSocialStats(null);
+          setBlockedByViewer(false);
           setStatus('error');
           return;
         }
@@ -90,8 +109,14 @@ export default function PublicProfileScreen() {
         setProfile(result);
         setRelationship(relationshipResult.status === 'fulfilled' ? relationshipResult.value : null);
         setSocialStats(socialStatsResult.status === 'fulfilled' ? socialStatsResult.value : null);
+        setBlockedByViewer(safetyContextResult.status === 'fulfilled'
+          ? safetyContextResult.value?.blockedByViewer ?? false
+          : false);
         setSocialError(relationshipResult.status === 'rejected'
           ? 'Arkadaşlık durumu yüklenemedi. Tekrar deneyebilirsin.'
+          : '');
+        setSafetyError(safetyContextResult.status === 'rejected'
+          ? 'Güvenlik durumu yüklenemedi. Tekrar deneyebilirsin.'
           : '');
         setSocialStatsError(socialStatsResult.status === 'rejected'
           ? 'Sosyal istatistikler yüklenemedi.'
@@ -103,6 +128,7 @@ export default function PublicProfileScreen() {
         setProfile(null);
         setRelationship(null);
         setSocialStats(null);
+        setBlockedByViewer(false);
         setStatus('error');
       });
   }, [user?.id, userId]);
@@ -113,7 +139,8 @@ export default function PublicProfileScreen() {
   }, [loadProfile]);
 
   const runSocialAction = useCallback(async (action: 'send' | 'accept' | 'reject' | 'remove') => {
-    if (!profile || !user?.id || profile.userId === user.id || socialActionPendingRef.current) return;
+    if (!profile || !user?.id || profile.userId === user.id
+      || socialActionPendingRef.current || safetyActionPendingRef.current || blockedByViewer) return;
     socialActionPendingRef.current = true;
     setIsSocialPending(true);
     setSocialError('');
@@ -144,7 +171,50 @@ export default function PublicProfileScreen() {
       socialActionPendingRef.current = false;
       setIsSocialPending(false);
     }
+  }, [blockedByViewer, profile, relationship, user?.id]);
+
+  const runSafetyAction = useCallback(async (action: 'block' | 'unblock') => {
+    if (!profile || !user?.id || profile.userId === user.id
+      || safetyActionPendingRef.current || socialActionPendingRef.current) return;
+    safetyActionPendingRef.current = true;
+    setIsSafetyPending(true);
+    setSafetyError('');
+    setSocialError('');
+    try {
+      const confirmed = action === 'block'
+        ? await confirmProfileBlock(profile.companyName)
+        : await confirmProfileUnblock(profile.companyName);
+      if (!confirmed) return;
+
+      if (action === 'block') {
+        const wasAccepted = relationship
+          ? getFriendRelationshipDirection(relationship, user.id) === 'accepted'
+          : false;
+        await blockDirectMessageUser(profile.userId);
+        setBlockedByViewer(true);
+        setRelationship(null);
+        if (wasAccepted) {
+          setSocialStats((current) => current
+            ? { ...current, friendCount: Math.max(0, current.friendCount - 1) }
+            : current);
+        }
+      } else {
+        await unblockDirectMessageUser(profile.userId);
+        setBlockedByViewer(false);
+        setRelationship(null);
+      }
+    } catch {
+      setSafetyError('Güvenlik işlemi tamamlanamadı. Tekrar deneyebilirsin.');
+    } finally {
+      safetyActionPendingRef.current = false;
+      setIsSafetyPending(false);
+    }
   }, [profile, relationship, user?.id]);
+
+  const submitReport = useCallback(async (reason: UserReportReason, details: string) => {
+    if (!profile) return;
+    await reportDirectMessageUser({ targetUserId: profile.userId, reason, details });
+  }, [profile]);
 
   return (
     <View style={styles.background}>
@@ -162,11 +232,16 @@ export default function PublicProfileScreen() {
 
         {status === 'ready' && profile ? (
           <ProfileContent
+            blockedByViewer={blockedByViewer}
             currentUserId={user?.id ?? ''}
+            isSafetyPending={isSafetyPending}
             isSocialPending={isSocialPending}
+            onOpenReport={() => setReportVisible(true)}
+            onSafetyAction={runSafetyAction}
             onSocialAction={runSocialAction}
             profile={profile}
             relationship={relationship}
+            safetyError={safetyError}
             socialError={socialError}
             socialStats={socialStats}
             socialStatsError={socialStatsError}
@@ -177,27 +252,44 @@ export default function PublicProfileScreen() {
           <LoadState status={status} onRetry={loadProfile} styles={styles} tokens={tokens} />
         )}
       </SafeAreaView>
+      <ReportUserSheet
+        visible={reportVisible}
+        companyName={profile?.companyName ?? 'Oyuncu'}
+        isBlocked={blockedByViewer}
+        onClose={() => setReportVisible(false)}
+        onSubmit={submitReport}
+      />
     </View>
   );
 }
 
 function ProfileContent({
+  blockedByViewer,
   currentUserId,
+  isSafetyPending,
   isSocialPending,
+  onOpenReport,
+  onSafetyAction,
   onSocialAction,
   profile,
   relationship,
+  safetyError,
   socialError,
   socialStats,
   socialStatsError,
   styles,
   tokens,
 }: {
+  blockedByViewer: boolean;
   currentUserId: string;
+  isSafetyPending: boolean;
   isSocialPending: boolean;
+  onOpenReport: () => void;
+  onSafetyAction: (action: 'block' | 'unblock') => Promise<void>;
   onSocialAction: (action: 'send' | 'accept' | 'reject' | 'remove') => Promise<void>;
   profile: PublicProfile;
   relationship: FriendRelationship | null;
+  safetyError: string;
   socialError: string;
   socialStats: SocialProfileStats | null;
   socialStatsError: string;
@@ -252,10 +344,15 @@ function ProfileContent({
 
         {profile.userId !== currentUserId ? (
           <SocialActions
+            blockedByViewer={blockedByViewer}
             currentUserId={currentUserId}
+            isSafetyPending={isSafetyPending}
             isPending={isSocialPending}
+            onOpenReport={onOpenReport}
+            onSafetyAction={onSafetyAction}
             onAction={onSocialAction}
             relationship={relationship}
+            safetyError={safetyError}
             error={socialError}
             styles={styles}
             targetUserId={profile.userId}
@@ -299,7 +396,7 @@ function SocialStatsSummary({ error, isOwnProfile, stats, styles, tokens }: {
   if (!stats) {
     return (
       <View accessibilityLiveRegion="polite" style={styles.socialStatsUnavailable}>
-        <Ionicons name="cloud-offline-outline" size={18} color={tokens.colors.warning} />
+        <Ionicons name="information-circle-outline" size={17} color={tokens.colors.textMuted} />
         <Text style={styles.socialStatsUnavailableText}>{error || 'Sosyal istatistikler kullanılamıyor.'}</Text>
       </View>
     );
@@ -327,30 +424,73 @@ function SocialStatsSummary({ error, isOwnProfile, stats, styles, tokens }: {
   );
 }
 
-function SocialActions({ currentUserId, error, isPending, onAction, relationship, styles, targetUserId, tokens }: {
+function SocialActions({
+  blockedByViewer,
+  currentUserId,
+  error,
+  isPending,
+  isSafetyPending,
+  onAction,
+  onOpenReport,
+  onSafetyAction,
+  relationship,
+  safetyError,
+  styles,
+  targetUserId,
+  tokens,
+}: {
+  blockedByViewer: boolean;
   currentUserId: string;
   error: string;
   isPending: boolean;
+  isSafetyPending: boolean;
   onAction: (action: 'send' | 'accept' | 'reject' | 'remove') => Promise<void>;
+  onOpenReport: () => void;
+  onSafetyAction: (action: 'block' | 'unblock') => Promise<void>;
   relationship: FriendRelationship | null;
+  safetyError: string;
   styles: ReturnType<typeof makeStyles>;
   targetUserId: string;
   tokens: ReturnType<typeof getDashboardTokens>;
 }) {
+  const [focusedControl, setFocusedControl] = useState<string | null>(null);
   const direction = relationship
     ? getFriendRelationshipDirection(relationship, currentUserId)
     : null;
   const statusLabel = getFriendshipStatusLabel(direction);
   const relationshipUnavailable = !relationship && error.startsWith('Arkadaşlık durumu yüklenemedi');
+  const interactionPending = isPending || isSafetyPending;
 
   return (
     <View style={styles.socialPanel}>
       <View style={styles.socialPanelHeading}>
-        <Ionicons name="people-outline" size={20} color={tokens.colors.secondary} />
-        <Text style={styles.socialPanelTitle}>Arkadaşlık</Text>
+        <Ionicons name={blockedByViewer ? 'shield-outline' : 'people-outline'} size={20} color={blockedByViewer ? tokens.colors.textMuted : tokens.colors.secondary} />
+        <Text style={styles.socialPanelTitle}>{blockedByViewer ? 'Bağlantı Durumu' : 'Arkadaşlık'}</Text>
       </View>
 
-      {relationshipUnavailable ? (
+      {blockedByViewer ? (
+        <View>
+          <View accessibilityRole="text" style={styles.blockedStatus}>
+            <Ionicons name="ban-outline" size={19} color={tokens.colors.danger} />
+            <View style={styles.blockedStatusCopy}>
+              <Text style={styles.blockedStatusTitle}>Bu kullanıcıyı engellediniz.</Text>
+              <Text style={styles.blockedStatusText}>Yeni arkadaşlık ve mesaj eylemleri kullanılamaz.</Text>
+            </View>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Kullanıcının engelini kaldır"
+            accessibilityState={{ disabled: interactionPending }}
+            disabled={interactionPending}
+            onBlur={() => setFocusedControl(null)}
+            onFocus={() => setFocusedControl('unblock')}
+            onPress={() => void onSafetyAction('unblock')}
+            style={({ pressed }) => [styles.socialPrimaryButton, styles.unblockButton, interactionPending && styles.socialDisabled, focusedControl === 'unblock' && styles.controlFocused, pressed && styles.pressed]}
+          >
+            {isSafetyPending ? <ActivityIndicator color={tokens.colors.foregroundOnAction} /> : <Text style={styles.socialPrimaryText}>Engeli Kaldır</Text>}
+          </Pressable>
+        </View>
+      ) : relationshipUnavailable ? (
         <View accessibilityRole="text" style={styles.socialStatus}>
           <Ionicons name="cloud-offline-outline" size={19} color={tokens.colors.warning} />
           <Text style={styles.socialStatusText}>Arkadaşlık durumu kullanılamıyor</Text>
@@ -364,19 +504,25 @@ function SocialActions({ currentUserId, error, isPending, onAction, relationship
           <View style={styles.socialButtonRow}>
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: isPending }}
-              disabled={isPending}
+              accessibilityLabel="Arkadaşlık isteğini kabul et"
+              accessibilityState={{ disabled: interactionPending }}
+              disabled={interactionPending}
+              onBlur={() => setFocusedControl(null)}
+              onFocus={() => setFocusedControl('accept')}
               onPress={() => void onAction('accept')}
-              style={({ pressed }) => [styles.socialPrimaryButton, isPending && styles.socialDisabled, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.socialPrimaryButton, interactionPending && styles.socialDisabled, focusedControl === 'accept' && styles.controlFocused, pressed && styles.pressed]}
             >
               <Text style={styles.socialPrimaryText}>{isPending ? 'İşleniyor...' : 'Kabul Et'}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: isPending }}
-              disabled={isPending}
+              accessibilityLabel="Arkadaşlık isteğini reddet"
+              accessibilityState={{ disabled: interactionPending }}
+              disabled={interactionPending}
+              onBlur={() => setFocusedControl(null)}
+              onFocus={() => setFocusedControl('reject')}
               onPress={() => void onAction('reject')}
-              style={({ pressed }) => [styles.socialDangerButton, isPending && styles.socialDisabled, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.socialDangerButton, interactionPending && styles.socialDisabled, focusedControl === 'reject' && styles.controlFocused, pressed && styles.pressed]}
             >
               <Text style={styles.socialDangerText}>Reddet</Text>
             </Pressable>
@@ -388,44 +534,127 @@ function SocialActions({ currentUserId, error, isPending, onAction, relationship
           <Text style={styles.socialStatusText}>{statusLabel}</Text>
         </View>
       ) : direction === 'accepted' ? (
-        <View style={styles.socialButtonRow}>
+        <View>
           <View accessibilityRole="text" style={styles.socialAcceptedStatus}>
             <Ionicons name="checkmark-circle-outline" size={19} color={tokens.colors.success} />
             <Text style={styles.socialAcceptedText}>{statusLabel}</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Mesaj gönder"
-            onPress={() => router.push({ pathname: '/messages/[userId]', params: { userId: targetUserId } })}
-            style={({ pressed }) => [styles.socialPrimaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.socialPrimaryText}>Mesaj Gönder</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: isPending }}
-            disabled={isPending}
-            onPress={() => void onAction('remove')}
-            style={({ pressed }) => [styles.socialDangerButton, isPending && styles.socialDisabled, pressed && styles.pressed]}
-          >
-            <Text style={styles.socialDangerText}>Arkadaşlıktan Çıkar</Text>
-          </Pressable>
+          <View style={styles.socialButtonRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Mesaj gönder"
+              accessibilityState={{ disabled: interactionPending }}
+              disabled={interactionPending}
+              onBlur={() => setFocusedControl(null)}
+              onFocus={() => setFocusedControl('message')}
+              onPress={() => router.push({ pathname: '/messages/[userId]', params: { userId: targetUserId } })}
+              style={({ pressed }) => [styles.socialPrimaryButton, interactionPending && styles.socialDisabled, focusedControl === 'message' && styles.controlFocused, pressed && styles.pressed]}
+            >
+              <Text style={styles.socialPrimaryText}>Mesaj Gönder</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="1v1 kapışmaya davet et"
+              accessibilityState={{ disabled: interactionPending }}
+              disabled={interactionPending}
+              onBlur={() => setFocusedControl(null)}
+              onFocus={() => setFocusedControl('duel')}
+              onPress={() => router.push({ pathname: '/duels', params: { opponentId: targetUserId } })}
+              style={({ pressed }) => [styles.socialSecondaryButton, interactionPending && styles.socialDisabled, focusedControl === 'duel' && styles.controlFocused, pressed && styles.pressed]}
+            >
+              <Text style={styles.socialSecondaryText}>1v1 Kapış</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Arkadaşlıktan çıkar"
+              accessibilityState={{ disabled: interactionPending }}
+              disabled={interactionPending}
+              onBlur={() => setFocusedControl(null)}
+              onFocus={() => setFocusedControl('remove')}
+              onPress={() => void onAction('remove')}
+              style={({ pressed }) => [styles.socialDangerButton, interactionPending && styles.socialDisabled, focusedControl === 'remove' && styles.controlFocused, pressed && styles.pressed]}
+            >
+              <Text style={styles.socialDangerText}>{isPending ? 'İşleniyor...' : 'Arkadaşlıktan Çıkar'}</Text>
+            </Pressable>
+          </View>
         </View>
       ) : (
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ disabled: isPending }}
-          disabled={isPending}
+          accessibilityLabel="Arkadaşlık isteği gönder"
+          accessibilityState={{ disabled: interactionPending }}
+          disabled={interactionPending}
+          onBlur={() => setFocusedControl(null)}
+          onFocus={() => setFocusedControl('send')}
           onPress={() => void onAction('send')}
-          style={({ pressed }) => [styles.socialPrimaryButton, isPending && styles.socialDisabled, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.socialPrimaryButton, interactionPending && styles.socialDisabled, focusedControl === 'send' && styles.controlFocused, pressed && styles.pressed]}
         >
-          <Text style={styles.socialPrimaryText}>{isPending ? 'Gönderiliyor...' : 'Arkadaş Ekle'}</Text>
+          <Text style={styles.socialPrimaryText}>{isPending ? 'Gönderiliyor...' : 'Arkadaşlık İsteği Gönder'}</Text>
         </Pressable>
       )}
 
       {error ? <Text accessibilityLiveRegion="polite" style={styles.socialError}>{error}</Text> : null}
+
+      <View style={styles.safetySection}>
+        <Text style={styles.safetyLabel}>GÜVENLİK</Text>
+        <View style={styles.safetyButtonRow}>
+          {!blockedByViewer ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Kullanıcıyı engelle"
+              accessibilityState={{ disabled: interactionPending }}
+              disabled={interactionPending}
+              onBlur={() => setFocusedControl(null)}
+              onFocus={() => setFocusedControl('block')}
+              onPress={() => void onSafetyAction('block')}
+              style={({ pressed }) => [styles.safetyDangerButton, interactionPending && styles.socialDisabled, focusedControl === 'block' && styles.controlFocused, pressed && styles.pressed]}
+            >
+              {isSafetyPending ? <ActivityIndicator color={tokens.colors.danger} /> : <Ionicons name="ban-outline" size={18} color={tokens.colors.danger} />}
+              <Text style={styles.safetyDangerText}>{isSafetyPending ? 'Engelleniyor...' : 'Engelle'}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Kullanıcıyı şikayet et"
+            accessibilityState={{ disabled: interactionPending }}
+            disabled={interactionPending}
+            onBlur={() => setFocusedControl(null)}
+            onFocus={() => setFocusedControl('report')}
+            onPress={onOpenReport}
+            style={({ pressed }) => [styles.safetyNeutralButton, interactionPending && styles.socialDisabled, focusedControl === 'report' && styles.controlFocused, pressed && styles.pressed]}
+          >
+            <Ionicons name="flag-outline" size={18} color={tokens.colors.textSecondary} />
+            <Text style={styles.safetyNeutralText}>Şikayet Et</Text>
+          </Pressable>
+        </View>
+        {safetyError ? <Text accessibilityLiveRegion="polite" style={styles.socialError}>{safetyError}</Text> : null}
+      </View>
     </View>
   );
+}
+
+function confirmProfileBlock(companyName: string): Promise<boolean> {
+  const title = 'Kullanıcı engellensin mi?';
+  const message = `${companyName} ile arkadaşlığın varsa sona erecek ve yeni mesaj gönderilemeyecek. Eski mesaj geçmişin silinmeyecek. Engeli daha sonra kaldırabilirsin.`;
+  if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'Vazgeç', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Engelle', style: 'destructive', onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) });
+  });
+}
+
+function confirmProfileUnblock(companyName: string): Promise<boolean> {
+  const title = 'Engel kaldırılsın mı?';
+  const message = `${companyName} ile önceki arkadaşlığın geri gelmeyecek. Yeniden arkadaş olmak istersen yeni bir istek göndermen gerekir.`;
+  if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'Vazgeç', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Engeli Kaldır', onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) });
+  });
 }
 
 function confirmFriendRemoval(companyName: string): Promise<boolean> {
@@ -513,20 +742,35 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     socialMetricCopy: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: 6, minWidth: 0 },
     socialMetricValue: { color: colors.text, fontFamily: fonts.monoBold, fontSize: 18, lineHeight: 24 },
     socialMetricLabel: { color: colors.textMuted, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17 },
-    socialStatsUnavailable: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
+    socialStatsUnavailable: { minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 2 },
     socialStatsUnavailableText: { flex: 1, color: colors.textMuted, fontFamily: fonts.body, fontSize: 12, lineHeight: 18 },
     socialPrimaryButton: { flexGrow: 1, minWidth: 132, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15, borderRadius: radius.sm, backgroundColor: colors.primary },
     socialPrimaryText: { color: colors.foregroundOnAction, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, textAlign: 'center' },
+    socialSecondaryButton: { flexGrow: 1, minWidth: 132, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15, borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary },
+    socialSecondaryText: { color: colors.primary, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, textAlign: 'center' },
     socialDangerButton: { flexGrow: 1, minWidth: 132, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.danger },
     socialDangerText: { color: colors.danger, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, textAlign: 'center' },
     socialStatus: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.borderSubtle },
     socialStatusText: { color: colors.textMuted, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18 },
     socialIncomingStatus: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8, paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.selectionBorder },
     socialIncomingText: { flexShrink: 1, color: colors.primary, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, textAlign: 'center' },
-    socialAcceptedStatus: { flexGrow: 1, minWidth: 132, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.successSoft, borderWidth: 1, borderColor: colors.successBorder },
+    socialAcceptedStatus: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, paddingHorizontal: 12, borderRadius: radius.sm, backgroundColor: colors.successSoft, borderWidth: 1, borderColor: colors.successBorder },
     socialAcceptedText: { color: colors.success, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18 },
+    blockedStatus: { minHeight: 58, flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: radius.sm, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.borderSubtle },
+    blockedStatusCopy: { flex: 1, minWidth: 0 },
+    blockedStatusTitle: { color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 19 },
+    blockedStatusText: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.body, fontSize: 12, lineHeight: 18 },
+    unblockButton: { marginTop: 10 },
+    safetySection: { marginTop: 13, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.dividerSubtle },
+    safetyLabel: { ...tokens.type.eyebrow, marginBottom: 8, color: colors.textMuted, fontFamily: fonts.monoSemiBold },
+    safetyButtonRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+    safetyDangerButton: { minWidth: 140, minHeight: 48, flexBasis: tokens.layout.isNarrow ? '100%' : 'auto', flexGrow: tokens.layout.isNarrow ? 1 : 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.danger },
+    safetyDangerText: { color: colors.danger, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18 },
+    safetyNeutralButton: { minWidth: 140, minHeight: 48, flexBasis: tokens.layout.isNarrow ? '100%' : 'auto', flexGrow: tokens.layout.isNarrow ? 1 : 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 14, borderRadius: radius.sm, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.borderSubtle },
+    safetyNeutralText: { color: colors.textSecondary, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18 },
     socialDisabled: { opacity: 0.48 },
     socialError: { marginTop: 9, color: colors.danger, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18 },
+    controlFocused: { outlineColor: colors.actionFocus, outlineStyle: 'solid', outlineWidth: 2 },
     sectionHeader: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginTop: tokens.layout.isCompact ? 22 : 30, marginBottom: 12 },
     sectionTitle: { ...tokens.type.title, color: colors.text, fontFamily: fonts.headingBold },
     sectionRule: { flex: 1, height: 1, marginBottom: 5, backgroundColor: colors.dividerSubtle },

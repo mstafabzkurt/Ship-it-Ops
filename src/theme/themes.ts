@@ -560,18 +560,18 @@ export const THEME_METADATA: Record<Theme['id'], ThemeMetadata> = {
   default: {
     id: 'default',
     title: 'Klasik · Koyu',
-    description: 'Koyu zemin ve teknik detaylarla mevcut Ship It Ops görünümü.',
+    description: 'Lacivert zemin, açık metin ve yumuşak köşeler.',
     builtIn: true,
   },
   daylight: {
     id: 'daylight',
     title: 'Daylight Ops · Açık',
-    description: 'Krem zeminler, yumuşak renkler ve sade bir operasyon alanı.',
+    description: 'Krem zemin, beyaz kartlar ve yumuşak gölgeler.',
     builtIn: true,
   },
-  cyberpunk: { id: 'cyberpunk', title: 'Cyberpunk Tema', description: 'Neon operasyon görünümü.', builtIn: false },
-  hardware: { id: 'hardware', title: 'Hardware Tema', description: 'Taktik donanım görünümü.', builtIn: false },
-  nebula: { id: 'nebula', title: 'Nebula Tema', description: 'Derin uzay görünümü.', builtIn: false },
+  cyberpunk: { id: 'cyberpunk', title: 'Cyberpunk Tema', description: 'Siyaha yakın zemin ve keskin neon çizgiler.', builtIn: false },
+  hardware: { id: 'hardware', title: 'Hardware Tema', description: 'Orman yeşili paneller ve köşeli hatlar.', builtIn: false },
+  nebula: { id: 'nebula', title: 'Nebula Tema', description: 'Derin mor zemin ve geniş yuvarlak köşeler.', builtIn: false },
 };
 
 export const BUILT_IN_THEME_IDS = (Object.values(THEME_METADATA)

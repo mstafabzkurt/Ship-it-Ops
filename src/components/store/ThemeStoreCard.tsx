@@ -57,7 +57,7 @@ export default function ThemeStoreCard({
   const buttonLabel = isProcessing ? 'İşleniyor' : actionLocked ? 'İşlem Sürüyor' : active
     ? 'Aktif'
     : owned
-      ? isDefault ? 'Varsayılanı Kuşan' : 'Kuşan'
+      ? isDefault ? 'Varsayılanı Uygula' : 'Uygula'
       : canAfford
         ? `Satın Al — ${formatCurrency(price ?? 0)}`
         : `${formatCurrency(price ?? 0)} Gerekli`;
@@ -83,7 +83,7 @@ export default function ThemeStoreCard({
         </Animated.View>
         <View style={[styles.statusPill, active ? styles.statusPillActive : owned ? styles.statusPillOwned : styles.statusPillAvailable]}>
           <Text style={[styles.statusText, active ? styles.statusTextActive : owned ? styles.statusTextOwned : styles.statusTextAvailable]}>
-            {active ? 'AKTİF' : owned ? 'ALINDI' : 'MEVCUT'}
+            {active ? 'AKTİF' : owned ? 'ALINDI' : 'SATIŞTA'}
           </Text>
         </View>
       </View>
@@ -176,8 +176,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     featureText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.textMuted },
     footer: { minHeight: tokens.layout.isCompact ? 64 : 72, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 8 : 10, padding: tokens.layout.isCompact ? 10 : 14, borderTopWidth: 1, borderTopColor: colors.dividerSubtle },
     priceReadout: { minHeight: 36, flexShrink: 1, justifyContent: 'center' },
-    priceLabel: { fontFamily: fonts.bodySemiBold, fontSize: 9, lineHeight: 12, letterSpacing: 0.55, color: colors.textMuted },
-    priceText: { fontFamily: fonts.monoBold, fontSize: 12, lineHeight: 17, color: colors.warning },
+    priceLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 15, letterSpacing: 0.3, color: colors.textMuted },
+    priceText: { fontFamily: fonts.monoBold, fontSize: 14, lineHeight: 19, color: colors.warning },
     priceTextUnavailable: { color: colors.danger },
     action: { minHeight: tokens.control.height, flexGrow: tokens.layout.isCompact ? 1 : 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: tokens.layout.isCompact ? 12 : 15, borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent', backgroundColor: colors.primary },
     actionActive: { backgroundColor: colors.warningSoft, borderColor: colors.warning },

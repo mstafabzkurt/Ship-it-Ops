@@ -46,7 +46,7 @@ export default function PrivacyConsentExperience() {
                 </View>
                 <View style={styles.bannerCopy}>
                   <Text accessibilityRole="header" style={styles.bannerTitle}>Gizlilik Tercihleri</Text>
-                  <Text style={styles.bannerText}>Ship It Ops, oturumunuzu açık tutmak ve ilerlemenizi kaydetmek için zorunlu depolama teknolojilerini kullanır. Analitik ve reklam çerezleri yalnızca onayınızla çalışır.</Text>
+                  <Text style={styles.bannerText}>Oturumunu ve ilerlemeni saklamak için cihaz depolaması kullanılır. Google Analytics yalnızca izin verirsen etkinleşir. Reklam gösterimi şu anda yok.</Text>
                 </View>
               </View>
               {storageError ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{storageError}</Text> : null}
@@ -88,7 +88,7 @@ export default function PrivacyConsentExperience() {
 
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               <ConsentRow
-                description="Oturum, kayıt, tema, profil tercihleri ve oyun ilerlemesi için gereklidir."
+                description="Oturumunu, tercihlerini ve oyun kayıtlarını cihazında tutmak için kullanılır."
                 disabled
                 label="Zorunlu"
                 onValueChange={() => undefined}
@@ -97,15 +97,15 @@ export default function PrivacyConsentExperience() {
                 value
               />
               <ConsentRow
-                description="Uygulamanın nasıl kullanıldığını anlamak ve iyileştirmek için kullanılabilir."
-                label="Analitik"
+                description="Web sürümünde sayfa görüntülemelerini ve bazı kullanım olaylarını ölçer; yalnızca izin verirsen etkinleşir."
+                label="Google Analytics"
                 onValueChange={setAnalytics}
                 styles={styles}
                 tokens={tokens}
                 value={analytics}
               />
               <ConsentRow
-                description="Reklam teknolojileri şu anda aktif değildir. İleride reklam gösterimi eklenirse bu tercih dikkate alınacaktır."
+                description="Reklam gösterimi şu anda yok. Bu tercih, olası reklam kullanımı için kaydedilir."
                 label="Reklam"
                 onValueChange={setAdvertising}
                 styles={styles}

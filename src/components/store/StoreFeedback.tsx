@@ -141,12 +141,12 @@ export default function StoreFeedback({ event, reduceMotion, tokens }: { event: 
 
 const styles = StyleSheet.create({
   cardRail: { position: 'absolute', top: 0, left: 12, right: 12, height: 2, zIndex: 2 },
-  caption: { fontFamily: fonts.bodySemiBold, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  caption: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, marginTop: 4 },
   toastAnchor: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   receipt: { width: '100%', maxWidth: 480, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderWidth: 1, overflow: 'hidden' },
   receiptRail: { position: 'absolute', top: 0, left: 20, right: 20, height: 2 },
   receiptIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   receiptCopy: { flex: 1, minWidth: 0, gap: 3 },
   eyebrow: { fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 14, letterSpacing: 1 },
-  message: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 19 },
+  message: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 20 },
 });

@@ -125,10 +125,13 @@ const theme = require('../src/theme/themes.ts').defaultTheme;
 const originalLoad = Module._load;
 Module._load = function(request, parent, isMain) {
   if (request === 'react-native') return nativeWeb;
+  if (request === 'react-native-safe-area-context') return { SafeAreaView: nativeWeb.View };
   if (request.endsWith('/state/ThemeContext')) return { useTheme: () => ({ theme }) };
+  if (request.endsWith('/state/ReputationContext')) return { useReputation: () => ({ equippedAvatar: currentAvatar }) };
   if (request === '@expo/vector-icons') return { Ionicons: ({ name }) => React.createElement('span', { 'data-icon': name }) };
   return originalLoad.call(this, request, parent, isMain);
 };
+let currentAvatar;
 try {
   const Preview = require('../src/components/cosmetics/CosmeticPreview.tsx').default;
   const Card = require('../src/components/store/CosmeticStoreCard.tsx').default;
@@ -138,6 +141,8 @@ try {
   assert.equal((filterHtml.match(/aria-pressed="true"/g) || []).length, 1, 'Secondary active filter must be announced');
   const avatar = added.find(item => item.type === 'avatar');
   const frame = added.find(item => item.type === 'avatar_frame');
+  currentAvatar = added.find(item => item.type === 'avatar' && item.id !== avatar.id);
+  assert.ok(currentAvatar, 'A distinct equipped avatar is required to verify frame previews');
   const imageCount = html => (html.match(/<img\b/g) || []).length;
   assert.equal(imageCount(renderToStaticMarkup(React.createElement(Preview, { mode: 'avatarOnly', avatar }))), 1);
   assert.equal(imageCount(renderToStaticMarkup(React.createElement(Preview, { mode: 'frameOnly', frame }))), 1);
@@ -148,9 +153,16 @@ try {
   for (const item of catalog.COSMETIC_CATALOG) {
     for (const ownershipOnly of [false, true]) {
       const html = renderToStaticMarkup(React.createElement(Card, { item, owned: ownershipOnly, ownershipOnly, equipped: false, canAfford: true, isProcessing: false, actionLocked: false, reduceMotion: true, onAction: () => {} }));
-      assert.equal(imageCount(html), 1, `${item.id}: inventory/store preview must contain only its own asset`);
-      assert.ok(html.includes(path.basename(item.visual.source)), `${item.id}: correct standalone asset`);
+      assert.ok(html.includes(path.basename(item.visual.source)), `${item.id}: preview contains the catalog asset`);
+      if (item.type === 'avatar') {
+        assert.equal(imageCount(html), 1, `${item.id}: avatar preview remains standalone`);
+        assert.ok(!html.includes('Avatarımda Önizle'), `${item.id}: avatar card has no frame preview action`);
+      } else {
+        assert.equal(imageCount(html), 2, `${item.id}: frame preview includes the equipped avatar and frame`);
+        assert.ok(html.includes(path.basename(currentAvatar.visual.source)), `${item.id}: frame preview uses the equipped avatar asset`);
+        assert.ok(html.includes('Avatarımda Önizle'), `${item.id}: frame card offers detailed preview`);
+      }
     }
   }
 } finally { Module._load = originalLoad; }
-console.log('PASS: 16 avatars + 22 frames; prices/IDs/paths/defaults; price/rarity/Turkish-name sorting and ownership stability; purchase/equip/save guards; standalone/combo previews and fallback.');
+console.log('PASS: 16 avatars + 22 frames; prices/IDs/paths/defaults; price/rarity/Turkish-name sorting and ownership stability; purchase/equip/save guards; standalone avatar and equipped-avatar/frame previews and fallback.');

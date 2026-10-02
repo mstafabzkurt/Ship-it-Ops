@@ -66,8 +66,13 @@ const projectionLockdownMigration = readFileSync(
   resolve(root, 'supabase/migrations/20260926120000_lock_down_public_profile_projection.sql'),
   'utf8',
 );
+const correctedBlockSemantics = readFileSync(
+  resolve(root, 'supabase/migrations/20260927120000_correct_block_semantics.sql'),
+  'utf8',
+);
 const service = readFileSync(resolve(root, 'src/services/publicProfile.ts'), 'utf8');
 const profileScreen = readFileSync(resolve(root, 'app/public-profile/[userId].tsx'), 'utf8');
+const reportSheet = readFileSync(resolve(root, 'src/components/messaging/ReportUserSheet.tsx'), 'utf8');
 
 assert(migration.includes('alter table public.public_profiles enable row level security'), 'Public profiles must have RLS enabled');
 assert(
@@ -81,6 +86,81 @@ assert(migration.includes('limit safe_limit'), 'Server search must enforce its b
 assert(migration.includes('on conflict (user_id) do update set'), 'Company-name changes must update the same public profile row');
 assert(migration.includes('after insert or update of') && migration.includes('player_saves_sync_public_profile'), 'Public sync must run after meaningful player-save commits');
 assert(!profileScreen.includes('email') && !profileScreen.includes('companyBudget') && !profileScreen.includes('ownedCosmeticIds'), 'The public screen must not reference private account or save fields');
+
+// Public-profile social actions reuse the existing safety services and keep
+// blocked, friend, pending, and non-friend states mutually exclusive.
+assert(
+  profileScreen.includes('getDirectConversationContext(userId)')
+    && profileScreen.includes('blockDirectMessageUser(profile.userId)')
+    && profileScreen.includes('unblockDirectMessageUser(profile.userId)')
+    && profileScreen.includes('reportDirectMessageUser({ targetUserId: profile.userId, reason, details })')
+    && profileScreen.includes('<ReportUserSheet')
+    && profileScreen.includes('isBlocked={blockedByViewer}'),
+  'The profile must reuse existing block, unblock, context, and report flows',
+);
+const socialActionsSource = profileScreen.slice(
+  profileScreen.indexOf('function SocialActions'),
+  profileScreen.indexOf('function confirmProfileBlock'),
+);
+const blockedBranch = socialActionsSource.slice(
+  socialActionsSource.indexOf('{blockedByViewer ? ('),
+  socialActionsSource.indexOf(') : relationshipUnavailable ? ('),
+);
+assert(
+  blockedBranch.includes('Bu kullanıcıyı engellediniz.')
+    && blockedBranch.includes('Engeli Kaldır'),
+  'Blocked state must clearly expose only the unblock relationship action',
+);
+for (const contradictoryLabel of ['Mesaj Gönder', 'Arkadaşlık İsteği Gönder', 'Arkadaşsınız', 'Arkadaşlıktan Çıkar']) {
+  assert(!blockedBranch.includes(contradictoryLabel), `Blocked state must not render ${contradictoryLabel}`);
+}
+assert(
+  profileScreen.includes('setBlockedByViewer(true);\n        setRelationship(null);')
+    && profileScreen.includes('setBlockedByViewer(false);\n        setRelationship(null);'),
+  'Block and unblock must refresh local state immediately without restoring friendship',
+);
+assert(
+  profileScreen.includes("const title = 'Kullanıcı engellensin mi?'")
+    && profileScreen.includes('arkadaşlığın varsa sona erecek')
+    && profileScreen.includes('yeni mesaj gönderilemeyecek')
+    && profileScreen.includes('Eski mesaj geçmişin silinmeyecek')
+    && profileScreen.includes('Engeli daha sonra kaldırabilirsin.'),
+  'Block confirmation must explain friendship, new messages, retained history, and later unblock',
+);
+for (const normalStateLabel of [
+  'Mesaj Gönder',
+  'Arkadaşlıktan Çıkar',
+  'Arkadaşlık İsteği Gönder',
+  'Kabul Et',
+  'Reddet',
+]) {
+  assert(profileScreen.includes(normalStateLabel), `Public profile must preserve normal social state ${normalStateLabel}`);
+}
+assert(
+  profileScreen.includes('const statusLabel = getFriendshipStatusLabel(direction);'),
+  'Accepted and pending status copy must continue to use the existing friendship-state labels',
+);
+assert(
+  profileScreen.includes("onFocus={() => setFocusedControl('block')}")
+    && profileScreen.includes('styles.controlFocused')
+    && profileScreen.includes("flexBasis: tokens.layout.isNarrow ? '100%' : 'auto'")
+    && profileScreen.includes("safetyButtonRow: { flexDirection: 'row', flexWrap: 'wrap'"),
+  'Safety actions must expose web focus and wrap or stack responsively',
+);
+const socialStatsUnavailableStyle = profileScreen.match(/socialStatsUnavailable:\s*\{([^}]*)\}/)?.[1] ?? '';
+assert(
+  socialStatsUnavailableStyle.includes('minHeight: 28')
+    && !socialStatsUnavailableStyle.includes('backgroundColor')
+    && !socialStatsUnavailableStyle.includes('borderWidth'),
+  'Social stats failure must remain a compact muted inline state',
+);
+assert(
+  reportSheet.includes('if (pending) return;')
+    && reportSheet.includes('accessibilityState={{ disabled: pending }}')
+    && reportSheet.includes('styles.controlFocused')
+    && reportSheet.includes("isBlocked ? '' : ' İstersen kullanıcıyı ayrıca engelleyebilirsin.'"),
+  'The reused report sheet must prevent duplicate submissions and retain accessible disabled/focus states',
+);
 
 const projectedColumns = [
   'user_id',
@@ -206,6 +286,36 @@ assert(
     && searchFixMigration.includes('revoke all on function public.search_public_profiles(text, integer) from public, anon')
     && searchFixMigration.includes('grant execute on function public.search_public_profiles(text, integer) to authenticated'),
   'The replacement RPC must retain its authenticated-only security boundary',
+);
+
+assert(
+  correctedBlockSemantics.includes('create or replace function public.can_view_public_profile(profile_owner_id uuid)')
+    && correctedBlockSemantics.includes('profile_owner_id is not null')
+    && correctedBlockSemantics.includes('block.blocker_id = profile_owner_id')
+    && correctedBlockSemantics.includes('block.blocked_user_id = (select auth.uid())'),
+  'Direct profile reads must use directional owner-blocked-viewer visibility with auth-derived identity',
+);
+assert(
+  correctedBlockSemantics.includes('revoke all on function public.can_view_public_profile(uuid) from public, anon, authenticated')
+    && correctedBlockSemantics.includes('grant execute on function public.can_view_public_profile(uuid) to authenticated'),
+  'The visibility helper must expose only an authenticated boolean result, never block rows',
+);
+assert(
+  /create policy "Authenticated users can read public profiles"[\s\S]*using \(public\.can_view_public_profile\(user_id\)\)/.test(correctedBlockSemantics),
+  'The public_profiles SELECT policy must hide an owner from a viewer blocked by that owner',
+);
+assert(
+  /create or replace function public\.search_public_profiles\([\s\S]*security definer[\s\S]*block\.blocker_id = profile\.user_id[\s\S]*block\.blocked_user_id = caller_id/.test(correctedBlockSemantics),
+  'SECURITY DEFINER search must explicitly hide profiles whose owners blocked the caller',
+);
+assert(
+  /create or replace function public\.get_social_profile_stats\(target_user_id uuid\)[\s\S]*block\.blocker_id = target_user_id[\s\S]*block\.blocked_user_id = viewer_id[\s\S]*Public profile not found/.test(correctedBlockSemantics),
+  'SECURITY DEFINER profile stats must enforce the same directional visibility rule',
+);
+assert(
+  !/grant select[\s\S]*on public\.user_blocks/i.test(correctedBlockSemantics)
+    && !/create policy[\s\S]*on public\.user_blocks/i.test(correctedBlockSemantics),
+  'Block visibility changes must not expose user_blocks rows',
 );
 
 console.log('Public-profile and company-search invariants passed.');

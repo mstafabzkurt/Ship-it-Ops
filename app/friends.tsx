@@ -88,6 +88,16 @@ export default function FriendsScreen() {
             renderItem={({ item }) => (
               <SocialProfileRow
                 actions={item.profile ? (
+                  <>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.profile.companyName} şirketini 1v1 kapışmaya davet et`}
+                    onPress={() => router.push({ pathname: '/duels', params: { opponentId: item.userId } })}
+                    style={({ pressed }) => [styles.messageButton, pressed && styles.pressed]}
+                  >
+                    <Ionicons name="flash-outline" size={18} color={tokens.colors.primary} />
+                    <Text style={styles.messageButtonText}>1v1 Kapış</Text>
+                  </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${item.profile.companyName} şirketine mesaj gönder`}
@@ -97,6 +107,7 @@ export default function FriendsScreen() {
                     <Ionicons name="chatbubble-outline" size={18} color={tokens.colors.primary} />
                     <Text style={styles.messageButtonText}>Mesaj Gönder</Text>
                   </Pressable>
+                  </>
                 ) : undefined}
                 profile={item.profile}
                 onOpen={item.profile

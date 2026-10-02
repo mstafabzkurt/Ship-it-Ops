@@ -32,37 +32,34 @@ import { formatBudget, formatCurrency } from '../../src/utils/format';
 import { trackEvent } from '../../src/utils/telemetry';
 
 const DEFAULT_THEME_FEATURES = [
-  'Dengeli koyu mavi palet (#0B0F17)',
-  'Yuvarlak köşeler (borderRadius: 12)',
-  'Standart gölge efektleri',
-  'Tüm kullanıcılar için ücretsiz — her zaman erişilebilir',
+  'Koyu lacivert arka plan',
+  'Mint ve amber vurgular',
+  'Yumuşak panel gölgeleri',
+  'Ücretsiz',
 ];
 
 const DAYLIGHT_THEME_FEATURES = [
-  'Sıcak krem tuval ve near-white kartlar',
-  'Lavanta seçim ve birincil aksiyon vurguları',
-  'Yumuşak gölgeler ve sakin yüzey hiyerarşisi',
-  'Tüm kullanıcılar için ücretsiz — her zaman erişilebilir',
+  'Açık renkli kartlar',
+  'Yeşil eylem, lavanta seçim vurgusu',
+  'Yumuşak gölgeler',
+  'Ücretsiz',
 ];
 
 const THEME_FEATURES: Record<string, string[]> = {
   theme_cyberpunk: [
-    'Neon Cyan & Neon Pembe vurgular',
-    'Keskin köşeler (borderRadius: 2)',
-    'Agresif glow efektleri',
-    'Derin siyah arka plan (#05070A)',
+    'Camgöbeği ve pembe vurgular',
+    'Sarı uyarı rengi',
+    'Işıltılı panel gölgeleri',
   ],
   theme_hardware: [
-    'Fosforlu yeşil (#00FF66) vurgu',
-    'Keskin sıfır köşe estetiği (borderRadius: 0)',
-    'Taktik orman yeşili panel renkleri',
-    'Saha operasyonları için optimize görsel hiyerarşi',
+    'Fosfor yeşili vurgu',
+    'Kalın kenarlıklar',
+    'Yuvarlatılmamış köşeler',
   ],
   theme_nebula: [
-    'Derin uzay morları + magenta gradyan arka plan',
-    'Premium yuvarlak köşeler (borderRadius: 16)',
-    'Violet (#A78BFA) & magenta (#E94057) aksentler',
-    'LinearGradient — sadece bu temada aktif',
+    'Mor geçişli arka plan',
+    'Lavanta vurgular',
+    'Yumuşak mor gölgeler',
   ],
 };
 
@@ -326,7 +323,7 @@ export default function StoreScreen() {
                 <View style={styles.sectionHeading}>
                   <View style={styles.sectionHeadingCopy}>
                     <Text style={styles.sectionTitle}>Temalar</Text>
-                    <Text style={styles.sectionDescription}>Satın aldığın temaları istediğin zaman yeniden kuşanabilirsin.</Text>
+                    <Text style={styles.sectionDescription}>Satın aldığın temaları istediğin zaman kullanabilirsin.</Text>
                   </View>
                   <View style={styles.sectionRule} />
                 </View>
@@ -334,8 +331,8 @@ export default function StoreScreen() {
                   <View style={[styles.themeGridItem, isTablet && styles.themeGridItemTablet]}>
                     <ThemeStoreCard
                       icon="layers-outline"
-                      title="Varsayılan Tema"
-                      description="Yumuşak koyu palet, yuvarlak köşeler ve dengeli renkler. Tüm kullanıcılar için ücretsiz."
+                      title="Klasik · Koyu"
+                      description="Lacivert zemin, açık metin ve yumuşak köşeler."
                       features={DEFAULT_THEME_FEATURES}
                       previewColors={THEME_PREVIEWS.default}
                       owned
@@ -497,9 +494,9 @@ function makeStyles(tokens: DashboardTokens) {
     headerTitle: { ...tokens.type.display, fontFamily: fonts.headingBold, color: colors.text },
     headerDescription: { ...tokens.type.bodySmall, maxWidth: 560, fontFamily: fonts.body, color: colors.textMuted, marginTop: 3 },
     budgetCard: { minWidth: tokens.layout.isCompact ? 0 : 190, flexGrow: tokens.layout.isCompact ? 1 : 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 13, borderLeftWidth: 2, borderLeftColor: colors.warning },
-    budgetLabel: { fontFamily: fonts.bodySemiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.65, color: colors.textMuted },
+    budgetLabel: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, letterSpacing: 0.3, color: colors.textMuted },
     budgetValue: { fontFamily: fonts.monoBold, fontSize: tokens.layout.isCompact ? 20 : 23, lineHeight: tokens.layout.isCompact ? 25 : 29, color: colors.warning, marginTop: 1 },
-    budgetDelta: { fontFamily: fonts.monoMedium, fontSize: 11, lineHeight: 16, color: colors.warning },
+    budgetDelta: { fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 17, color: colors.warning },
     tabContent: { marginTop: tokens.layout.isCompact ? 14 : 22 },
     activeThemeBanner: { minHeight: tokens.layout.isCompact ? 52 : 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 8 : 12, paddingHorizontal: tokens.layout.isCompact ? 10 : 13, paddingVertical: 6, borderRadius: radius.md, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
     activeThemeCopy: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
@@ -523,8 +520,8 @@ function makeStyles(tokens: DashboardTokens) {
     jokerGridItemTablet: { width: '48%', flexGrow: 1 },
     jokerGridItemDesktop: { width: '23%', flexGrow: 1 },
     resultsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 10 },
-    resultCount: { fontFamily: fonts.monoMedium, fontSize: 11, lineHeight: 17, color: colors.textMuted, flexShrink: 1 },
-    sortHint: { fontFamily: fonts.body, fontSize: 10, lineHeight: 16, color: colors.textMuted },
+    resultCount: { fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 18, color: colors.textMuted, flexShrink: 1 },
+    sortHint: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: colors.textMuted },
     collectionEyebrow: { fontFamily: fonts.monoMedium, fontSize: 10, lineHeight: 14, letterSpacing: 0.8, color: colors.warning, marginBottom: 4 },
     emptyState: { padding: 20, borderRadius: radius.md, backgroundColor: colors.secondarySurface },
     cosmeticGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: tokens.layout.isCompact ? 10 : 14 },

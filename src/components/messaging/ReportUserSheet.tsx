@@ -24,9 +24,10 @@ const REASONS: { value: UserReportReason; label: string }[] = [
   { value: 'other', label: 'Diğer' },
 ];
 
-export default function ReportUserSheet({ visible, companyName, onClose, onSubmit }: {
+export default function ReportUserSheet({ visible, companyName, isBlocked = false, onClose, onSubmit }: {
   visible: boolean;
   companyName: string;
+  isBlocked?: boolean;
   onClose: () => void;
   onSubmit: (reason: UserReportReason, details: string) => Promise<void>;
 }) {
@@ -39,6 +40,7 @@ export default function ReportUserSheet({ visible, companyName, onClose, onSubmi
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  const [focusedControl, setFocusedControl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -47,6 +49,7 @@ export default function ReportUserSheet({ visible, companyName, onClose, onSubmi
     setPending(false);
     setError('');
     setSent(false);
+    setFocusedControl(null);
   }, [visible]);
 
   const submit = async () => {
@@ -72,7 +75,7 @@ export default function ReportUserSheet({ visible, companyName, onClose, onSubmi
               <Text style={styles.eyebrow}>GÜVENLİK</Text>
               <Text accessibilityRole="header" style={styles.title}>Şikayet Et</Text>
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Şikayet penceresini kapat" disabled={pending} onPress={onClose} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Şikayet penceresini kapat" accessibilityState={{ disabled: pending }} disabled={pending} onBlur={() => setFocusedControl(null)} onFocus={() => setFocusedControl('close')} onPress={onClose} style={({ pressed }) => [styles.closeButton, focusedControl === 'close' && styles.controlFocused, pressed && styles.pressed]}>
               <Ionicons name="close" size={23} color={tokens.colors.text} />
             </Pressable>
           </View>
@@ -81,8 +84,8 @@ export default function ReportUserSheet({ visible, companyName, onClose, onSubmi
             <View accessibilityLiveRegion="polite" style={styles.success}>
               <Ionicons name="checkmark-circle-outline" size={34} color={tokens.colors.success} />
               <Text style={styles.successTitle}>Şikayet gönderildi.</Text>
-              <Text style={styles.helper}>{companyName} bu işlem hakkında bilgilendirilmez. İstersen kullanıcıyı ayrıca engelleyebilirsin.</Text>
-              <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.submitButton, pressed && styles.pressed]}>
+              <Text style={styles.helper}>{companyName} bu işlem hakkında bilgilendirilmez.{isBlocked ? '' : ' İstersen kullanıcıyı ayrıca engelleyebilirsin.'}</Text>
+              <Pressable accessibilityRole="button" onBlur={() => setFocusedControl(null)} onFocus={() => setFocusedControl('done')} onPress={onClose} style={({ pressed }) => [styles.submitButton, focusedControl === 'done' && styles.controlFocused, pressed && styles.pressed]}>
                 <Text style={styles.submitText}>Kapat</Text>
               </Pressable>
             </View>
@@ -98,8 +101,10 @@ export default function ReportUserSheet({ visible, companyName, onClose, onSubmi
                       accessibilityRole="radio"
                       accessibilityState={{ checked: selected, disabled: pending }}
                       disabled={pending}
+                      onBlur={() => setFocusedControl(null)}
+                      onFocus={() => setFocusedControl(`reason-${item.value}`)}
                       onPress={() => setReason(item.value)}
-                      style={({ pressed }) => [styles.reasonButton, selected && styles.reasonSelected, pressed && styles.pressed]}
+                      style={({ pressed }) => [styles.reasonButton, selected && styles.reasonSelected, focusedControl === `reason-${item.value}` && styles.controlFocused, pressed && styles.pressed]}
                     >
                       <Ionicons name={selected ? 'radio-button-on' : 'radio-button-off'} size={18} color={selected ? tokens.colors.primary : tokens.colors.textMuted} />
                       <Text style={[styles.reasonText, selected && styles.reasonTextSelected]}>{item.label}</Text>
@@ -114,16 +119,18 @@ export default function ReportUserSheet({ visible, companyName, onClose, onSubmi
                 editable={!pending}
                 maxLength={500}
                 multiline
+                onBlur={() => setFocusedControl(null)}
                 onChangeText={setDetails}
+                onFocus={() => setFocusedControl('details')}
                 placeholder="Kısa ve somut bir açıklama yazabilirsin."
                 placeholderTextColor={tokens.colors.textMuted}
-                style={styles.input}
+                style={[styles.input, focusedControl === 'details' && styles.controlFocused]}
                 textAlignVertical="top"
                 value={details}
               />
               <Text style={styles.counter}>{details.length}/500</Text>
               {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
-              <Pressable accessibilityRole="button" accessibilityState={{ disabled: pending }} disabled={pending} onPress={() => void submit()} style={({ pressed }) => [styles.submitButton, pending && styles.disabled, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: pending }} disabled={pending} onBlur={() => setFocusedControl(null)} onFocus={() => setFocusedControl('submit')} onPress={() => void submit()} style={({ pressed }) => [styles.submitButton, pending && styles.disabled, focusedControl === 'submit' && styles.controlFocused, pressed && styles.pressed]}>
                 {pending ? <ActivityIndicator color={tokens.colors.foregroundOnAction} /> : <Text style={styles.submitText}>Şikayeti Gönder</Text>}
               </Pressable>
             </View>
@@ -159,6 +166,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     successTitle: { marginTop: 11, color: colors.text, fontFamily: fonts.headingBold, fontSize: 18, lineHeight: 24 },
     helper: { maxWidth: 390, marginTop: 6, color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, lineHeight: 20, textAlign: 'center' },
     disabled: { opacity: 0.48 },
+    controlFocused: { outlineColor: colors.actionFocus, outlineStyle: 'solid', outlineWidth: 2 },
     pressed: { opacity: 0.72 },
   });
 }

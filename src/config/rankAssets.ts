@@ -3,15 +3,14 @@ import type { ImageSourcePropType } from 'react-native';
 import type { RankTier } from './progression';
 
 /**
- * Canonical rank artwork keyed by the progression system's existing tiers.
- * Junior intentionally stays on its vector fallback until assets/rank/junior.png exists.
+ * Canonical rank artwork keyed by progression tier. I, II and III share one image.
  */
 export const RANK_ICON_ASSETS: Readonly<Record<RankTier, ImageSourcePropType | null>> = {
-  junior: require('../../assets/rank/jr.png'),
-  engineer: require('../../assets/rank/muh.png'),
-  senior: require('../../assets/rank/senior.png'),
-  lead: require('../../assets/rank/teamlead.png'),
-  manager: require('../../assets/rank/manager.png'),
-  director: require('../../assets/rank/director.png'),
-  cto: require('../../assets/rank/cto.png'),
+  junior: require('../../assets/rank/junior-v2-256.png'),
+  engineer: require('../../assets/rank/engineer-v2-256.png'),
+  senior: require('../../assets/rank/senior-v2-256.png'),
+  lead: require('../../assets/rank/lead-v2-256.png'),
+  manager: require('../../assets/rank/manager-v2-256.png'),
+  director: require('../../assets/rank/director-v2-256.png'),
+  cto: require('../../assets/rank/cto-v2-256.png'),
 };

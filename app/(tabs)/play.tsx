@@ -250,6 +250,22 @@ export default function PlayHubScreen() {
               </View>}
             </View>
 
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="1v1 Kapışma. Arkadaşını davet et veya gelen davetlerini gör."
+              onPress={() => router.push('/duels')}
+              onFocus={() => setFocusedBrowseControl('duels')}
+              onBlur={() => setFocusedBrowseControl(null)}
+              style={({ pressed }) => [styles.duelEntry, focusedBrowseControl === 'duels' && styles.controlFocused, pressed && styles.pressed]}
+            >
+              <Ionicons name="flash-outline" size={22} color={tokens.colors.primary} />
+              <View style={styles.duelEntryCopy}>
+                <Text style={styles.duelEntryTitle}>1v1 Kapışma</Text>
+                <Text style={styles.duelEntryDescription}>Arkadaşınla 7 soru. Aranızdaki rekabeti sürdür.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={tokens.colors.textMuted} />
+            </Pressable>
+
             <View style={styles.browseControls}>
               <Text style={styles.browseLabel}>Ders ara</Text>
               <View style={[styles.searchField, focusedBrowseControl === 'search' && styles.controlFocused]}>
@@ -605,22 +621,24 @@ function RepeatQuestionRewardsModal({
         />
         <SafeAreaView pointerEvents="box-none" style={styles.infoSafeArea}>
           <View accessibilityViewIsModal style={styles.infoModal}>
-            <View style={styles.infoModalHeader}>
-              <View style={styles.infoModalIcon}>
-                <AssetIcon
-                  source={UI_ICON_ASSETS.info}
-                  fallbackName="information-outline"
-                  fallbackColor={tokens.colors.secondary}
-                  size={24}
-                />
+            <ScrollView style={styles.infoModalScroll} contentContainerStyle={styles.infoModalScrollContent}>
+              <View style={styles.infoModalHeader}>
+                <View style={styles.infoModalIcon}>
+                  <AssetIcon
+                    source={UI_ICON_ASSETS.info}
+                    fallbackName="information-outline"
+                    fallbackColor={tokens.colors.secondary}
+                    size={24}
+                  />
+                </View>
+                <Text accessibilityRole="header" style={styles.infoModalTitle}>Tekrar soru ödülleri</Text>
               </View>
-              <Text accessibilityRole="header" style={styles.infoModalTitle}>Tekrar soru ödülleri</Text>
-            </View>
-            <View style={styles.infoModalCopy}>
-              <Text style={styles.infoModalText}>Daha önce doğru çözdüğün sorular tekrar geldiğinde oynanabilir kalır, ancak Kariyer XP, İtibar ve Şirket Bütçesi ödülleri azaltılır. Böylece ezber yerine yeni sorularda ilerlemek daha değerli olur.</Text>
-              <Text style={styles.infoModalText}>Yıldız kademesi hedefleri de bu azaltılmış İtibar değerleriyle hesaplanır.</Text>
-              <Text style={styles.infoModalText}>Sıralama puanı da tekrar doğru cevaplarda azaltılır.</Text>
-            </View>
+              <View style={styles.infoModalCopy}>
+                <Text style={styles.infoModalText}>Daha önce doğru çözdüğün bir soruyu yeniden doğru yanıtlarsan Kariyer XP ve Şirket Bütçesi ödüllerinin yaklaşık %35’ini, İtibar ödülünün yaklaşık %40’ını kazanırsın.</Text>
+                <Text style={styles.infoModalText}>Sıralama puanın 100 yerine 25 olur. Yıldız hedefleri de bu azaltılmış İtibar ödülüyle hesaplanır.</Text>
+                <Text style={styles.infoModalText}>Bu azaltma yalnızca tekrar doğru yanıtlarda uygulanır; yanlış yanıt ve süre aşımının etkileri değişmez.</Text>
+              </View>
+            </ScrollView>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Tekrar soru ödülleri bilgisini kapat"
@@ -675,6 +693,10 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     retryButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: radius.sm, backgroundColor: colors.warning },
     retryText: { fontFamily: fonts.bodySemiBold, color: colors.onAccent },
     browseControls: { gap: 8 },
+    duelEntry: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.secondarySurface },
+    duelEntryCopy: { flex: 1, minWidth: 0, gap: 3 },
+    duelEntryTitle: { fontFamily: fonts.headingBold, fontSize: 16, lineHeight: 22, color: colors.text },
+    duelEntryDescription: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.textMuted },
     browseLabel: { fontFamily: fonts.bodySemiBold, fontSize: 12, lineHeight: 17, color: colors.textMuted },
     searchField: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 12, paddingRight: 4, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.surface },
     searchInput: { flex: 1, minWidth: 0, minHeight: 46, paddingVertical: 10, fontFamily: fonts.body, fontSize: 16, color: colors.text },
@@ -693,8 +715,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     compactTitle: { fontFamily: fonts.headingBold, fontSize: 15, lineHeight: 20, color: colors.text, minHeight: 40 },
     compactProgress: { marginTop: 'auto', gap: 6 },
     compactTrack: { height: 4, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.progressTrack },
-    compactCount: { fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 16, color: colors.text },
-    compactStatus: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 16, color: colors.textMuted },
+    compactCount: { fontFamily: fonts.monoMedium, fontSize: 13, lineHeight: 18, color: colors.text },
+    compactStatus: { fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 18, color: colors.textMuted },
     detailScrim: { flex: 1, backgroundColor: colors.overlayScrim },
     detailSafeArea: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 10, paddingTop: 12 },
     detailPanel: { maxHeight: '95%', overflow: 'hidden', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.lg, backgroundColor: colors.surface, ...shadow.raised },
@@ -702,8 +724,8 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     detailClose: { minHeight: 44, minWidth: 64, justifyContent: 'center', alignItems: 'center', borderRadius: radius.sm },
     detailContent: { paddingBottom: 12 },
     detailCard: { width: '100%', borderWidth: 0, borderRadius: 0, shadowOpacity: 0, elevation: 0 },
-    detailHint: { paddingHorizontal: 4, fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: colors.textMuted },
-    tierProgress: { marginTop: 5, fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 17, color: colors.text },
+    detailHint: { paddingHorizontal: 4, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.textMuted },
+    tierProgress: { marginTop: 5, fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 18, color: colors.text },
     emptyState: { alignItems: 'flex-start', gap: 12, paddingVertical: 20 },
     categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: isMobile ? 'space-between' : 'center', gap: isMobile ? 10 : 18 },
     categoryCard: { width: categoryWidth, minWidth: 0, overflow: 'hidden', borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.lg, backgroundColor: colors.surface, ...shadow.card },
@@ -713,9 +735,9 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     categoryIcon: { width: tokens.layout.isCompact ? 38 : 42, height: tokens.layout.isCompact ? 38 : 42, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.secondarySoft },
     categoryCopy: { flex: 1, minWidth: 0 },
     categoryTitle: { ...tokens.type.title, fontFamily: fonts.headingBold, color: colors.text },
-    categoryDescription: { marginTop: tokens.layout.isCompact ? 1 : 2, fontFamily: fonts.body, fontSize: tokens.layout.isCompact ? 12 : 13, lineHeight: tokens.layout.isCompact ? 16 : 18, color: colors.textMuted },
+    categoryDescription: { marginTop: tokens.layout.isCompact ? 1 : 2, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.textMuted },
     progressSection: { gap: tokens.layout.isCompact ? 7 : 9, paddingHorizontal: tokens.layout.isCompact ? 12 : 16, paddingVertical: tokens.layout.isCompact ? 10 : 13, borderBottomWidth: 1, borderBottomColor: colors.dividerSubtle, backgroundColor: colors.floatingSurface },
-    progressInline: { fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isCompact ? 11 : 12, lineHeight: tokens.layout.isCompact ? 15 : 17, color: colors.text },
+    progressInline: { fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: colors.text },
     progressTrack: { height: 7, overflow: 'hidden', borderRadius: 3, backgroundColor: colors.borderSubtle },
     progressFill: { height: '100%', borderRadius: 3, backgroundColor: colors.warning },
     tierSection: { gap: tokens.layout.isCompact ? 5 : 7, padding: tokens.layout.isCompact ? 8 : 12 },
@@ -729,15 +751,15 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     starLabel: { flexShrink: 1, fontFamily: fonts.bodySemiBold, fontSize: tokens.layout.isNarrow ? 10 : 11, lineHeight: 15, color: colors.warning },
     tierTextMuted: { color: colors.textMuted },
     tierTitle: { marginTop: tokens.layout.isCompact ? 1 : 2, fontFamily: fonts.bodySemiBold, fontSize: 13, lineHeight: tokens.layout.isCompact ? 17 : 18, color: colors.text },
-    tierStatus: { marginTop: tokens.layout.isCompact ? 2 : 3, fontFamily: fonts.body, fontSize: isMobile ? 12 : 9, lineHeight: isMobile ? 17 : 13, color: colors.textMuted },
+    tierStatus: { marginTop: tokens.layout.isCompact ? 2 : 3, fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.textMuted },
     lockedTierFeedback: { minHeight: 48, flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 9, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.sm, backgroundColor: colors.warningSoft },
     lockedTierFeedbackCopy: { flex: 1, minWidth: 0, gap: 2 },
-    lockedTierFeedbackText: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.text },
-    lockedTierFeedbackTarget: { fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, color: colors.textMuted },
+    lockedTierFeedbackText: { fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 19, color: colors.text },
+    lockedTierFeedbackTarget: { fontFamily: fonts.monoSemiBold, fontSize: 12, lineHeight: 17, color: colors.textMuted },
     nextBadge: { alignSelf: 'flex-start', flexShrink: 0, paddingHorizontal: tokens.layout.isCompact ? 5 : 6, paddingVertical: 2, overflow: 'hidden', borderRadius: radius.pill, fontFamily: fonts.monoSemiBold, fontSize: tokens.layout.isCompact ? 9 : 8, lineHeight: 11, letterSpacing: 0.35, color: colors.secondary, backgroundColor: colors.secondarySoft },
     actionSection: { marginTop: 'auto', gap: tokens.layout.isCompact ? 6 : 8, padding: tokens.layout.isCompact ? 8 : 12, paddingTop: tokens.layout.isCompact ? 0 : 2 },
     availabilityNote: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 4 },
-    availabilityText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, color: colors.textMuted },
+    availabilityText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 13, lineHeight: 19, color: colors.textMuted },
     primaryButton: { minHeight: tokens.layout.isCompact ? 48 : 52, flexDirection: 'row', alignItems: 'center', gap: tokens.layout.isCompact ? 8 : 10, paddingHorizontal: tokens.layout.isCompact ? 12 : 14, borderRadius: radius.md, backgroundColor: isCalmLightTheme ? colors.action : colors.primary },
     primaryButtonHovered: { backgroundColor: colors.actionHover },
     primaryButtonFocused: { borderWidth: 2, borderColor: colors.actionFocus },
@@ -746,13 +768,15 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, width: number
     buttonCopy: { flex: 1, minWidth: 0 },
     buttonTitle: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 18, color: colors.onAccent },
     buttonTitleDisabled: { color: colors.textMuted },
-    buttonMeta: { marginTop: 1, fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 12, letterSpacing: 0.35, color: colors.onAccent },
+    buttonMeta: { marginTop: 1, fontFamily: fonts.monoMedium, fontSize: 12, lineHeight: 17, color: colors.onAccent },
     buttonMetaDisabled: { color: colors.textMuted },
     buttonIcon: { width: tokens.layout.isCompact ? 30 : 32, height: tokens.layout.isCompact ? 30 : 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.actionSubSurface },
     buttonIconDisabled: { backgroundColor: colors.borderSubtle },
     infoScrim: { flex: 1, justifyContent: 'center', backgroundColor: colors.overlayScrim },
-    infoSafeArea: { width: '100%', paddingHorizontal: tokens.layout.isCompact ? 12 : 24, paddingVertical: 20 },
-    infoModal: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: 18, padding: tokens.layout.isCompact ? 18 : 24, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.lg, backgroundColor: colors.floatingSurface, ...shadow.raised },
+    infoSafeArea: { flex: 1, width: '100%', justifyContent: 'center', paddingHorizontal: tokens.layout.isCompact ? 12 : 24, paddingVertical: 12 },
+    infoModal: { width: '100%', maxWidth: 520, maxHeight: '100%', flexShrink: 1, alignSelf: 'center', gap: 18, padding: tokens.layout.isCompact ? 18 : 24, overflow: 'hidden', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.lg, backgroundColor: colors.floatingSurface, ...shadow.raised },
+    infoModalScroll: { flexShrink: 1 },
+    infoModalScrollContent: { gap: 18 },
     infoModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     infoModalIcon: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, backgroundColor: colors.secondarySoft },
     infoModalTitle: { ...tokens.type.title, flex: 1, fontFamily: fonts.headingBold, color: colors.text },

@@ -14,6 +14,7 @@ export function shouldShowGlobalMessagesShortcut(input: GlobalMessagesVisibility
 
   const pathname = input.pathname.replace(/^\/\(tabs\)/, '').replace(/\/$/, '') || '/';
   if (pathname === '/game' || pathname === '/profile') return false;
+  if (pathname === '/duel' || pathname.startsWith('/duel/')) return false;
   if (pathname === '/messages' || pathname.startsWith('/messages/')) return false;
   if (pathname === '/question-detail' || pathname.startsWith('/question-detail/')) return false;
   return true;

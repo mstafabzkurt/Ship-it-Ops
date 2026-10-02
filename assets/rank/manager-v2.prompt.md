@@ -1,0 +1,15 @@
+# Mühendislik Müdürü artwork
+
+Generated with the built-in image_gen tool, using lead-v2.png as the visual family reference. One asset shared by Manager I, II and III. Saved separately from the existing application asset.
+
+## Generation prompt
+
+Use case: stylized-concept.
+Create ONE final ENGINEERING MANAGER / Mühendislik Müdürü career-rank badge for Ship It Ops, a software engineering company crisis-management game. One asset shared by Manager I, II and III; no sublevel marks.
+Input image: the approved Team Lead badge, base design and art-family reference. Preserve the exact collectible employee access badge silhouette, warm ivory front rim, thick ink-navy shell, large navy inset face, short integrated brushed steel attachment clip, broad lower inset department stripe, smooth manufactured lower-right chamfer, slight three-quarter front perspective, framing and refined hand-painted 2.5D game inventory style.
+Change ONLY central emblem and accent color. Replace purple hierarchy symbol entirely with a bespoke ORGANIZED TEAMS emblem: exactly four substantial rounded-square modules in a precise 2-by-2 arrangement, each the same size, joined by short thick bridges across the two horizontal and two vertical gaps, leaving one clear small square of navy negative space at the center. This forms one unified compact emblem of four coordinated company units. Rounded square modules noticeably broader than bridges. No diamond or circular nodes, no branches, no extra units. Broad bold architectural geometry; a confident memorable silhouette legible at 48px. Shallow raised enamel inlay, simple controlled bevel, no miniature symbols inside modules.
+Accent: muted warm burgundy/rosewood #A35C6D on stripe and emblem, softly brighter dusty rose #CF8F9D on lit emblem faces so it reads clearly on navy. Preserve ink navy #171E2E, warm ivory #EAE5D8 and cool brushed steel clip. No purple, orange, teal or green accent. Mature, warm and calm, not emergency red. No glow.
+Concept: moving from coordinating one team to organizing multiple teams and shared resources. Corporate and game-like, personal indie-game art with deliberate industrial graphic design. Rank distinction through clear meaning and restrained color, no extra ornament. Matte tactile enamel, subtle hand-painted shading, clean geometry, upper-left soft light, shadows only within the object.
+All edges pristine, continuous and intact: no cracked enamel, chips, scratches, scuffs, dirt, wear, distressed paint or jagged corners. Smooth intact lower-right chamfer. Avoid glossy plastic, mirror chrome, holograms, fantasy shields, medals, crowns, wings, laurels, stars, gems, circuit decoration, particles, tiny detail, clipart and emoji aesthetics.
+Composition: same 1254 x 1254 pixel square canvas as reference if supported, same centered object scale and tilt, entire clip and all edges visible, balanced transparent margins. Genuine transparent alpha background; no backdrop, floor, cast shadow outside object, checkerboard, additional objects or frame.
+No words, letters, numerals, labels, watermark or presentation layout. Output one finished Engineering Manager badge only.
