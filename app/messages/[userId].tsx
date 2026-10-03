@@ -19,8 +19,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import CosmeticPreview from '../../src/components/cosmetics/CosmeticPreview';
 import { getDashboardTokens } from '../../src/components/dashboard/dashboardTokens';
+import ChatDuelPanel from '../../src/components/messaging/ChatDuelPanel';
+import ChatThemeSheet from '../../src/components/messaging/ChatThemeSheet';
+import ChatWallpaper from '../../src/components/messaging/ChatWallpaper';
+import DirectMessageText from '../../src/components/messaging/DirectMessageText';
 import DirectQuestionCard from '../../src/components/messaging/DirectQuestionCard';
 import ReportUserSheet from '../../src/components/messaging/ReportUserSheet';
+import { useChatTheme } from '../../src/components/messaging/useChatTheme';
 import { getCosmeticById, type AvatarCosmetic, type AvatarFrameCosmetic } from '../../src/config/cosmetics';
 import {
   blockDirectMessageUser,
@@ -38,6 +43,7 @@ import { useAuth } from '../../src/state/AuthContext';
 import { useMessagingUnread } from '../../src/state/MessagingUnreadContext';
 import { useTheme } from '../../src/state/ThemeContext';
 import { fonts } from '../../src/theme/typography';
+import { getChatThemePalette, type ChatThemePalette } from '../../src/utils/chatThemes';
 import { getComposerEnterAction, runDirectMessageSendOnce } from '../../src/utils/directMessageComposer';
 import {
   getDirectMessageCursor,
@@ -59,7 +65,9 @@ export default function DirectConversationScreen() {
   const { width } = useWindowDimensions();
   const { theme } = useTheme();
   const tokens = useMemo(() => getDashboardTokens(theme, width), [theme, width]);
-  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const { preset: chatTheme, ready: chatThemeReady, saveTheme } = useChatTheme(user?.id ?? '', targetUserId);
+  const chatPalette = useMemo(() => getChatThemePalette(chatTheme, tokens.colors), [chatTheme, tokens.colors]);
+  const styles = useMemo(() => makeStyles(tokens, chatPalette), [tokens, chatPalette]);
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [context, setContext] = useState<DirectConversationContext | null>(null);
   const [messages, setMessages] = useState<DirectMessageEntry[]>([]);
@@ -74,6 +82,7 @@ export default function DirectConversationScreen() {
   const [actionError, setActionError] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
+  const [themeVisible, setThemeVisible] = useState(false);
   const [safetyPending, setSafetyPending] = useState(false);
   const requestIdRef = useRef(0);
   const listRef = useRef<FlatList<DirectMessageEntry>>(null);
@@ -81,6 +90,7 @@ export default function DirectConversationScreen() {
   const nearBottomRef = useRef(true);
   const bodyRef = useRef('');
   const sendInFlightRef = useRef(false);
+  const menuButtonRef = useRef<View>(null);
 
   const markReadAndRefresh = useCallback(async (conversationId: string) => {
     try {
@@ -249,13 +259,17 @@ export default function DirectConversationScreen() {
               <Text numberOfLines={1} style={styles.rank}>{profile?.careerRank ?? 'Doğrudan Mesaj'}</Text>
             </View>
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Konuşma seçeneklerini aç" accessibilityState={{ expanded: menuVisible }} onFocus={() => setFocusedControl('menu')} onBlur={() => setFocusedControl(null)} onPress={() => setMenuVisible((current) => !current)} style={({ pressed }) => [styles.headerButton, focusedControl === 'menu' && styles.controlFocused, pressed && styles.pressed]}>
+          <Pressable ref={menuButtonRef} accessibilityRole="button" accessibilityLabel="Konuşma seçeneklerini aç" accessibilityState={{ expanded: menuVisible }} onFocus={() => setFocusedControl('menu')} onBlur={() => setFocusedControl(null)} onPress={() => setMenuVisible((current) => !current)} style={({ pressed }) => [styles.headerButton, focusedControl === 'menu' && styles.controlFocused, pressed && styles.pressed]}>
             <Ionicons name="ellipsis-horizontal" size={23} color={tokens.colors.text} />
           </Pressable>
         </View>
 
         {menuVisible ? (
           <View style={styles.menu}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Sohbet Teması" accessibilityState={{ disabled: !chatThemeReady }} disabled={!chatThemeReady} onFocus={() => setFocusedControl('theme')} onBlur={() => setFocusedControl(null)} onPress={() => { setMenuVisible(false); setThemeVisible(true); }} style={({ pressed }) => [styles.menuAction, focusedControl === 'theme' && styles.controlFocused, pressed && styles.pressed]}>
+              <Ionicons name="color-palette-outline" size={19} color={tokens.colors.secondary} accessible={false} />
+              <Text style={styles.menuText}>Sohbet Teması</Text>
+            </Pressable>
             <Pressable accessibilityRole="button" accessibilityState={{ disabled: safetyPending }} disabled={safetyPending} onFocus={() => setFocusedControl('block')} onBlur={() => setFocusedControl(null)} onPress={() => void toggleBlock()} style={({ pressed }) => [styles.menuAction, focusedControl === 'block' && styles.controlFocused, pressed && styles.pressed]}>
               <Ionicons name={context?.blockedByViewer ? 'lock-open-outline' : 'ban-outline'} size={19} color={context?.blockedByViewer ? tokens.colors.success : tokens.colors.danger} />
               <Text style={styles.menuText}>{context?.blockedByViewer ? 'Engeli Kaldır' : 'Kullanıcıyı Engelle'}</Text>
@@ -267,7 +281,10 @@ export default function DirectConversationScreen() {
           </View>
         ) : null}
 
+        {status === 'ready' ? <ChatDuelPanel opponentId={targetUserId} disabled={!context?.canSend} /> : null}
         <KeyboardAvoidingView style={styles.keyboardArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={8}>
+          <View style={styles.conversationCanvas}>
+          <ChatWallpaper preset={chatTheme} palette={chatPalette} />
           {status === 'loading' ? (
             <View style={styles.state}><ActivityIndicator color={tokens.colors.secondary} /><Text style={styles.stateTitle}>Konuşma yükleniyor</Text></View>
           ) : status === 'error' ? (
@@ -286,6 +303,7 @@ export default function DirectConversationScreen() {
                   onOpenQuestion={() => item.message.questionId && router.push({ pathname: '/question-detail/[questionId]', params: { questionId: item.message.questionId, source: 'message', userId: targetUserId } })}
                   styles={styles}
                   tokens={tokens}
+                  chatPalette={chatPalette}
                 />
               )}
               ItemSeparatorComponent={() => <View style={styles.messageGap} />}
@@ -308,6 +326,7 @@ export default function DirectConversationScreen() {
               showsVerticalScrollIndicator={false}
             />
           )}
+          </View>
 
           {status === 'ready' ? (
             <View style={styles.composerShell}>
@@ -373,6 +392,7 @@ export default function DirectConversationScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
       <ReportUserSheet visible={reportVisible} companyName={companyName} onClose={() => setReportVisible(false)} onSubmit={submitReport} />
+      <ChatThemeSheet key={`${user?.id}:${targetUserId}`} visible={themeVisible} selectedId={chatTheme.id} onClose={() => setThemeVisible(false)} onSave={saveTheme} returnFocusRef={menuButtonRef} />
     </View>
   );
 }
@@ -388,19 +408,20 @@ function HeaderAvatar({ profile, styles, tokens }: {
     : <View style={styles.avatarFallback}><Ionicons name="person-outline" size={20} color={tokens.colors.textMuted} /></View>;
 }
 
-function MessageRow({ currentUserId, entry, onOpenQuestion, styles, tokens }: {
+function MessageRow({ currentUserId, entry, onOpenQuestion, styles, tokens, chatPalette }: {
   currentUserId: string;
   entry: DirectMessageEntry;
   onOpenQuestion: () => void;
   styles: ReturnType<typeof makeStyles>;
   tokens: ReturnType<typeof getDashboardTokens>;
+  chatPalette: ChatThemePalette;
 }) {
   const own = entry.message.senderId === currentUserId;
   return (
     <View style={[styles.messageLane, own ? styles.messageLaneOwn : styles.messageLaneOther]}>
       <View style={[styles.messageSurface, own ? styles.messageOwn : styles.messageOther, entry.message.messageType === 'question_share' && styles.questionMessageSurface]}>
         {entry.message.messageType === 'text' ? (
-          <Text selectable style={[styles.messageBody, Platform.OS === 'web' && ({ wordBreak: 'break-word' } as TextStyle)]}>{entry.message.body}</Text>
+          <DirectMessageText body={entry.message.body ?? ''} linkColor={chatPalette.link} style={[styles.messageBody, Platform.OS === 'web' && ({ wordBreak: 'break-word' } as TextStyle)]} />
         ) : (
           <DirectQuestionCard question={entry.question} onOpen={onOpenQuestion} />
         )}
@@ -440,7 +461,7 @@ function confirmBlock(companyName: string): Promise<boolean> {
   });
 }
 
-function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
+function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, chatPalette: ChatThemePalette) {
   const { colors, radius, shadow } = tokens;
   return StyleSheet.create({
     background: { flex: 1, backgroundColor: colors.canvas },
@@ -457,6 +478,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     menuAction: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 11, borderRadius: radius.sm },
     menuText: { flex: 1, color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 13 },
     keyboardArea: { flex: 1, width: '100%', maxWidth: 820, alignSelf: 'center' },
+    conversationCanvas: { flex: 1, overflow: 'hidden', backgroundColor: chatPalette.canvas },
     messageList: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: tokens.layout.pageGutter, paddingTop: 14, paddingBottom: 18 },
     messageListEmpty: { justifyContent: 'center' },
     messageGap: { height: 12 },
@@ -466,14 +488,14 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     messageLaneOwn: { alignItems: 'flex-end' },
     messageLaneOther: { alignItems: 'flex-start' },
     messageSurface: { maxWidth: tokens.layout.isCompact ? '88%' : '74%', minWidth: 88, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 1 },
-    messageOwn: { backgroundColor: colors.actionSubSurface, borderColor: colors.selectionBorder },
-    messageOther: { backgroundColor: colors.secondarySurface, borderColor: colors.borderSubtle },
+    messageOwn: { backgroundColor: chatPalette.own, borderColor: chatPalette.border },
+    messageOther: { backgroundColor: chatPalette.other, borderColor: chatPalette.border },
     questionMessageSurface: { width: tokens.layout.isCompact ? '88%' : '74%', paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent', borderWidth: 0 },
-    messageBody: { minWidth: 0, flexShrink: 1, color: colors.text, fontFamily: fonts.body, fontSize: 15, lineHeight: 22 },
-    messageTime: { marginTop: 6, color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 9, lineHeight: 13, textAlign: 'left' },
-    messageTimeOwn: { textAlign: 'right' },
-    messageSideLabel: { marginTop: 3, paddingHorizontal: 3, color: colors.textMuted, fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 13, letterSpacing: 0.35 },
-    emptyChat: { alignItems: 'center', padding: 24 },
+    messageBody: { minWidth: 0, flexShrink: 1, color: chatPalette.text, fontFamily: fonts.body, fontSize: 15, lineHeight: 22 },
+    messageTime: { marginTop: 6, color: chatPalette.muted, backgroundColor: chatPalette.labelBackground, alignSelf: 'flex-start', paddingHorizontal: 4, borderRadius: 3, fontFamily: fonts.monoMedium, fontSize: 10, lineHeight: 15, textAlign: 'left' },
+    messageTimeOwn: { textAlign: 'right', alignSelf: 'flex-end' },
+    messageSideLabel: { marginTop: 3, paddingHorizontal: 4, color: chatPalette.muted, backgroundColor: chatPalette.labelBackground, borderRadius: 3, fontFamily: fonts.monoSemiBold, fontSize: 9, lineHeight: 14, letterSpacing: 0.35 },
+    emptyChat: { alignItems: 'center', alignSelf: 'center', padding: 24, borderRadius: radius.sm, backgroundColor: colors.surface },
     emptyTitle: { marginTop: 10, color: colors.text, fontFamily: fonts.headingBold, fontSize: 16, lineHeight: 22, textAlign: 'center' },
     emptyText: { maxWidth: 360, marginTop: 5, color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, lineHeight: 20, textAlign: 'center' },
     composerShell: { paddingHorizontal: tokens.layout.pageGutter, paddingTop: 10, paddingBottom: tokens.layout.isCompact ? 8 : 12, backgroundColor: colors.canvas, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.dividerSubtle },
@@ -488,7 +510,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>) {
     sendDisabled: { backgroundColor: colors.disabledBackground, borderWidth: 1, borderColor: colors.disabledBorder },
     controlFocused: { outlineColor: colors.primary, outlineStyle: 'solid', outlineWidth: 2 },
     characterCount: { marginTop: 4, color: colors.textMuted, fontFamily: fonts.monoMedium, fontSize: 9, textAlign: 'right' },
-    state: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
+    state: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, backgroundColor: colors.canvas },
     stateTitle: { marginTop: 11, color: colors.text, fontFamily: fonts.headingBold, fontSize: 17, lineHeight: 23, textAlign: 'center' },
     retryButton: { minHeight: 48, marginTop: 15, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: radius.sm, backgroundColor: colors.primary },
     retryText: { color: colors.foregroundOnAction, fontFamily: fonts.bodySemiBold, fontSize: 13 },

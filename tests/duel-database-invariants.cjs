@@ -278,7 +278,97 @@ async function main() {
 
     const privileges = (await db.query("select tablename, rowsecurity from pg_tables where schemaname='public' and tablename in ('duel_questions','friend_duels','friend_duel_rounds','friend_duel_answers')")).rows;
     check(privileges.every(t => t.rowsecurity), 'All duel tables enable row level security');
-    console.log(`Duel PostgreSQL integration: ${checks} checks passed (70 questions, real RPCs and permission checks).`);
+    // Install the upgrade while a real legacy match is active.
+    const legacy = await create();
+    await respond(B, legacy.id, 'accept');
+    await db.exec(fs.readFileSync(path.join(root, 'supabase/migrations/20261003120000_friend_duel_round_feedback.sql'), 'utf8'));
+    await moveClock(legacy.id, 1);
+    check((await get(A, legacy.id)).scoring_version === 1, 'Already accepted matches retain legacy rules after upgrade');
+    await answer(A, legacy.id, 0, 0);
+    await moveClock(legacy.id, 141);
+    check((await get(A, legacy.id)).status === 'completed', 'Legacy answer and settlement continue after helper migration');
+    const helperGrants = (await db.query(`select p.proname, has_function_privilege('authenticated',p.oid,'EXECUTE') as auth,
+      has_function_privilege('anon',p.oid,'EXECUTE') as anon from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='private' and (p.proname like 'duel_%' or p.proname='answer_friend_duel')`)).rows;
+    check(helperGrants.every(f => !f.auth && !f.anon), 'All new and retained legacy helpers deny client execution');
+    async function shift(id, seconds) {
+      await db.query("update friend_duels set starts_at=starts_at-$2*interval '1 second' where id=$1", [id, seconds]);
+      await db.query("update friend_duel_rounds set starts_at=starts_at-$2*interval '1 second', resolved_at=resolved_at-$2*interval '1 second' where duel_id=$1", [id, seconds]);
+      await db.query("update friend_duel_answers set answered_at=answered_at-$2*interval '1 second' where duel_id=$1", [id, seconds]);
+    }
+    await isolated(async () => {
+      const fresh = await create(); await respond(B, fresh.id, 'accept');
+      await moveClock(fresh.id, 1);
+      const live = await get(A, fresh.id);
+      check(live.scoring_version === 2 && live.phase === 'question' && live.results.length === 0, 'New matches start with V2 rules and no answer keys');
+      const keys = (await db.query('select * from friend_duel_rounds where duel_id=$1 order by round_index', [fresh.id])).rows;
+      const locked = await answer(A, fresh.id, 0, keys[0].correct_index);
+      const observer = await get(B, fresh.id);
+      check(locked.my_score === 0 && locked.round_result === null && observer.opponent_answered && !observer.my_answer,
+        'Opponent lock status never exposes answer/correctness or live score');
+      check(!JSON.stringify(observer).includes('correct_index'), 'No answer keys before both locks');
+      const revealed = await answer(B, fresh.id, 0, (keys[0].correct_index + 1) % 4);
+      check(revealed.phase === 'reveal' && revealed.current_question === null && revealed.round_result.round_index === 0,
+        'Second lock immediately resolves round without waiting for 20 seconds');
+      check(revealed.round_result.my_points === 0 && revealed.round_result.opponent_first_bonus === 10
+        && revealed.round_result.opponent_points === 80 + Math.floor((20000-locked.my_answer.response_ms)/1000), 'Correct + speed + first bonus use server time, wrong receives zero');
+      check(revealed.results.length === 1 && Date.parse(revealed.reveal_ends_at)-Date.parse(revealed.round_result.resolved_at) === 3000,
+        'Only resolved round is exposed and countdown is exactly three seconds');
+      const retry = await answer(A, fresh.id, 0, keys[0].correct_index);
+      check(retry.my_answer.answered_at === locked.my_answer.answered_at && retry.results.length === 1, 'Repeated lock cannot rescore or restart reveal');
+      await denied(() => answer(A, fresh.id, 1, 0), /duel_round_closed/);
+      await denied(() => answer(A, fresh.id, 0, (keys[0].correct_index + 1)%4), /duel_answer_locked/);
+      await shift(fresh.id, 3.1);
+      check((await get(A, fresh.id)).current_question.round_index === 1, 'Next question opens three seconds after early resolution');
+      await denied(() => answer(B, fresh.id, 0, keys[0].correct_index), /duel_answer_locked/);
+      for (let index = 1; index < 7; index++) {
+        await answer(A, fresh.id, index, keys[index].correct_index);
+        const result = await answer(B, fresh.id, index, keys[index].correct_index);
+        check(result.phase === 'reveal' && result.round_result.my_first_bonus === 0 && result.round_result.opponent_first_bonus === 10,
+          `Round ${index + 1}: both correct, only first gets bonus`);
+        if (index === 6) check(result.status === 'active', 'Last round result is visible before match completion');
+        await shift(fresh.id, 3.1);
+        await get(A, fresh.id);
+      }
+      const finished = await get(A, fresh.id);
+      check(finished.status === 'completed' && finished.results.length === 7 && finished.winner_id === A && finished.my_score <= 700,
+        'Seven early resolved rounds finish with authoritative bounded point totals');
+      check(finished.my_score === finished.results.reduce((sum, r) => sum + r.my_points, 0), 'Final score equals displayed round breakdown');
+      const rematch = await create(); check(rematch.id !== fresh.id && rematch.scoring_version === 2, 'Rematch starts a fresh V2 invitation');
+    });
+    await isolated(async () => {
+      const fresh = await create(); await respond(B, fresh.id, 'accept');
+      await moveClock(fresh.id, 21);
+      const reveal = await get(A, fresh.id);
+      check(reveal.phase === 'reveal' && reveal.round_result.my_option_index === null && reveal.round_result.my_points === 0,
+        'Timeout resolves two absent answers as zero');
+      await denied(() => answer(A, fresh.id, 0, 0), /duel_round_closed/);
+      await shift(fresh.id, 200);
+      const finished = await get(A, fresh.id);
+      check(finished.status === 'completed' && finished.winner_id === null && finished.my_response_ms === 140000,
+        'Reconnect catches up multiple timed-out rounds and preserves a zero-score draw');
+    });
+    await isolated(async () => {
+      const fresh = await create(); await respond(B, fresh.id, 'accept'); await moveClock(fresh.id, 1); await get(A, fresh.id);
+      const key = (await db.query('select correct_index from friend_duel_rounds where duel_id=$1 and round_index=0', [fresh.id])).rows[0].correct_index;
+      await answer(A, fresh.id, 0, key);
+      const forfeited = await rpc(B, 'forfeit_friend_duel', [fresh.id]);
+      check(forfeited.status === 'forfeited' && forfeited.winner_id === A && forfeited.results.length === 1 && forfeited.opponent_score > 70,
+        'Forfeit scores started round, reveals no future keys and awards opponent the win');
+      check((await rpc(A, 'forfeit_friend_duel', [fresh.id])).winner_id === A, 'V2 forfeit retries cannot reverse winner');
+    });
+    await isolated(async () => {
+      const fresh = await create(); await respond(B, fresh.id, 'accept'); await moveClock(fresh.id, 1); await get(A, fresh.id);
+      await db.query(`insert into friend_duel_answers(duel_id,round_index,user_id,option_index,answered_at,response_ms)
+        select r.duel_id,0,u.id,r.correct_index,r.starts_at,0 from friend_duel_rounds r cross join auth.users u
+        where r.duel_id=$1 and r.round_index=0 and u.id in ($2,$3)`, [fresh.id,A,B]);
+      const tied = await get(A, fresh.id);
+      check(tied.round_result.my_points === 100 && tied.round_result.opponent_points === 100,
+        'Exact server-time tie awards both first bonus and maximum 100 points');
+      await shift(fresh.id, 200);
+      check((await get(A, fresh.id)).winner_id === null, 'Equal point totals are draws without hidden response-time tie break');
+    });
+    console.log(`Duel PostgreSQL integration: ${checks} checks passed (70 questions, legacy + V2 RPCs and permission checks).`);
   } finally { await db.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

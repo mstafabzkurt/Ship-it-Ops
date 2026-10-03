@@ -3,6 +3,7 @@ import { isUuid } from './friends';
 export type DuelStatus = 'pending' | 'active' | 'completed' | 'forfeited' | 'declined' | 'cancelled' | 'expired';
 
 export interface DuelSummary {
+  scoringVersion: 1 | 2;
   id: string;
   inviterId: string;
   inviteeId: string;
@@ -38,6 +39,13 @@ export interface DuelAnswer {
 }
 
 export interface DuelRoundResult {
+  resolvedAt: string | null;
+  myPoints: number;
+  opponentPoints: number;
+  mySpeedBonus: number;
+  opponentSpeedBonus: number;
+  myFirstBonus: number;
+  opponentFirstBonus: number;
   roundIndex: number;
   category: string;
   prompt: string;
@@ -51,6 +59,10 @@ export interface DuelRoundResult {
 }
 
 export interface DuelSnapshot extends DuelSummary {
+  phase: 'pending' | 'countdown' | 'question' | 'reveal' | 'finished';
+  opponentAnswered: boolean;
+  revealEndsAt: string | null;
+  roundResult: DuelRoundResult | null;
   roundCount: 7;
   roundDurationSeconds: 20;
   currentRoundIndex: number | null;
@@ -81,6 +93,7 @@ export function serializeDuelSummary(value: unknown): DuelSummary | null {
   const row = record(value);
   if (!row || !isUuid(text(row.id)) || !isUuid(text(row.inviter_id)) || !isUuid(text(row.invitee_id)) || !isUuid(text(row.opponent_id)) || !statuses.includes(row.status as DuelStatus)) return null;
   return {
+    scoringVersion: row.scoring_version === 2 ? 2 : 1,
     id: text(row.id), inviterId: text(row.inviter_id), inviteeId: text(row.invitee_id), opponentId: text(row.opponent_id),
     status: row.status as DuelStatus, createdAt: text(row.created_at), expiresAt: text(row.expires_at),
     startsAt: nullableText(row.starts_at), completedAt: nullableText(row.completed_at), winnerId: nullableText(row.winner_id),
@@ -96,23 +109,43 @@ export function serializeDuelSnapshot(value: unknown): DuelSnapshot | null {
   const question = record(row.current_question);
   const answer = record(row.my_answer);
   const finished = summary.status === 'completed' || summary.status === 'forfeited';
+  const phase = finished ? 'finished' : summary.status !== 'active' ? 'pending' : row.phase === 'reveal' ? 'reveal' : question ? 'question' : 'countdown';
+  const resultRows = Array.isArray(row.results) ? row.results : [];
+  // V2 reveals only server-resolved rounds; never hydrate future/active keys.
+  const results = finished || (summary.scoringVersion === 2 && summary.status === 'active') ? resultRows.flatMap((value) => {
+    const result = record(value);
+    if (!result) return [];
+    if (!finished && (!Number.isFinite(Date.parse(text(result.resolved_at))) || Date.parse(text(result.resolved_at)) > Date.parse(summary.serverNow)
+      || nullableIndex(row.current_round_index) === null || integer(result.round_index) > integer(row.current_round_index)
+      || (integer(result.round_index) === integer(row.current_round_index) && phase !== 'reveal'))) return [];
+    return [serializeRoundResult(result, summary.scoringVersion)];
+  }) : null;
   return {
     ...summary, roundCount: 7, roundDurationSeconds: 20,
+    phase, opponentAnswered: row.opponent_answered === true,
+    revealEndsAt: phase === 'reveal' ? nullableText(row.reveal_ends_at) : null,
+    roundResult: phase === 'reveal' ? results?.find((result) => result.roundIndex === row.current_round_index) ?? null : null,
     currentRoundIndex: nullableIndex(row.current_round_index),
     currentQuestion: summary.status === 'active' && question ? {
       roundIndex: integer(question.round_index), category: text(question.category), prompt: text(question.prompt),
       options: options(question.options), roundStartsAt: text(question.round_starts_at), roundEndsAt: text(question.round_ends_at),
     } : null,
     myAnswer: answer ? { roundIndex: integer(answer.round_index), optionIndex: integer(answer.option_index), answeredAt: text(answer.answered_at), responseMs: integer(answer.response_ms) } : null,
-    results: finished && Array.isArray(row.results) ? row.results.flatMap((value) => {
-      const result = record(value);
-      return result ? [{
-        roundIndex: integer(result.round_index), category: text(result.category), prompt: text(result.prompt),
-        options: options(result.options), correctIndex: integer(result.correct_index), explanation: text(result.explanation),
-        myOptionIndex: nullableIndex(result.my_option_index), opponentOptionIndex: nullableIndex(result.opponent_option_index),
-        myResponseMs: integer(result.my_response_ms), opponentResponseMs: integer(result.opponent_response_ms),
-      }] : [];
-    }) : null,
+    results,
+  };
+}
+
+function serializeRoundResult(result: JsonRecord, version: 1 | 2): DuelRoundResult {
+  return {
+    roundIndex: integer(result.round_index), category: text(result.category), prompt: text(result.prompt),
+    options: options(result.options), correctIndex: integer(result.correct_index), explanation: text(result.explanation),
+    myOptionIndex: nullableIndex(result.my_option_index), opponentOptionIndex: nullableIndex(result.opponent_option_index),
+    myResponseMs: integer(result.my_response_ms), opponentResponseMs: integer(result.opponent_response_ms),
+    resolvedAt: nullableText(result.resolved_at),
+    myPoints: version === 2 ? integer(result.my_points) : Number(result.my_option_index === result.correct_index),
+    opponentPoints: version === 2 ? integer(result.opponent_points) : Number(result.opponent_option_index === result.correct_index),
+    mySpeedBonus: integer(result.my_speed_bonus), opponentSpeedBonus: integer(result.opponent_speed_bonus),
+    myFirstBonus: integer(result.my_first_bonus), opponentFirstBonus: integer(result.opponent_first_bonus),
   };
 }
 

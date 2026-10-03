@@ -22,6 +22,8 @@ import OnboardingExperience from '../src/components/onboarding/OnboardingExperie
 import PrivacyConsentExperience from '../src/components/privacy/PrivacyConsentExperience';
 import AnalyticsLifecycle from '../src/components/analytics/AnalyticsLifecycle';
 import GlobalMessagesShortcut from '../src/components/messaging/GlobalMessagesShortcut';
+import GlobalDuelInvitation from '../src/components/messaging/GlobalDuelInvitation';
+import { DuelInvitationsProvider } from '../src/state/DuelInvitationsContext';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -61,7 +63,9 @@ function AccountScopedApp({ fontsLoaded }: { fontsLoaded: boolean }) {
     <ReputationProvider key={user?.id ?? 'signed-out'}>
       <LeaderboardProvider>
         <MessagingUnreadProvider>
-          <RootNavigator fontsLoaded={fontsLoaded} />
+          <DuelInvitationsProvider>
+            <RootNavigator fontsLoaded={fontsLoaded} />
+          </DuelInvitationsProvider>
         </MessagingUnreadProvider>
       </LeaderboardProvider>
     </ReputationProvider>
@@ -184,6 +188,7 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
         </Stack.Protected>
       </Stack>
       <GlobalMessagesShortcut />
+      <GlobalDuelInvitation />
       {isAuthenticated && isPlayerSaveLoaded && user ? (
         <>
           <OnboardingExperience key={`onboarding-${user.id}`} />

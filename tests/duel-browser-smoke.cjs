@@ -14,6 +14,7 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const FRIEND = '22222222-2222-4222-8222-222222222222';
 const MATCH = '33333333-3333-4333-8333-333333333333';
 const REMATCH = '44444444-4444-4444-8444-444444444444';
+const CONVERSATION = '66666666-6666-4666-8666-666666666666';
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
 const prompt = 'Bir API isteğinin gecikmesi artıyor. İlk olarak hangi veriyi incelemelisin?';
 const options = ['İstek sürelerini ve trace verilerini incele', 'Tüm logları sil', 'Üretim veritabanını yeniden başlat', 'Rate limit kontrolünü kapat'];
@@ -28,15 +29,29 @@ let answerCount = 0;
 let forfeitCount = 0;
 let expiresAt = Date.now() + 8 * 60000;
 let noFriends = false;
+let opponentAnswered = false;
+let revealEndsAt = null;
+let roundIndex = 0;
+let messageCount = 0;
 const requests = [];
 
 function snapshot(id = MATCH) {
   const incoming = mode === 'incoming';
   const completed = mode === 'completed' || mode === 'forfeited';
-  const status = completed ? mode : mode === 'active' || mode === 'countdown' ? 'active' : 'pending';
+  const status = completed ? mode : ['active', 'countdown', 'reveal'].includes(mode) ? 'active' : 'pending';
   const row = { id, inviter_id: incoming ? FRIEND : USER, invitee_id: incoming ? USER : FRIEND, opponent_id: FRIEND, status, created_at: iso(Date.now() - 60000), expires_at: iso(expiresAt), starts_at: status === 'active' || completed ? iso(startsAt) : null, completed_at: completed ? iso() : null, winner_id: completed ? USER : null, forfeited_by: mode === 'forfeited' ? FRIEND : null, my_score: completed ? 5 : 0, opponent_score: completed ? 3 : 0, my_response_ms: completed ? 54250 : 0, opponent_response_ms: completed ? 80100 : 0, server_now: iso(), current_round_index: status === 'active' && Date.now() >= startsAt ? 0 : null, current_question: null, my_answer: answer, results: null };
-  if (status === 'active' && Date.now() >= startsAt) row.current_question = { round_index: 0, category: 'operations', prompt, options, round_starts_at: iso(startsAt), round_ends_at: iso(startsAt + 20000) };
+  Object.assign(row, { scoring_version: 2, phase: completed ? 'finished' : mode === 'reveal' ? 'reveal' : status === 'active' ? Date.now() >= startsAt ? 'question' : 'countdown' : 'pending', opponent_answered: opponentAnswered, reveal_ends_at: revealEndsAt, round_result: null, current_round_index: status === 'active' && Date.now() >= startsAt ? roundIndex : null });
+  if (status === 'active' && Date.now() >= startsAt && mode !== 'reveal') row.current_question = { round_index: roundIndex, category: 'operations', prompt, options, round_starts_at: iso(startsAt), round_ends_at: iso(startsAt + 20000) };
+  if (mode === 'reveal') {
+    row.round_result = { round_index: roundIndex, category: 'operations', prompt, options, correct_index: 0, explanation: 'Trace verileri gecikmenin hangi aşamada oluştuğunu gösterir.', my_option_index: 0, opponent_option_index: 1, my_response_ms: 4000, opponent_response_ms: 2500, my_points: 96, opponent_points: 0, my_speed_bonus: 16, opponent_speed_bonus: 0, my_first_bonus: 10, opponent_first_bonus: 0, resolved_at: iso() };
+    row.results = [row.round_result];
+    row.my_score = 96;
+  }
   if (completed) row.results = Array.from({ length: 7 }, (_, round_index) => ({ round_index, category: 'operations', prompt, options, correct_index: 0, explanation: 'Trace verileri gecikmenin hangi aşamada oluştuğunu gösterir.', my_option_index: round_index < 5 ? 0 : 1, opponent_option_index: round_index < 3 ? 0 : null, my_response_ms: 7750, opponent_response_ms: 11400 }));
+  if (completed) {
+    row.my_score = 460; row.opponent_score = 234;
+    row.results.forEach((result) => Object.assign(result, { my_points: result.my_option_index === 0 ? 92 : 0, opponent_points: result.opponent_option_index === 0 ? 78 : 0, my_speed_bonus: result.my_option_index === 0 ? 12 : 0, opponent_speed_bonus: result.opponent_option_index === 0 ? 8 : 0, my_first_bonus: result.my_option_index === 0 ? 10 : 0, opponent_first_bonus: 0, resolved_at: iso() }));
+  }
   return row;
 }
 
@@ -75,13 +90,28 @@ async function main() {
       if (url.pathname.startsWith('/auth/')) data = { id: USER, email: 'fixture@example.invalid', aud: 'authenticated', role: 'authenticated' };
       if (url.pathname === '/rest/v1/player_saves') data = save;
       if (url.pathname === '/rest/v1/friend_relationships') data = noFriends ? [] : [{ id: '55555555-5555-4555-8555-555555555555', requester_id: USER, addressee_id: FRIEND, status: 'accepted', created_at: iso(), updated_at: iso() }];
-      if (url.pathname === '/rest/v1/public_profiles') data = [profile];
+      if (url.pathname === '/rest/v1/public_profiles') data = req.headers().accept?.includes('object+json') ? profile : [profile];
       if (url.pathname.includes('/rpc/')) {
         const rpc = url.pathname.split('/').pop();
         const body = req.postDataJSON() || {};
         if (rpc === 'get_direct_message_unread_total') data = 0;
-        if (rpc === 'list_friend_duels') data = noFriends ? [] : [snapshot()];
-        if (rpc === 'get_friend_duel') data = snapshot(body.match_id);
+        if (rpc === 'list_friend_duels') data = noFriends || mode === 'none' ? [] : [snapshot()];
+        if (rpc === 'get_direct_conversation_context') data = { conversation_id: CONVERSATION, can_send: true, is_friend: true, blocked_by_viewer: false };
+        if (rpc === 'mark_conversation_read') data = true;
+        if (rpc === 'list_direct_messages') data = [
+          { id: '77777777-7777-4777-8777-777777777777', conversation_id: CONVERSATION, sender_id: FRIEND, message_type: 'text', body: `Birlikte oynayalım: ${origin}/duel/${MATCH}`, created_at: iso(Date.now() - 10000) },
+          { id: '88888888-8888-4888-8888-888888888888', conversation_id: CONVERSATION, sender_id: USER, message_type: 'text', body: 'Tamam, hazırım.', created_at: iso(Date.now() - 5000) },
+        ];
+        if (rpc === 'send_direct_message') {
+          messageCount++;
+          data = { id: '99999999-9999-4999-8999-999999999999', conversation_id: CONVERSATION, sender_id: USER, message_type: 'text', body: body.message_body, created_at: iso() };
+        }
+        if (rpc === 'get_friend_duel') {
+          if (mode === 'reveal' && Date.now() >= Date.parse(revealEndsAt)) {
+            mode = 'active'; roundIndex = 1; startsAt = Date.parse(revealEndsAt); answer = null; opponentAnswered = false;
+          }
+          data = snapshot(body.match_id);
+        }
         if (rpc === 'get_friend_duel_head_to_head') data = { opponent_id: FRIEND, wins: 3, losses: 1, draws: 1, total: 5 };
         if (rpc === 'create_friend_duel') {
           createCount++;
@@ -185,10 +215,18 @@ async function main() {
     await page.getByRole('radio').first().click();
     await shot('active-430-dark');
     assert.equal(await page.getByText(/ · Doğru yanıt$/).count(), 0, 'Correctness leaked before completion');
+    opponentAnswered = true;
+    await page.getByText(/Rakip (cevapladı|yanıtını kilitledi)/).first().waitFor();
+    assert.equal(await page.getByText(/ · Doğru yanıt$/).count(), 0, 'Opponent lock indicator must not reveal the answer key');
     await page.getByRole('button', { name: 'Yanıtı Kilitle', exact: true }).click();
-    await page.getByText('Yanıtın kaydedildi. Süre bitince sıradaki soru otomatik açılır.', { exact: true }).waitFor();
+    await page.getByText(/Yanıtın (kaydedildi|kilitlendi)/).waitFor();
     assert.equal(await page.getByRole('radio').first().getAttribute('aria-disabled'), 'true');
     assert.equal(answerCount, 1);
+    mode = 'reveal'; opponentAnswered = true; revealEndsAt = iso(Date.now() + 3000);
+    await page.getByText(/\+96/).first().waitFor();
+    await shot('round-feedback-430-dark');
+    await page.getByText('SORU 2 / 7', { exact: true }).waitFor({ timeout: 6000 });
+    assert.equal(await page.getByRole('radio').first().isEnabled(), true, 'The next round accepts a new answer without waiting for the old 20-second deadline');
     page.once('dialog', (dialog) => dialog.dismiss());
     await page.getByRole('button', { name: 'Maçtan Çekil', exact: true }).click();
     assert.equal(forfeitCount, 0, 'Dismissed forfeit dialog must not mutate');
@@ -216,8 +254,63 @@ async function main() {
     await page.goto(`${origin}/duels`);
     await page.getByRole('button', { name: 'Şirket Ara', exact: true }).waitFor();
     await shot('empty-390-light');
+    noFriends = false; mode = 'none';
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto(`${origin}/messages/${FRIEND}`);
+    await page.getByText('Tamam, hazırım.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Konuşma seçeneklerini aç', exact: true }).click();
+    await page.getByRole('button', { name: 'Sohbet Teması', exact: true }).click();
+    await page.getByRole('radio', { name: 'Sisli Göl, Fotoğraf', exact: true }).click();
+    await shot('chat-theme-picker-360-light');
+    await page.getByRole('button', { name: 'Temayı Uygula', exact: true }).click();
+    const chatThemeKey = `@shipit_chat_theme_v1:${USER}:${FRIEND}`;
+    await page.waitForFunction((key) => localStorage.getItem(key) === 'forest', chatThemeKey);
+    await shot('chat-wallpaper-360-light');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await shot('chat-wallpaper-1280-light');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => localStorage.setItem('fixture-theme', 'default'));
+    await page.reload();
+    await page.getByText('Tamam, hazırım.', { exact: true }).waitFor();
+    await shot('chat-wallpaper-390-dark');
+    assert.equal(await page.evaluate((key) => localStorage.getItem(key), chatThemeKey), 'forest', 'Conversation theme survives reload');
+    await page.getByRole('button', { name: 'Konuşma seçeneklerini aç', exact: true }).click();
+    await page.getByRole('button', { name: 'Sohbet Teması', exact: true }).click();
+    assert.equal(await page.getByRole('radio', { name: 'Sisli Göl, Fotoğraf', exact: true }).getAttribute('aria-checked'), 'true');
+    await page.getByRole('radio', { name: 'Varsayılan, Uygulama teması', exact: true }).click();
+    await page.getByRole('button', { name: 'Varsayılanı Kullan', exact: true }).click();
+    await page.waitForFunction((key) => localStorage.getItem(key) === null, chatThemeKey);
+    await page.getByRole('button', { name: 'Konuşma seçeneklerini aç', exact: true }).click();
+    await page.getByRole('button', { name: 'Sohbet Teması', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog', { name: 'Sohbet Teması', exact: true }).waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Konuşma seçeneklerini aç');
+    mode = 'outgoing';
+    await page.getByRole('link', { name: '1v1 davetini aç', exact: true }).click();
+    await page.getByText('Rakibin bekleniyor', { exact: true }).waitFor();
+    assert.ok(page.url().includes(`/duel/${MATCH}`), 'Existing chat invitation link navigates into the app');
+    mode = 'none';
+    await page.goto(`${origin}/messages/${FRIEND}`);
+    await page.getByRole('button', { name: "1v1'e Davet Et", exact: true }).click();
+    await page.getByText('Rakibin bekleniyor', { exact: true }).waitFor();
+    assert.equal(createCount, 4, 'Chat creates a direct invitation without requiring link sharing');
+    mode = 'incoming';
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.evaluate(() => localStorage.setItem('fixture-theme', 'daylight'));
+    await page.goto(`${origin}/messages/${FRIEND}`);
+    await page.getByRole('button', { name: 'Kabul Et', exact: true }).waitFor();
+    await shot('chat-invitation-360-light');
+    await page.getByRole('button', { name: 'Kabul Et', exact: true }).click();
+    await page.getByText('Maç başlıyor', { exact: true }).waitFor();
+    assert.ok(page.url().includes(`/duel/${MATCH}`), 'In-chat acceptance opens the match');
+    mode = 'incoming';
+    await page.goto(`${origin}/friends`);
+    await page.getByText('YENİ 1V1 DAVETİ', { exact: true }).waitFor();
+    await shot('global-invitation-360-light');
+    await page.getByRole('button', { name: 'Davet bildirimini kapat', exact: true }).click();
+    await page.getByText('YENİ 1V1 DAVETİ', { exact: true }).waitFor({ state: 'hidden' });
     assert.deepEqual(errors, [], 'Uncaught browser errors');
-    console.log(JSON.stringify({ passed: true, screenshots: 9, widths: [360, 390, 430, 1280], themes: ['default', 'daylight'], motion: ['reduce', 'no-preference'], answerCount, forfeitCount, createCount, mockedBackendRequests: requests.length, externalRequestsAllowed: 0 }));
+    console.log(JSON.stringify({ passed: true, screenshots: 16, widths: [360, 390, 430, 1280], themes: ['default', 'daylight'], chatTheme: 'forest', motion: ['reduce', 'no-preference'], answerCount, forfeitCount, createCount, messageCount, mockedBackendRequests: requests.length, externalRequestsAllowed: 0 }));
   } finally {
     if (browser) await browser.close();
     await new Promise((resolve) => server.close(resolve));

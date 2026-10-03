@@ -94,7 +94,7 @@ export default function DuelsScreen() {
 
   return <DuelShell title="1v1 Kapışma" maxWidth={1120}>
     <View style={s.factsRow}>
-      <Text style={s.facts}>7 soru · 20 sn/soru · Ödülsüz rekabet</Text>
+      <Text style={s.facts}>7 soru · 20 sn/soru · 100 puan/soru · Ödülsüz rekabet</Text>
       <DuelRules />
     </View>
     {resource.loading && !resource.data && <View style={s.loading}>

@@ -68,7 +68,7 @@ export function DuelLobby({ self, opponent, preparing, countdown, incoming, expi
       {children}
     </View>}
     <View style={styles.rules}>
-      <Text style={styles.rulesText}>7 soru · Soru başına 20 saniye</Text>
+      <Text style={styles.rulesText}>7 soru · 20 saniye · En fazla 100 puan/soru</Text>
       <DuelRules />
     </View>
   </View>;

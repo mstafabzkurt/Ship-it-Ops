@@ -47,4 +47,15 @@ for (const status of ['completed', 'forfeited']) {
 assert.deepEqual(serializeDuelHeadToHead({ opponent_id: second, wins: 4, losses: 2, draws: 1, total: 7, matches: row }), {
   opponentId: second, wins: 4, losses: 2, draws: 1, total: 7,
 });
+const resolved = { ...result, resolved_at: '2026-10-02T12:00:09Z', my_points: 96, opponent_points: 0, my_speed_bonus: 16, my_first_bonus: 10 };
+const reveal = serializeDuelSnapshot({ ...row, scoring_version: 2, phase: 'reveal', current_question: null, opponent_answered: true, reveal_ends_at: '2026-10-02T12:00:12Z', results: [resolved, { ...resolved, round_index: 1 }] });
+assert.equal(reveal?.phase, 'reveal');
+assert.equal(reveal?.roundResult?.myPoints, 96);
+assert.equal(reveal?.roundResult?.myFirstBonus, 10);
+assert.equal(reveal?.opponentAnswered, true);
+assert.equal(reveal?.results?.length, 1, 'Future rounds cannot be hydrated during reveal');
+const unresolved = serializeDuelSnapshot({ ...row, scoring_version: 2, phase: 'question', results: [resolved] });
+assert.deepEqual(unresolved?.results, [], 'Current question answer keys stay hidden until reveal');
+assert.equal(unresolved?.roundResult, null);
+assert.equal(unresolved?.revealEndsAt, null);
 console.log('Duel model privacy and round/result semantics passed.');

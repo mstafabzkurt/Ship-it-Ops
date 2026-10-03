@@ -141,7 +141,8 @@ export function DuelRules() {
   const rules = [
     ['Aynı sorular, eşit süre', 'İki oyuncu aynı 7 soruyu yanıtlar. Her soru için 20 saniyen var; kilitlediğin yanıt değiştirilemez.'],
     ['Kabulden sonra 5 saniye', 'Davet kabul edildiğinde 5 saniyelik geri sayım başlar. Maç iki oyuncu için aynı anda açılır.'],
-    ['Önce doğru sayısı, sonra süre', 'Daha çok doğru yanıt kazandırır. Eşitlikte doğru ve yanlış yanıtlar dahil tüm soruların toplam yanıt süresi karşılaştırılır; yanıtlanmayan her soru 20 saniye sayılır. Süre de eşitse beraberlik olur.'],
+    ['Soru başına en fazla 100 puan', 'Doğru yanıt 70 puan, hız bonusu 0–20 puan, ilk doğru yanıt bonusu 10 puan. Yanlış ve yanıtsız cevap 0 puan. Toplam puan eşitse beraberlik olur.'],
+    ['Her sorudan sonra sonuç', 'İkiniz de yanıtı kilitleyince veya 20 saniye dolunca yanıtlar ve puanlar birlikte açılır. 3 saniyelik geri sayımdan sonra sıradaki soru başlar; son sorudan sonra maç sonucu açılır.'],
     ['Dostça rekabet', 'Bu mod XP, coin, İtibar veya Şirket Bütçesi ödülü vermez.'],
     ['Maç duraklatılmaz', 'Ekrandan ayrılmak maçı durdurmaz; süre işlemeye devam eder. “Maçtan Çekil” işlemini onaylarsan hükmen kaybedersin.'],
   ];

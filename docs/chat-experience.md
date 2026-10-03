@@ -1,0 +1,11 @@
+# Sohbet temaları ve doğrudan 1v1 davetleri
+
+Konuşma seçenekleri → **Sohbet Teması** üzerinden Varsayılan, Grafit, Alacakaranlık, Adaçayı, Sisli Göl veya Gözlemevi seçilir. Önizleme, arka planla birlikte iki mesaj balonunu gösterir. Sisli Göl fotoğrafı ve Gözlemevi illüstrasyonu uygulamada paketlenir; uzak görsel servisi gerekmez. Tema yalnızca seçen kişinin bu cihazdaki görünümünü etkiler. Tercihler hesap ve karşı kullanıcı kimliğiyle ayrı saklanır; Varsayılan seçimi kaydı kaldırır.
+
+Arkadaş sohbetindeki **1v1'e Davet Et** mevcut yetkilendirilmiş düello RPC'siyle davet oluşturur ve göndereni lobiye alır. Alıcı, aynı sohbetten **Kabul Et / Reddet** ile yanıtlayabilir. Diğer uygun ekranlarda kapatılabilir davet bildirimi görünür. Bildirimi kapatmak daveti reddetmez; davet 1v1 merkezinde bulunabilir. Ön planda beş saniyede bir ortak davet listesi yenilenir; açık maç ekranında bu ek sorgulama durur. İşletim sistemi push bildirimi eklenmemiştir.
+
+Mesajlardaki HTTP/HTTPS bağlantıları tıklanabilir; uygulamanın kendi `/duel/<uuid>` ve `shipit://duel/<uuid>` bağlantıları maç ekranına gider. Yalnızca davet linkinden oluşan mesaj, uygun davet eylemlerini gösterir. Diğer alan adlarının benzer yolları harici bağlantı olarak kalır. Bağlantıyı bilmek maç katılım yetkisi vermez. Kabul, ret, iptal, engel ve davet süresi sunucuda denetlenir.
+
+Kontroller: `npm run test:chat-experience`, `npm run test:messaging`, `npm run test:duels`, `npx tsc --noEmit`, `npx expo export --platform web`, `npm run test:duels:web`. Son komut yerel web çıktısını örnek sunucu yanıtlarıyla sınar; gerçek hesaba istek göndermez. Gerçek iki cihaz ve native bildirim/bağlantı davranışları ayrıca cihaz üzerinde doğrulanmalıdır.
+
+4 Ekim 2026 doğrulaması: TypeScript, web export, mesajlaşma ve tema regresyonları, bağlantı güvenliği/kontrast kontrolleri geçti. Chrome testi 360/390/430/1280 px, default/daylight ve iki hareket tercihinde başarılı; 16 görsel kayıt `docs/duel-qa/` altında. Tema uygulama, yenilemede kalıcılık, varsayılana dönüş, Escape ve odak dönüşü; sohbetten link açma, davet oluşturma/kabul etme ve genel davet bildirimini kapatma doğrulandı. Yatay taşma ve yakalanmamış JavaScript hatası bulunmadı. Ağ yanıtları örnektir; uzak Supabase'e migration uygulanmadı.

@@ -24,6 +24,7 @@
     "test:game-question-social": "node tests/run-typescript-invariant.cjs tests/game-question-social-invariants.cjs",
     "test:question-lists": "node tests/run-typescript-invariant.cjs tests/question-list-flow-invariants.cjs",
     "test:messaging": "node tests/run-typescript-invariant.cjs tests/direct-messaging-invariants.ts",
+    "test:chat-experience": "node tests/run-typescript-invariant.cjs tests/chat-experience-invariants.ts",
     "test:duels": "node tests/run-typescript-invariant.cjs tests/duel-model-invariants.ts && node tests/duel-database-invariants.cjs",
     "test:duels:web": "node tests/duel-browser-smoke.cjs"
   },
