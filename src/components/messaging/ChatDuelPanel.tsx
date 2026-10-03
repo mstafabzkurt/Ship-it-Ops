@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { acceptDuel, cancelDuel, createDuel, declineDuel, type DuelSummary } from '../../services/duels';
 import { useAuth } from '../../state/AuthContext';
 import { useDuelInvitations } from '../../state/DuelInvitationsContext';
@@ -71,7 +71,7 @@ export default function ChatDuelPanel({ opponentId, disabled = false }: { oppone
 }
 
 const s = StyleSheet.create({
-  panel: { width: '100%', maxWidth: 820, alignSelf: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  panel: { width: '100%', maxWidth: Platform.OS === 'web' ? undefined : 820, alignSelf: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
   card: { gap: 10 }, heading: { flexDirection: 'row', alignItems: 'center', gap: 10 }, copy: { flex: 1, minWidth: 0 },
   title: { fontFamily: fonts.bodySemiBold, fontSize: 14, lineHeight: 20 }, subtitle: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, action: { flexGrow: 1, flexBasis: 110, minHeight: 48 },

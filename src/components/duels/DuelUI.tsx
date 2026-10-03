@@ -24,16 +24,19 @@ export function useDuelStyles() {
   return { tokens, styles, wide: width >= 900 };
 }
 
-export function DuelShell({ title, eyebrow = 'ARKADAŞ 1V1', children, onBack, maxWidth = 1120, actions, subtitle }: {
+export function DuelShell({ title, eyebrow = 'ARKADAŞ 1V1', children, onBack, maxWidth = 1120, actions, subtitle, scrollResetKey }: {
   title: string; eyebrow?: string; children: React.ReactNode; onBack?: () => void; maxWidth?: number;
   actions?: React.ReactNode; subtitle?: string;
+  scrollResetKey?: string;
 }) {
   const { tokens, styles } = useDuelStyles();
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const scroll = useRef<ScrollView>(null);
+  useEffect(() => { if (scrollResetKey) scroll.current?.scrollTo({ y: 0, animated: false }); }, [scrollResetKey]);
   return <View style={styles.background}>
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={[styles.page, { maxWidth }]} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scroll} contentContainerStyle={[styles.page, { maxWidth }]} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable accessibilityRole="button" accessibilityLabel="Geri dön" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onPress={onBack ?? (() => router.canGoBack() ? router.back() : router.replace('/(tabs)/play'))} style={({ pressed }) => [styles.back, hovered && styles.controlHover, focused && styles.controlFocus, pressed && styles.pressed]}>
             <Ionicons name="arrow-back" size={20} color={tokens.colors.text} accessible={false} />

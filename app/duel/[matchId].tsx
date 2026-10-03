@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, Share, Text, View, type TextStyle } from 'react-native';
 import { duelCategoryLabel, DuelButton, DuelNotice, DuelShell, useDuelStyles } from '../../src/components/duels/DuelUI';
+import DuelRoundFeedback from '../../src/components/duels/DuelRoundFeedback';
 import { DuelLobby } from '../../src/components/duels/DuelLobby';
 import { useDuelResource } from '../../src/hooks/useDuelResource';
 import { acceptDuel, cancelDuel, createDuel, declineDuel, forfeitDuel, getDuel, getDuelHeadToHead, submitDuelAnswer } from '../../src/services/duels';
@@ -140,7 +141,7 @@ export default function DuelMatchScreen() {
     if (next) router.replace({ pathname: '/duel/[matchId]', params: { matchId: next.id } });
   };
 
-  return <DuelShell title={match?.status === 'active' && elapsed >= 0 ? opponentName : '1v1 Kapışma'} maxWidth={900} onBack={() => router.replace('/duels')}>
+  return <DuelShell title={match?.status === 'active' && elapsed >= 0 ? opponentName : '1v1 Kapışma'} maxWidth={900} scrollResetKey={`${matchId}:${match?.phase}:${match?.currentRoundIndex}`} onBack={() => router.replace('/duels')}>
     {resource.loading && !match && <View style={styles.surface}><ActivityIndicator color={tokens.colors.primary} /><Text style={styles.body}>Düello yükleniyor…</Text></View>}
     {resource.error && <DuelNotice message={resource.error} onRetry={() => void resource.refresh()} />}
     {match && (match.status === 'pending' || (match.status === 'active' && elapsed < 0)) && <DuelLobby
@@ -160,17 +161,16 @@ export default function DuelMatchScreen() {
       </>}
     </DuelLobby>}
     {match?.status === 'active' && <>
-      {elapsed < 0 ? null : revealing && match.roundResult ? <View style={styles.section} accessibilityLiveRegion="polite">
-        <Text style={styles.eyebrow}>SORU {match.roundResult.roundIndex + 1} / 7 · SONUÇ</Text>
-        <Text style={styles.score}>+{match.roundResult.myPoints} – +{match.roundResult.opponentPoints}</Text>
-        <RoundFeedback round={match.roundResult} />
-        <Text style={styles.strong}>{revealSeconds > 0 ? `${match.roundResult.roundIndex === 6 ? 'Maç sonucu' : 'Sıradaki soru'} ${revealSeconds} saniye sonra` : 'Sunucuyla eşitleniyor…'}</Text>
-      </View> : currentQuestionIsLive && question ? <View style={styles.section}>
+      {elapsed < 0 ? null : revealing && match.roundResult ? <DuelRoundFeedback round={match.roundResult} seconds={revealSeconds} /> : currentQuestionIsLive && question ? <View style={styles.section}>
         <View style={styles.row}>
           <View style={styles.flex}><Text style={styles.eyebrow}>SORU {question.roundIndex + 1} / 7</Text><Text style={styles.body}>{duelCategoryLabel(question.category)}</Text></View>
           <Text accessibilityLabel={`${secondsLeft} saniye kaldı`} style={[styles.timer, secondsLeft <= 5 && styles.warning]}>{secondsLeft}s</Text>
         </View>
         <View style={styles.progressTrack}><View style={[styles.progress, { width: `${Math.min(100, Math.max(0, secondsLeft / 20 * 100))}%` }]} /></View>
+        {match.scoringVersion === 2 && <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: tokens.radius.sm, backgroundColor: match.opponentAnswered ? tokens.colors.successSoft : tokens.colors.secondarySurface }}>
+          <Ionicons accessible={false} name={match.opponentAnswered ? 'checkmark-circle' : 'time-outline'} size={22} color={match.opponentAnswered ? tokens.colors.success : tokens.colors.textSecondary} />
+          <Text style={[styles.strong, match.opponentAnswered && styles.success]}>{match.opponentAnswered ? 'Rakip cevapladı' : 'Rakip düşünüyor'}</Text>
+        </View>}
         <View style={styles.surface}><Text accessibilityRole="header" style={styles.question}>{question.prompt}</Text></View>
         {question.options.map((option, index) => {
           const isSelected = (submittedOption ?? selectedOption) === index;
@@ -178,7 +178,7 @@ export default function DuelMatchScreen() {
             <Text style={styles.answerLetter}>{String.fromCharCode(65 + index)}</Text><Text style={[styles.body, styles.flex]}>{option}</Text>{isSelected && <Ionicons name="checkmark" size={20} color={tokens.colors.primary} />}
           </Pressable>;
         })}
-        {match.opponentAnswered && <View style={styles.row} accessibilityLiveRegion="polite"><Ionicons name="checkmark-circle" size={20} color={tokens.colors.success} /><Text style={styles.body}>Rakip cevapladı</Text></View>}
+
         {submittedOption != null ? <DuelNotice message={match.scoringVersion === 2 ? 'Yanıtın kilitlendi. İkiniz de yanıtlayınca veya süre dolunca sonuç açılır.' : 'Yanıtın kaydedildi. Süre bitince sıradaki soru otomatik açılır.'} /> : <DuelButton label="Yanıtı Kilitle" disabled={selectedOption == null || !resource.active} busy={resource.busy} onPress={() => { if (selectedOption != null) void resource.runAction(() => submitDuelAnswer(matchId, question.roundIndex, selectedOption)); }} />}
       </View> : <View style={styles.surface}><ActivityIndicator color={tokens.colors.primary} /><Text style={styles.body}>{expectedRound >= 7 ? 'Maç sonucu hazırlanıyor…' : 'Sıradaki soru sunucuyla eşitleniyor…'}</Text></View>}
       {elapsed >= 0 && <Text style={styles.body}>Bağlantı kesilse veya bu ekrandan ayrılsan da süre devam eder. Yanlış ve yanıtsız sorular 0 puan alır. {match.scoringVersion === 2 ? 'Her soru sonucu birlikte açılır; sonraki soru 3 saniye sonra başlar.' : 'Doğru yanıtlar maç sonunda açılır.'}</Text>}
@@ -205,20 +205,6 @@ export default function DuelMatchScreen() {
       <DuelButton label="Arkadaş 1v1’e Dön" onPress={() => router.replace('/duels')} />
     </View>}
   </DuelShell>;
-}
-
-function RoundFeedback({ round }: { round: DuelRoundResult }) {
-  const { styles } = useDuelStyles();
-  const describe = (option: number | null) => option === null ? 'Yanıtsız' : `${String.fromCharCode(65 + option)} · ${option === round.correctIndex ? 'Doğru' : 'Yanlış'}`;
-  return <View style={styles.surface}>
-    <Text style={styles.strong}>{round.prompt}</Text>
-    <Text style={styles.body}>Sen: {describe(round.myOptionIndex)} · +{round.myPoints} puan</Text>
-    <Text style={styles.body}>Rakip: {describe(round.opponentOptionIndex)} · +{round.opponentPoints} puan</Text>
-    <Text style={styles.body}>Sen: hız +{round.mySpeedBonus} · ilk doğru +{round.myFirstBonus}</Text>
-    <Text style={styles.body}>Rakip: hız +{round.opponentSpeedBonus} · ilk doğru +{round.opponentFirstBonus}</Text>
-    <Text style={[styles.body, styles.success]}>Doğru yanıt: {String.fromCharCode(65 + round.correctIndex)}. {round.options[round.correctIndex]}</Text>
-    <Text style={styles.body}>{round.explanation}</Text>
-  </View>;
 }
 
 function RoundReview({ round }: { round: DuelRoundResult }) {

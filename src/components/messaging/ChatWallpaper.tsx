@@ -13,7 +13,7 @@ export default function ChatWallpaper({ preset, palette }: { preset: ChatThemePr
   return (
     <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { backgroundColor: palette.canvas }]}>
       {preset.image ? <>
-        <Image source={IMAGES[preset.image]} resizeMode="cover" style={StyleSheet.absoluteFill} />
+        <Image testID="chat-wallpaper-image" source={IMAGES[preset.image]} resizeMode="cover" style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]} />
         <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10, 15, 26, 0.38)' }]} />
       </> : <LinearGradient colors={palette.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />}
     </View>

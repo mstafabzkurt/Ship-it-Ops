@@ -283,7 +283,7 @@ export default function DirectConversationScreen() {
 
         {status === 'ready' ? <ChatDuelPanel opponentId={targetUserId} disabled={!context?.canSend} /> : null}
         <KeyboardAvoidingView style={styles.keyboardArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={8}>
-          <View style={styles.conversationCanvas}>
+          <View testID="conversation-canvas" style={styles.conversationCanvas}>
           <ChatWallpaper preset={chatTheme} palette={chatPalette} />
           {status === 'loading' ? (
             <View style={styles.state}><ActivityIndicator color={tokens.colors.secondary} /><Text style={styles.stateTitle}>Konuşma yükleniyor</Text></View>
@@ -467,7 +467,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, chatPalette: 
     background: { flex: 1, backgroundColor: colors.canvas },
     topRule: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, backgroundColor: colors.primary, opacity: 0.5 },
     safeArea: { flex: 1 },
-    header: { width: '100%', maxWidth: 820, alignSelf: 'center', minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: tokens.layout.pageGutter, paddingTop: tokens.layout.pageTop, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.dividerSubtle },
+    header: { width: '100%', maxWidth: Platform.OS === 'web' ? undefined : 820, alignSelf: 'center', minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: tokens.layout.pageGutter, paddingTop: tokens.layout.pageTop, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.dividerSubtle },
     headerButton: { width: 48, height: 48, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.secondarySurface, borderWidth: 1, borderColor: colors.borderSubtle },
     identity: { flex: 1, minWidth: 0, minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 5, borderRadius: radius.sm },
     avatarFallback: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.borderSubtle },
@@ -477,7 +477,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, chatPalette: 
     menu: { position: 'absolute', zIndex: 20, top: tokens.layout.isCompact ? 72 : 84, right: tokens.layout.pageGutter, width: 220, padding: 6, borderRadius: radius.md, backgroundColor: colors.floatingSurfaceRaised, borderWidth: 1, borderColor: colors.borderStrong, ...shadow.raised },
     menuAction: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 11, borderRadius: radius.sm },
     menuText: { flex: 1, color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 13 },
-    keyboardArea: { flex: 1, width: '100%', maxWidth: 820, alignSelf: 'center' },
+    keyboardArea: { flex: 1, width: '100%', maxWidth: Platform.OS === 'web' ? undefined : 820, alignSelf: 'center' },
     conversationCanvas: { flex: 1, overflow: 'hidden', backgroundColor: chatPalette.canvas },
     messageList: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: tokens.layout.pageGutter, paddingTop: 14, paddingBottom: 18 },
     messageListEmpty: { justifyContent: 'center' },
@@ -487,7 +487,7 @@ function makeStyles(tokens: ReturnType<typeof getDashboardTokens>, chatPalette: 
     messageLane: { width: '100%' },
     messageLaneOwn: { alignItems: 'flex-end' },
     messageLaneOther: { alignItems: 'flex-start' },
-    messageSurface: { maxWidth: tokens.layout.isCompact ? '88%' : '74%', minWidth: 88, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 1 },
+    messageSurface: { maxWidth: tokens.layout.isCompact ? '88%' : 680, minWidth: 88, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 1 },
     messageOwn: { backgroundColor: chatPalette.own, borderColor: chatPalette.border },
     messageOther: { backgroundColor: chatPalette.other, borderColor: chatPalette.border },
     questionMessageSurface: { width: tokens.layout.isCompact ? '88%' : '74%', paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent', borderWidth: 0 },

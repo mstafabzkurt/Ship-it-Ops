@@ -2,6 +2,8 @@
 
 Konuşma seçenekleri → **Sohbet Teması** üzerinden Varsayılan, Grafit, Alacakaranlık, Adaçayı, Sisli Göl veya Gözlemevi seçilir. Önizleme, arka planla birlikte iki mesaj balonunu gösterir. Sisli Göl fotoğrafı ve Gözlemevi illüstrasyonu uygulamada paketlenir; uzak görsel servisi gerekmez. Tema yalnızca seçen kişinin bu cihazdaki görünümünü etkiler. Tercihler hesap ve karşı kullanıcı kimliğiyle ayrı saklanır; Varsayılan seçimi kaydı kaldırır.
 
+Web sohbeti başlık, davet alanı, arka plan ve yazma alanıyla ekranın tamamını kullanır. Masaüstünde mesaj balonları okunabilirlik için en fazla 680 px kalır; mobilde mevcut yüzde sınırı korunur. Arka plan görseli doğal çözünürlüğünden daha geniş ekranlarda da tüm sohbet alanını kaplar. Tarayıcı kontrolü 1280 ve 1920 px tam genişliği ve görselin alanı kaplamasını ölçer.
+
 Arkadaş sohbetindeki **1v1'e Davet Et** mevcut yetkilendirilmiş düello RPC'siyle davet oluşturur ve göndereni lobiye alır. Alıcı, aynı sohbetten **Kabul Et / Reddet** ile yanıtlayabilir. Diğer uygun ekranlarda kapatılabilir davet bildirimi görünür. Bildirimi kapatmak daveti reddetmez; davet 1v1 merkezinde bulunabilir. Ön planda beş saniyede bir ortak davet listesi yenilenir; açık maç ekranında bu ek sorgulama durur. İşletim sistemi push bildirimi eklenmemiştir.
 
 Mesajlardaki HTTP/HTTPS bağlantıları tıklanabilir; uygulamanın kendi `/duel/<uuid>` ve `shipit://duel/<uuid>` bağlantıları maç ekranına gider. Yalnızca davet linkinden oluşan mesaj, uygun davet eylemlerini gösterir. Diğer alan adlarının benzer yolları harici bağlantı olarak kalır. Bağlantıyı bilmek maç katılım yetkisi vermez. Kabul, ret, iptal, engel ve davet süresi sunucuda denetlenir.

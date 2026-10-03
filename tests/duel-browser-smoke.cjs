@@ -224,6 +224,10 @@ async function main() {
     assert.equal(answerCount, 1);
     mode = 'reveal'; opponentAnswered = true; revealEndsAt = iso(Date.now() + 3000);
     await page.getByText(/\+96/).first().waitFor();
+    await page.getByText('Bu soruda sen daha çok puan aldın', { exact: true }).waitFor();
+    await page.getByText('Doğru', { exact: true }).waitFor();
+    await page.getByText('Yanlış', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel(/Sıradaki soru [123] saniye sonra/).isVisible(), true, 'Countdown remains visible beside the round result');
     await shot('round-feedback-430-dark');
     await page.getByText('SORU 2 / 7', { exact: true }).waitFor({ timeout: 6000 });
     assert.equal(await page.getByRole('radio').first().isEnabled(), true, 'The next round accepts a new answer without waiting for the old 20-second deadline');
@@ -267,7 +271,15 @@ async function main() {
     await page.waitForFunction((key) => localStorage.getItem(key) === 'forest', chatThemeKey);
     await shot('chat-wallpaper-360-light');
     await page.setViewportSize({ width: 1280, height: 900 });
+    const canvas = await page.getByTestId('conversation-canvas').boundingBox();
+    assert.ok(canvas.width >= 1278 && canvas.x <= 1, 'Desktop conversation fills the viewport instead of an 820px column');
     await shot('chat-wallpaper-1280-light');
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    const wideCanvas = await page.getByTestId('conversation-canvas').boundingBox();
+    assert.ok(wideCanvas.width >= 1918, 'Wide desktop also uses the full canvas');
+    const wallpaper = await page.getByTestId('conversation-canvas').getByTestId('chat-wallpaper-image').boundingBox();
+    assert.ok(wallpaper.width >= wideCanvas.width - 1 && wallpaper.height >= wideCanvas.height - 1, 'Wallpaper must cover the full canvas beyond its intrinsic image size');
+    await shot('chat-wallpaper-1920-light');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => localStorage.setItem('fixture-theme', 'default'));
     await page.reload();
@@ -310,7 +322,7 @@ async function main() {
     await page.getByRole('button', { name: 'Davet bildirimini kapat', exact: true }).click();
     await page.getByText('YENİ 1V1 DAVETİ', { exact: true }).waitFor({ state: 'hidden' });
     assert.deepEqual(errors, [], 'Uncaught browser errors');
-    console.log(JSON.stringify({ passed: true, screenshots: 16, widths: [360, 390, 430, 1280], themes: ['default', 'daylight'], chatTheme: 'forest', motion: ['reduce', 'no-preference'], answerCount, forfeitCount, createCount, messageCount, mockedBackendRequests: requests.length, externalRequestsAllowed: 0 }));
+    console.log(JSON.stringify({ passed: true, screenshots: 17, widths: [360, 390, 430, 1280, 1920], themes: ['default', 'daylight'], chatTheme: 'forest', motion: ['reduce', 'no-preference'], answerCount, forfeitCount, createCount, messageCount, mockedBackendRequests: requests.length, externalRequestsAllowed: 0 }));
   } finally {
     if (browser) await browser.close();
     await new Promise((resolve) => server.close(resolve));

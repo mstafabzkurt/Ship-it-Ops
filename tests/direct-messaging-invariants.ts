@@ -313,7 +313,7 @@ assert.match(messagesScreen, /rowCopy: \{ flex: 1, minWidth: 0 \}/);
 assert.match(messagesScreen, /rowUnread: \{[^}]*borderLeftWidth: 3/, 'Unread row must have a distinct non-text cue');
 assert.match(messagesScreen, /rowFocused: \{[^}]*outlineWidth: 2/, 'List actions need a visible keyboard focus state');
 assert.match(messagesScreen, /Math\.min\(99, conversation\.unreadCount\)/, 'Row unread badge ceiling must remain unchanged');
-assert.match(conversationScreen, /messageSurface: \{ maxWidth: tokens\.layout\.isCompact \? '88%' : '74%'[\s\S]*messageBody: \{ minWidth: 0, flexShrink: 1/, 'Long messages must remain within responsive bubbles');
+assert.match(conversationScreen, /messageSurface: \{ maxWidth: tokens\.layout\.isCompact \? '88%' : 680[\s\S]*messageBody: \{ minWidth: 0, flexShrink: 1/, 'Long messages must remain readable within bounded bubbles on the full-width canvas');
 assert.match(conversationScreen, /wordBreak: 'break-word'/, 'Unbroken web message text must wrap');
 assert.match(conversationScreen, /questionMessageSurface: \{[^}]*borderWidth: 0/, 'Question card must avoid nested bubble borders');
 assert.match(questionCard, /minHeight: 44[\s\S]*focused && styles\.focused|focused && styles\.focused[\s\S]*minHeight: 44/, 'Question card action must be keyboard-visible and touchable');
